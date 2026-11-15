@@ -2239,20 +2239,34 @@ value that holds no effect is not concerned.
 `List[T]` where `T` is the type of the first element. Each later element has that type; nothing
 is converted, so an `Int` beside a `Float`, an `Int` beside an `Optional[Int]` and two path
 types with one root are each refused. Where the form around the list states its type, the two
-must agree. Diagnostics: `pure_expr_operand_type_mismatch`. An element may hold an effect
-under the rule above. Open defect: a `variant` with a list in a field, written directly as a
-`match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
+must agree. `(list :of T e1 ...)` writes the element type: `T` is a type name or the name of a
+type parameter in scope, each element has type `T`, and the list is a `List[T]` also when it
+has none. `:of T` comes first: `:of` written again or after an element, and any other keyword,
+are refused; so are `(list :of)` and an operand after `:of` that is not a name. A value's name
+after `:of` is not a type. Where the form around the list states `List[T]`, `(list :of T ...)`
+builds the program the list without `:of` builds. Diagnostics: `pure_expr_operand_type_mismatch`;
+`loop_recur_continue_type_mismatch` for a `continue` value of another type than the loop state
+(§13.1); `keyword_argument_invalid`; `list_item_type_invalid`; `type_unknown`. An element may
+hold an effect under the rule above. Open defect: a `variant` with a list in a field, written
+directly as a `match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
+Open defect: an argument of a `defun` function called in a workflow or procedure body is not
+checked against its parameter, so `(list :of Int)` passed to a `List[String]` parameter builds.
+Open defect: inside a macro template that binds a value named like a type, `:of` that type is
+refused with `type_unknown`.
 
-**Empty list.** `(list)` has no element to take a type from. It is accepted where the form
-around it states the list's type: the result of a workflow, a procedure or a function; an
-argument of a procedure, a `let-proc` local or a workflow `call`; a record or variant field; a
-typed `loop-state` field (§13.2), also in `:like`; an element of a list whose type is stated;
-and a branch of an `if`, `cond` or `match` that stands in one of these places. It is refused in
-these places, which state no type: a `let*` binding and the body of a `let*`; an operand of a
-list operator; a `list/map` source or body; an argument of a `defun` function; a `record-update`
-field; an `or-else` fallback; a command `:argv` item; an element of a list whose type is not
-stated; and a loop's binder-form or `:state` initial value, its `continue` value and its `done`
-value. Diagnostics: `list_empty_type_context_required`.
+**Empty list.** `(list)` has no element to take a type from; `(list :of T)` states it and is
+accepted wherever a `List[T]` is. `(list)` is accepted where the form around it states the
+list's type: the result of a workflow, a procedure or a function; an argument of a procedure, a
+`let-proc` local, a workflow `call` or a `defun` function; a record or variant field; a typed
+`loop-state` field (§13.2), also in `:like`; an element of a list whose type is stated; a loop's
+`continue` value; and a branch of an `if`, `cond` or `match` that stands in one of these places
+other than a `defun` argument or a `continue` value, where only a bare `(list)` takes the type.
+It is refused in these places, which state no type: a `let*` binding and the body of a `let*`;
+an operand of a list operator; a `list/map` source or body; a `record-update` field; an
+`or-else` fallback; a command `:argv` item; an element of a list whose type is not stated; and
+a loop's binder-form or `:state` initial value, its `done` value and its `:on-exhausted` value.
+It is refused as the result of a `let-proc` local as well. Diagnostics:
+`list_empty_type_context_required`.
 
 **Operators.** The list operators are the rows of this table. Each takes a list as its first
 operand:
