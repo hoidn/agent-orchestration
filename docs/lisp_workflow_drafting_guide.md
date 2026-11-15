@@ -447,8 +447,8 @@ and needs no edit. The forms of [Section 13.1](#131-removed-forms) refuse with
 `form_retired`, as they did before. A path-mode `run-ref` child is compiled
 from its pinned commit: when that commit holds older-target source the child
 does not compile, the parent run fails at that step with
-`trial_program_compile_rejected`, and no child run is created; pin a commit
-with migrated source.
+`trial_program_compile_rejected`, whose message carries the child's own
+refusal, and no child run is created; pin a commit with migrated source.
 
 Before, a 2.35 module with one hook-taking procedure (`review.orc`):
 
