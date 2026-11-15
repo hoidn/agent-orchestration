@@ -2,8 +2,13 @@
 
 Usage (from the repository root, or a detached checkout of the frozen commit for a live launch):
   python -I experiments/long_horizon_tasks/ladder.py plan       the schedule, in the order it runs
-  python -I experiments/long_horizon_tasks/ladder.py launch     run the tranche until it ends, waits or stops
-  python -I experiments/long_horizon_tasks/ladder.py status     starts, money, slots, gates, the passthrough
+  python -I experiments/long_horizon_tasks/ladder.py launch [--dry-run]
+                                                                 run the tranche until it ends, waits for a
+                                                                 person (printed) or stops; --dry-run: every
+                                                                 refusal, nothing started
+  python -I experiments/long_horizon_tasks/ladder.py status [--export FILE]
+                                                                 starts, money, gates, the passthrough's command;
+                                                                 FILE: the readout's record (slot_record.py)
   python -I experiments/long_horizon_tasks/ladder.py allowance (inputs|reading|figures) ...
                                                                  the owner's inputs and meter readings (D4)
 
@@ -25,6 +30,10 @@ State lives outside the checkout: $HOME/.local/state/lh-ladder, or LH_REHEARSAL/
                   fake token, the launcher's pid and start time, the harness's), and later settled.json
   allowance.jsonl the owner's inputs, meter readings and the pilot's figures, appended (their history)
   money.lock      the one lock under which starts are counted, reserved and settled
+  end.json        how the tranche ended: the schedule done, the ceiling or the 240 starts
+A pause or a stop (passthrough/tranche.jsonl) holds until a person appends {"event": "resume"} there, after the
+ledger row D5 asks for. The ledger rows the schedule waits for: `| <date> | Smoke read | <label> pass |` (or
+`fail`: a stop), `| <date> | Pilot read | <label> ... |`, `| <date> | Round 1 read | <label> ... |`.
 The passthrough is started by a person with the token file; `status` prints its command line.
 """
 
@@ -38,6 +47,7 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 from pathlib import Path
@@ -209,6 +219,8 @@ def _criterion_refusal(ladder):
         return f"the criterion's model is not {MODEL}"
     if tuple(attempt["efforts"]) != EFFORTS:
         return f"the criterion's efforts are not {', '.join(EFFORTS)}"
+    if ladder["schedule"]["order"]["hash"] != ORDER_HASH:
+        return f"the criterion's schedule.order.hash is not the launcher's ({ORDER_HASH})"
     return None
 
 
@@ -557,11 +569,14 @@ def reserve(root, entry, ladder, prior):
 
 
 def settle(root, attempt, record, ladder=None, prior=0.0):
-    """Close the attempt: its settlement replaces its reservation, and its fake token leaves the slots file."""
+    """Close the attempt: its settlement replaces its reservation, and its fake token leaves the slots file. The
+    settled record."""
     ladder = ladder or _read_json(KIT / "ladder.json")
+    record = {**record, "closed": time.time()}
     with _Lock(root):
-        _write_json(root / "slots" / attempt["id"] / "settled.json", {**record, "closed": time.time()})
+        _write_json(root / "slots" / attempt["id"] / "settled.json", record)
         _slots_file(root, ladder, prior)
+    return record
 
 
 def next_start(root, queue, ladder, prior):
@@ -654,6 +669,15 @@ def settlement(attempt_dir, rows, reservation):
 # ---- classification of an ended attempt (D5) ------------------------------------------------------------------
 
 FINAL = {"observation", "infrastructure_failure", "stop", "ruling"}  # classes whose slot is never run again
+# The closed list of the stops the launcher itself finds in an attempt (D2, D4, D7.7; coordinator ruling: such an
+# attempt's class is `stop`, whatever row its ending matches, and it is never scored). A stop row of D5 is "D5 row N".
+LAUNCHER_STOPS = ("an init event with another tool list", "an init event with another CLI version",
+                  "an init event with another credential source", "a subagent file",
+                  "a sign of paid extra usage in the session's stream",
+                  "a match of token_scan.py in the attempt's output",
+                  "an incomplete scan of token_scan.py in the attempt's output",
+                  "a match of the runtime check in the attempt's containers",
+                  "an incomplete scan of the runtime check in the attempt's containers", "refused at launch")
 
 
 def tranche_event(root, kind, **fields):
@@ -762,18 +786,21 @@ def _observed(cls, row, trial):
     return 0.0 if reward is None and row != 5 else reward
 
 
-def close(ctx, root, attempt, ladder, prior, ended_at=None):
+def close(ctx, root, attempt, ladder, prior, ended_at=None, extra=None):
     """Classify and settle an attempt whose containers are all gone; the slot closes and its token is retired.
-    A stop is written to the tranche's events; a row-16 ending pauses the tranche for a ruling."""
+    A stop is written to the tranche's events; a row-16 ending pauses the tranche for a ruling. `extra` is what
+    the teardown found (its scans, the session's minutes); a stop in it was written when it was found."""
     judged = judge(root, attempt, ladder, ended_at)
-    money = settlement(root / "slots" / attempt["id"], judged.pop("slot_rows"), attempt["reservation_usd"])
-    record = {**money, **judged}
-    if record["stop"]:
+    rows = judged.pop("slot_rows")
+    money = settlement(root / "slots" / attempt["id"], rows, attempt["reservation_usd"])
+    record = {**money, **judged, "tokens": _tokens(rows), **(extra or {})}
+    if record["class"] != "observation":  # only an observation's reward is ever read
+        record["reward"] = None
+    if record["stop"] and "stop" not in (extra or {}):
         tranche_event(root, "stop", slot=attempt["id"], reason=record["stop"])
     elif record["class"] == "ruling":
         tranche_event(root, "pause", slot=attempt["id"], reason=f"D5 row {record['row']}")
-    settle(root, attempt, record, ladder, prior)
-    return record
+    return settle(root, attempt, record, ladder, prior)
 
 
 def _key(entry):
@@ -827,7 +854,7 @@ def _regrade_once(ctx, ladder, attempt, n):
     """One verifier-only run of the attempt's trial; (reward or None, exception type or None)."""
     attempt_dir = ctx.root / "slots" / attempt["id"]
     trial, out = trial_dir(attempt_dir), attempt_dir / "regrade"
-    command = harness_command(ctx, "trial", "regrade", str(trial), "-p", str(attempt_dir / "task"), "--env",
+    command = harness_command(ctx, "trial", "regrade", str(trial), "-p", str(attempt_dir / "package" / attempt["task"]), "--env",
                               "podman", "--trial-name", f"regrade-{n}", "-o", str(out))
     env = {**base_env(ctx), "CONTAINERS_CONF_OVERRIDE": str(ctx.lh / "logs" / "containers-override.conf")}
     subprocess.run(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
@@ -1262,28 +1289,708 @@ def record_allowance(ctx, args):
     return 0
 
 
+# ---- the schedule (D7.1 to D7.4) ----------------------------------------------------------------------------
+
+# Open ruling (the plan names a hash of seed, round, task and effort but not its form): this is the form.
+ORDER_HASH = "sha256, as hexadecimal, of '<seed>:<round>:<task>:<effort>' in UTF-8; a block's key has an empty effort"
+CONCURRENCY = {"smoke": "smoke", "pilot": "pilot", "round": "rounds"}  # host.concurrency, by the entry's kind
+
+
+def _order(seed, rnd, task, effort=""):
+    return hashlib.sha256(f"{seed}:{rnd}:{task}:{effort}".encode()).hexdigest()
+
+
+def smoke_task(ladder):
+    """gsea-proteomics, or the first qualified task in tasks.json order not on the load-sensitive list (D7.1)."""
+    smoke, tasks = ladder["schedule"]["smoke"], qualified(ladder)
+    if smoke["task"] in tasks:
+        return smoke["task"]
+    return next(t for t in tasks if t not in (ladder["tasks"]["load_sensitive"] or []))
+
+
+def pilot_task(ladder):
+    """rs-archive-clone, or the next dearest qualified task unchanged since 4.0.0 (D7.2)."""
+    pilot, tasks = ladder["schedule"]["pilot"], qualified(ladder)
+    return next(t for t in [pilot["task"], *pilot["fallback"]] if t in tasks)
+
+
+def schedule(ladder):
+    """Every slot in the order it starts: the smoke, the pilot's three efforts, then five rounds of blocks, one per
+    qualified task, each its three efforts one after another, blocks and efforts ordered by the frozen seed (D7.3).
+    The pilot's block is skipped in round 1 (its slots already run). Open ruling: the smoke is slot 1 of round 1,
+    so its block is round 1's first, and its other two efforts run right after the pilot."""
+    seed, smoke, pilot = ladder["schedule"]["order"]["seed"], smoke_task(ladder), pilot_task(ladder)
+
+    def efforts(rnd, task):
+        return sorted(EFFORTS, key=lambda e: _order(seed, rnd, task, e))
+
+    first = [{"round": 1, "task": smoke, "effort": ladder["schedule"]["smoke"]["effort"], "kind": "smoke"}]
+    first += [{"round": 1, "task": pilot, "effort": e, "kind": "pilot"} for e in efforts(1, pilot)]
+    done, rounds = {_key(e) for e in first}, []
+    for rnd in range(1, ladder["schedule"]["rounds"] + 1):
+        tasks = sorted(qualified(ladder), key=lambda t: (not (rnd == 1 and t == smoke), _order(seed, rnd, t)))
+        rounds += [{"round": rnd, "task": t, "effort": e, "kind": "round"} for t in tasks for e in efforts(rnd, t)
+                   if (rnd, t, e) not in done]
+    return first + rounds
+
+
+def slot_id(entry):
+    """A schedule slot's id, the readout's join key: r<round>-<task>-<effort>."""
+    return f"r{entry['round']}-{entry['task']}-{entry['effort']}"
+
+
+def _reads(text, what, labels):
+    """What follows the label in each ledger row `what` that names one of `labels`."""
+    return [(cell.split(" ", 1) + [""])[1] for cell in ledger_cells(text, what) if cell.split(" ", 1)[0] in labels]
+
+
+def hold(head, text, labels):
+    """Why the head of the queue waits for a person's ledger row, or None (D7.1, D7.2, D7.5): the pilot after a
+    `Smoke read` row `<label> pass`, round 1 after a `Pilot read` row, later rounds after a `Round 1 read` row, each
+    naming a label of `labels`; a last `Smoke read` row that does not say pass is a failed smoke."""
+    if head["kind"] == "smoke":
+        return None
+    smoke = _reads(text, "Smoke read", labels)
+    if not smoke:
+        return "waiting for the smoke read"
+    if not smoke[-1].startswith("pass"):
+        return "a failed smoke"
+    if head["kind"] == "pilot":
+        return None
+    if not _reads(text, "Pilot read", labels):
+        return "waiting for the pilot's ledger row"
+    if head["round"] > 1 and not _reads(text, "Round 1 read", labels):
+        return "waiting for the round-one read"
+    return None
+
+
+def this_label():
+    return hashlib.sha256(manifest.MANIFEST.read_bytes()).hexdigest()
+
+
+def ledger_labels(ctx):
+    """The ledger's text, and the labels its `Configuration label` rows name with this checkout's own."""
+    text = ledger_text(ctx)
+    found = [m.group(1) for m in map(LABEL_ROW.match, ledger_cells(text, "Configuration label")) if m]
+    return text, found + [this_label()]
+
+
+# ---- the host: load, disk, the task copy, the harness --------------------------------------------------------
+
+
+def _host_file(ctx, name):
+    path = ctx.rehearsal / "host" / name if ctx.rehearsal else None
+    return path if path and path.is_file() else None
+
+
+def load_open(ctx, ladder):
+    """(open, (1-minute, 5-minute)): open when both load averages are at or below the gate (D2). A rehearsal may
+    give a stand-in LH_REHEARSAL/host/loadavg."""
+    path = _host_file(ctx, "loadavg") or Path("/proc/loadavg")
+    one, five = map(float, path.read_text().split()[:2])
+    gate = ladder["host"]["load_gate"]["at_or_below"]
+    return one <= gate and five <= gate, (one, five)
+
+
+def free_gb(ctx):
+    """The least free space, in GB, of the file systems the tranche writes (the state, the cache, the home
+    directory where Podman keeps its images); a rehearsal may give a stand-in LH_REHEARSAL/host/free_gb."""
+    import shutil
+    path = _host_file(ctx, "free_gb")
+    if path:
+        return float(path.read_text())
+    return min(shutil.disk_usage(p).free for p in (ctx.root, ctx.lh, ctx.home) if p.exists()) / 1e9
+
+
+def overlay_lines(hosts):
+    """The two agent-phase keys of D1 and D3, as the oracle check writes them."""
+    return 'network_mode = "allowlist"\nallowed_hosts = [' + ", ".join(f'"{h}"' for h in hosts) + "]"
+
+
+def overlay_digest(hosts):
+    return hashlib.sha256((overlay_lines(hosts) + "\n").encode()).hexdigest()
+
+
+def overlay(package_dir, copy, hosts):
+    """Copy the package with the two keys after its one [agent] line; removing them must give the package's
+    task.toml back byte for byte (D1). Their digest."""
+    import shutil
+    text = (package_dir / "task.toml").read_text()
+    lines = text.split("\n")
+    if lines.count("[agent]") != 1:
+        raise Refused(f"{package_dir}: not one [agent] table")
+    shutil.copytree(package_dir, copy)
+    keys = overlay_lines(hosts)
+    at = lines.index("[agent]") + 1
+    (copy / "task.toml").write_text("\n".join(lines[:at] + keys.split("\n") + lines[at:]))
+    if (copy / "task.toml").read_text().replace("[agent]\n" + keys + "\n", "[agent]\n", 1) != text:
+        raise Refused(f"{package_dir}: removing the two keys does not give the package's task.toml back")
+    return overlay_digest(hosts)
+
+
+def canary_term(package_dir, sha):
+    """The canary's identifier, read from the package's task.toml at run time by its SHA-256 (D1, D6): the first
+    line, or word of a line, whose SHA-256 is the criterion's; None when none is."""
+    for line in (package_dir / "task.toml").read_text().splitlines():
+        text = line.lstrip("#").strip()
+        for candidate in [text, *text.split()]:
+            if hashlib.sha256(candidate.encode()).hexdigest() == sha:
+                return candidate
+    return None
+
+
+def attempt_command(ctx, ladder, attempt, package_copy):
+    """The harness command of one attempt: the criterion's model, effort, CLI version, cap, deny list, output-token
+    variable, relay base URL, zero retries, the task's own limits, the kept containers, under the CPU set."""
+    a, h = ladder["attempt"], ladder["harness"]
+    run = harness_command(
+        ctx, "run", "--path", str(package_copy), "--agent", h["agent"], "-m", h["model_argument"], "--base-url",
+        h["base_url"], "--skip-credential-checks", "--ak", f"version={a['cli_version']}",
+        "--ak", f"disallowed_tools={','.join(a['deny_list'])}", "--ak", f"max_budget_usd={attempt['cap_usd']}",
+        *[x for k, v in a["output_tokens_env"].items() for x in ("--ae", f"{k}={v}")], "--effort", attempt["effort"],
+        "--agent-setup-timeout-multiplier", str(h["agent_setup_timeout_multiplier"]),
+        "--agent-timeout-multiplier", str(h["agent_timeout"]["multiplier"]),
+        "--verifier-timeout-multiplier", str(h["verifier_timeout"]["multiplier"]), "--max-retries", str(h["retries"]),
+        "--ek", "keep_containers=true", "--env", "podman", "-n", str(h["runs_per_attempt"]),
+        "--job-name", attempt["id"], "-o", str(ctx.root / "slots" / attempt["id"] / "jobs"), "-q", "-y",
+        "--extra-docker-compose", str(ctx.lh / "logs" / "limits-compose.yaml"),
+        "--extra-docker-compose", str(KIT / h["host_side"]["relay_compose"]))
+    return ["taskset", "-c", ladder["host"]["cpu_set"], *run]
+
+
+def relay_dir(ctx, attempt):
+    """The relay's socket directory for an attempt (LH_RELAY_SOCKET_DIR)."""
+    return ctx.root / "relay"
+
+
+def harness_env(ctx, attempt):
+    """The harness's whole environment: nothing inherited; the slot's fake token and the token-mode switch, the
+    relay's socket directory and the containers override. No credential: the fake token is worth its slot's cap."""
+    reason = token_refusal(attempt["token"])
+    if reason:
+        raise Refused(reason)
+    return {**base_env(ctx), "CONTAINERS_CONF_OVERRIDE": str(ctx.lh / "logs" / "containers-override.conf"),
+            "LH_RELAY_SOCKET_DIR": str(relay_dir(ctx, attempt)), "CLAUDE_FORCE_OAUTH": "1",
+            "CLAUDE_CODE_OAUTH_TOKEN": attempt["token"]}
+
+
+def passthrough_up(ctx):
+    """Whether the passthrough answers on the socket the relay forwards to (a connection closed before a request
+    line is dropped by it unlogged)."""
+    with socket.socket(socket.AF_UNIX) as probe:
+        probe.settimeout(10)
+        return probe.connect_ex(str(ctx.root / "relay" / "passthrough.sock")) == 0
+
+
+# ---- the scans at teardown: the token's fingerprint, the runtime check, contamination ------------------------
+
+
+def token_scan(ctx, *paths, stdin=None):
+    """token_scan.py by the passthrough's fingerprint over `paths` (or `-` and a stream on `stdin`): its exit (0
+    clean, 1 a match, 2 incomplete). Its output names paths and offsets only and is not kept."""
+    command = [sys.executable, "-I", str(KIT / "token_scan.py"), "scan", "--fingerprint",
+               str(ctx.root / "passthrough" / "fingerprint.json"), *map(str, paths)]
+    return subprocess.run(command, stdin=stdin, capture_output=True, timeout=3 * 3600, check=False).returncode
+
+
+def _scan_verdict(code, what):
+    """A scan's stop: a match, or a scan that could not finish (open ruling: read as a stop, since it cannot show
+    that nothing leaked)."""
+    return {1: f"a match of {what}", 2: f"an incomplete scan of {what}"}.get(code)
+
+
+RUNTIME = "the runtime check in the attempt's containers"
+
+
+def runtime_check(ctx, attempt_dir, export):
+    """D4's runtime check on the attempt's containers before they are removed: every container's inspected
+    configuration and the process environments read while it ran; with `export`, the agent container's exported
+    file system too. The egress sidecar's log is read to its end and kept first. The finding, or None."""
+    (attempt_dir / "containers").mkdir(exist_ok=True)
+    names = container_names(ctx, prefixes(attempt_dir))
+    for name in names:
+        if "egress-control-sidecar" in name:
+            (attempt_dir / f"egress-{name}.log").write_bytes(podman(ctx, "logs", name).stdout)
+    sample_environ(ctx, attempt_dir, names)
+    for name in names:
+        (attempt_dir / "containers" / f"{name}.inspect.json").write_bytes(podman(ctx, "inspect", name).stdout)
+    found = _scan_verdict(token_scan(ctx, attempt_dir / "containers"), RUNTIME) if names else None  # none: nothing ran
+    for name in [n for n in names if n.endswith("_main_1")] if export and not found else []:
+        exported = subprocess.Popen(["podman", "export", name], env=base_env(ctx), stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL)
+        code = token_scan(ctx, "-", stdin=exported.stdout)
+        exported.stdout.close()
+        found = _scan_verdict(2 if exported.wait() != 0 and code == 0 else code, RUNTIME)
+    return found
+
+
+def sample_environ(ctx, attempt_dir, names):
+    """Each running container's process environments, kept as the distinct entries seen so far in
+    containers/<name>.environ (one per NUL-ended entry)."""
+    for name in names:
+        done = podman(ctx, "exec", name, "sh", "-c", "cat /proc/[0-9]*/environ 2>/dev/null; true", timeout=60)
+        if done.returncode != 0:
+            continue
+        path = attempt_dir / "containers" / f"{name}.environ"
+        seen = set(path.read_bytes().split(b"\0")) if path.is_file() else set()
+        new = seen | set(done.stdout.split(b"\0"))
+        if new != seen or not path.is_file():
+            path.write_bytes(b"\0".join(sorted(new - {b""})) + b"\0")
+
+
+def egress_refused(attempt_dir):
+    """{address: count} of the connections the egress sidecar refused (D3): a session id with a `bypass` event,
+    its address from that session's `dst`. Addresses only: the log names no host for a refusal."""
+    refused = {}
+    for path in sorted(attempt_dir.glob("egress-*.log")):
+        sessions = {}
+        for line in path.read_text(errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and event.get("sid"):
+                sessions.setdefault(event["sid"], []).append(event)
+        for events in sessions.values():
+            dst = next((e["dst"] for e in events if e.get("dst")), None)
+            if dst and any(e.get("msg") == "bypass" for e in events):
+                refused[dst] = refused.get(dst, 0) + 1
+    return refused
+
+
+def contamination(trial, terms, chunk=1 << 20):
+    """The contamination scan (D6; coordinator ruling: the launcher's, at every teardown): the frozen terms over the
+    agent's transcript (agent/) and its exported files (artifacts/). Each hit is the term's SHA-256, the file and
+    the offset of its first occurrence there: never the term or the text around it."""
+    wanted = [(t.encode(), hashlib.sha256(t.encode()).hexdigest()) for t in terms if t]
+    keep = max((len(t) for t, _ in wanted), default=1) - 1
+    hits = []
+    for top in ("agent", "artifacts"):
+        for path in sorted(p for p in (trial / top).rglob("*") if p.is_file() and not p.is_symlink()):
+            hits += _hits_in(path, trial, wanted, keep, chunk)
+    return {"contaminated": bool(hits), "hits": hits}
+
+
+def _hits_in(path, trial, wanted, keep, chunk):
+    """The first offset of each term in one file, read in chunks that overlap by one byte less than the longest
+    term, so a term split across two chunks is found."""
+    first, carry, base = {}, b"", 0
+    with open(path, "rb") as fh:
+        while data := fh.read(chunk):
+            buf = carry + data
+            for term, sha in wanted:
+                at = buf.find(term)
+                if at >= 0 and sha not in first:
+                    first[sha] = base + at
+            carry = buf[-keep:] if keep else b""
+            base += len(buf) - len(carry)
+    return [{"term_sha256": sha, "file": path.relative_to(trial).as_posix(), "offset": at}
+            for sha, at in sorted(first.items(), key=lambda kv: kv[1])]
+
+
+def contamination_stop(every, ladder):
+    """Contaminated attempts on three tasks stop the tranche (D7.7); fewer are excluded observations (D6) and stop
+    nothing."""
+    tasks = {a["task"] for a in every if ((a.get("settled") or {}).get("contamination") or {}).get("contaminated")}
+    most = next(s["on_tasks"] for s in ladder["stops"]["stops"] if s["stop"] == "contaminated attempts")
+    return "contaminated attempts on three tasks" if len(tasks) >= most else None
+
+
+def scan_terms(ctx, ladder, task):
+    """The frozen terms and the task's canary identifier, read from its package by its SHA-256. A live launch
+    refuses a package that holds no such canary; a rehearsal's stand-in SHA-256 may match none."""
+    scan = ladder["readout"]["contamination_scan"]
+    canary = canary_term(package(ctx, task), scan["canary_sha256"])
+    if canary is None and ctx.live:
+        raise Refused(f"{task}: the package holds no canary of the criterion's SHA-256")
+    return list(scan["terms"]) + ([canary] if canary else [])
+
+
+# ---- the tranche: the loop, an attempt's life, teardown -------------------------------------------------------
+
+SAMPLE_S = 2.0  # seconds between two reads of the containers' process environments and of the load
+
+
+def _write_slot(ctx, attempt):
+    _write_json(ctx.root / "slots" / attempt["id"] / "slot.json", attempt)
+
+
+class Attempt:
+    """One attempt's life on the host, in its own thread: prepare, harness, follow, teardown, close, regrade."""
+
+    def __init__(self, tranche, attempt):
+        self.t, self.ctx, self.ladder, self.a = tranche, tranche.ctx, tranche.ladder, attempt
+        self.dir = self.ctx.root / "slots" / attempt["id"]
+        self.offset, self.stops, self.terms = 0, [], []
+
+    def stop(self, reason, **detail):
+        """A stop found in this attempt (one of LAUNCHER_STOPS): written to the tranche's events at once, kept for
+        its record."""
+        if reason not in LAUNCHER_STOPS:
+            raise ValueError(f"not a launcher stop: {reason}")
+        if reason not in self.stops:
+            self.stops.append(reason)
+            tranche_event(self.ctx.root, "stop", slot=self.a["id"], reason=reason, **detail)
+
+    def run(self):
+        try:
+            try:
+                self.follow(self.start())
+            except Refused as refused:
+                self.stop("refused at launch", detail=str(refused))
+            self.teardown()
+        except Exception as exc:  # recorded, never lost: the tranche pauses for a person; reconcile closes it later
+            tranche_event(self.ctx.root, "pause", slot=self.a["id"],
+                          reason=f"the launcher failed: {type(exc).__name__}: {exc}")
+            raise
+
+    def start(self):
+        task = self.a["task"]
+        reason = task_refusal(self.ctx, self.ladder, task)
+        if reason:
+            raise Refused(reason)
+        self.terms = scan_terms(self.ctx, self.ladder, task)
+        copy = self.dir / "package" / task
+        digest = overlay(package(self.ctx, task), copy, allowlist(self.ladder, task))
+        if (self.ladder["tasks"]["overlay_digests"] or {}).get(task) != digest:
+            raise Refused(f"{task}: the overlay's digest is not the criterion's")
+        env = harness_env(self.ctx, self.a)
+        with open(self.dir / "harness.out", "ab") as out:
+            proc = subprocess.Popen(attempt_command(self.ctx, self.ladder, self.a, copy), env=env, stdout=out,
+                                    stderr=out, cwd=self.dir, start_new_session=True)
+        self.a.update(harness={"pid": proc.pid, "start": process_start(proc.pid)}, overlay_digest=digest)
+        _write_slot(self.ctx, self.a)
+        return proc
+
+    def follow(self, proc):
+        """While the harness runs: the stream (a paid-usage sign or another init event stops the tranche; the
+        result event's arrival is the session's ending), the containers' environments, the load, an interrupt."""
+        last = 0.0
+        while proc.poll() is None:
+            self.read_stream()
+            if time.monotonic() - last >= SAMPLE_S:
+                self.sample()
+                last = time.monotonic()
+            if self.t.interrupt.is_set():
+                stop_group(proc.pid, self.a["harness"]["start"])
+            time.sleep(POLL_S)
+        self.read_stream()
+
+    def sample(self):
+        (self.dir / "containers").mkdir(exist_ok=True)
+        sample_environ(self.ctx, self.dir, container_names(self.ctx, prefixes(self.dir)))
+        with open(self.dir / "load.jsonl", "a") as fh:
+            fh.write(json.dumps({"time": time.time(), "load": load_open(self.ctx, self.ladder)[1]}) + "\n")
+
+    def read_stream(self):
+        trial = trial_dir(self.dir)
+        path = trial / "agent" / "claude-code.txt" if trial else None
+        if path is None or not path.is_file():
+            return
+        with open(path, "rb") as fh:
+            fh.seek(self.offset)
+            data = fh.read()
+        whole = data[:data.rfind(b"\n") + 1]
+        self.offset += len(whole)
+        for line in whole.splitlines():
+            self.on_event(line)
+
+    def on_event(self, line):
+        try:
+            event = json.loads(line)
+        except ValueError:
+            return  # an unreadable line: the teardown's reading of the stream decides (row 16)
+        if not isinstance(event, dict):
+            return
+        reason = stream_stop(event) or (init_stop([event], self.ladder) if event.get("subtype") == "init" else None)
+        if reason:
+            self.stop(reason)
+        if event.get("type") == "result" and "result_seen_at" not in self.a:
+            self.a["result_seen_at"] = time.time()
+            _write_slot(self.ctx, self.a)
+
+    def teardown(self):
+        """The scans, then the containers removed by name; only then is the slot closed and its token retired."""
+        trial = trial_dir(self.dir)
+        found = runtime_check(self.ctx, self.dir, self.a["kind"] in ("smoke", "pilot") or not self.ctx.live)
+        found = found or _scan_verdict(token_scan(self.ctx, self.dir), "token_scan.py in the attempt's output")
+        if found:
+            self.stop(found)
+        scanned = contamination(trial, self.terms) if trial else {"contaminated": False, "hits": []}
+        if not remove_containers(self.ctx, self.dir):
+            tranche_event(self.ctx.root, "pause", slot=self.a["id"], reason="the attempt's containers were not removed")
+            return
+        extra = {"contamination": scanned, "verifier_load_above_gate": self.loaded(trial), "minutes": self.minutes(trial)}
+        extra.update({"stop": self.stops[0], "class": "stop"} if self.stops else {})
+        record = close(self.ctx, self.ctx.root, self.a, self.ladder, self.t.prior, extra=extra)
+        regraded(self.ctx, self.ladder, self.a, record, self.t.wait_for_load)
+
+    def loaded(self, trial):
+        """Whether the load was above the gate while the verifier ran (D5, regrade case 2)."""
+        verifier = (_result_json(trial) or {}).get("verifier") or {}
+        start, end = _epoch(verifier.get("started_at")), _epoch(verifier.get("finished_at"))
+        gate = self.ladder["host"]["load_gate"]["at_or_below"]
+        samples = _jsonl(self.dir / "load.jsonl") if start and end else []
+        return any(start <= s["time"] <= end and max(s["load"]) > gate for s in samples)
+
+    def minutes(self, trial):
+        agent = (_result_json(trial) or {}).get("agent_execution") or {}
+        start, end = _epoch(agent.get("started_at")), _epoch(agent.get("finished_at"))
+        return round(((end - start) if start and end else time.time() - self.a["opened"]) / 60, 3)
+
+
+SELF_ENDING = ("limit",)  # a closed gate of these kinds reopens by itself: the launcher waits through it
+
+
+class Tranche:
+    """The launcher's loop: one start at a time from the head of the queue, while every gate allows it."""
+
+    def __init__(self, ctx, ladder):
+        self.ctx, self.ladder, self.root = ctx, ladder, ctx.root
+        self.prior, self.plan = prior_usd(ctx), schedule(ladder)
+        self.workers, self.interrupt, self.closed_since, self.started = {}, threading.Event(), None, False
+
+    def run(self):
+        """Until the tranche ends, or waits for a person with nothing in flight; why."""
+        ensure_state(self.root)
+        reconcile(self.ctx, self.ladder, self.prior)
+        while True:
+            self.started = False
+            why = self.step(time.time())
+            if why:
+                break
+            if not self.started:
+                time.sleep(POLL_S)
+        for worker in list(self.workers.values()):
+            worker.join()
+        return why
+
+    def stop(self, reason):
+        if gate_state(_jsonl(self.root / "passthrough" / "tranche.jsonl"))["kind"] != "stop":
+            tranche_event(self.root, "stop", reason=reason)
+
+    def step(self, now):
+        """One look at every gate; a start if they all allow one. Why the loop ends, or None."""
+        self.workers = {k: w for k, w in self.workers.items() if w.is_alive()}
+        self.host_stops()
+        gate = starts_gate(self.root, now)
+        if not gate["open"]:
+            return None if self.workers or gate["kind"] in SELF_ENDING else f"{gate['kind']}: {gate['why']}"
+        head, why = self.head()
+        if head is None:
+            return None if self.workers else why
+        return self.try_start(head, gate, now)
+
+    def host_stops(self):
+        """Low disk stops the tranche and interrupts every running attempt; three limit answers in a row with no
+        observation between them, and contaminated attempts on three tasks, stop it (D7.7)."""
+        floor = self.ladder["host"]["disk_stop_free_gb"]
+        if free_gb(self.ctx) < floor:
+            self.interrupt.set()
+            self.stop(f"free disk under {floor} GB")
+        check_limits(self.root, self.ladder)
+        reason = contamination_stop(attempts(self.root), self.ladder)
+        if reason:
+            self.stop(reason)
+
+    def head(self):
+        """(the head of the queue, None), or (None, why nothing starts: the schedule is done, or a person's row is
+        awaited). A failed smoke is written as a stop, which the gate then reads."""
+        left = queue(self.root, self.plan)
+        if not left:
+            return None, self.end("schedule", "the schedule is done")
+        why = hold(left[0], *ledger_labels(self.ctx))
+        if why == "a failed smoke":
+            self.stop(why)
+            return None, None
+        return (left[0], None) if why is None else (None, why)
+
+    def try_start(self, head, gate, now):
+        if not passthrough_up(self.ctx):
+            tranche_event(self.root, "pause", reason="the passthrough down")
+            return None
+        if not self.load_ok(now):
+            return None
+        ok, _, most = guard(self.root, self.ladder, head, now)
+        limits = [self.ladder["host"]["concurrency"][CONCURRENCY[head["kind"]]], gate["most"], most]
+        if not ok or len(self.workers) >= min(n for n in limits if n is not None):
+            return None
+        action, got = next_start(self.root, queue(self.root, self.plan), self.ladder, self.prior)
+        if action == "start":
+            got["label"] = this_label()
+            _write_slot(self.ctx, got)
+            self.workers[got["id"]] = worker = threading.Thread(target=Attempt(self, got).run, name=got["id"])
+            worker.start()
+            self.started = True
+            return None
+        if action == "end" and not self.workers:
+            return self.end("starts" if got == "240 starts" else "ceiling", got)
+        return None
+
+    def load_ok(self, now):
+        """The load gate (D2): closed, it waits; closed for its whole wait with nothing in flight, it pauses."""
+        if load_open(self.ctx, self.ladder)[0]:
+            self.closed_since = None
+            return True
+        if self.workers or self.closed_since is None:
+            self.closed_since = now
+        elif now - self.closed_since >= self.ladder["host"]["load_wait"]["gate_closed_s"]:
+            tranche_event(self.root, "pause", reason="the load wait: the gate stayed closed with nothing in flight")
+        return False
+
+    def wait_for_load(self):
+        """A regrade's gate: wait until the load is at or below it; False when the tranche is interrupted first."""
+        while not load_open(self.ctx, self.ladder)[0]:
+            if self.interrupt.wait(POLL_S * 30):
+                return False
+        return True
+
+    def end(self, by, cause):
+        """The tranche's end, recorded once nothing is in flight: the schedule done, the ceiling, the 240."""
+        if not self.workers:
+            _write_json(self.root / "end.json", {"by": by, "cause": None, "why": cause})
+        return cause
+
+    def on_signal(self, *_):
+        """SIGTERM or SIGINT: every attempt in flight is stopped and torn down, and the tranche pauses."""
+        self.interrupt.set()
+        tranche_event(self.root, "pause", reason="the launcher was signalled")
+
+
+def launch(ctx, dry_run):
+    import signal
+    ladder = preflight(ctx)
+    if dry_run:
+        return 0
+    tranche = Tranche(ctx, ladder)
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, tranche.on_signal)
+    print(tranche.run(), flush=True)
+    return 0
+
+
+# ---- status and the export the readout reads (slot_record.py on feat/lh-readout) ----------------------------
+
+TOKEN_KINDS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
+
+
+def _tokens(rows):
+    """Tokens by kind over a slot's forwarded rows (the meter's usage)."""
+    totals = dict.fromkeys(TOKEN_KINDS, 0)
+    for row in rows:
+        u = row.get("usage") or {}
+        five, hour = price_check._writes({"cache_creation_input_tokens": 0, **u})
+        for kind, value in zip(TOKEN_KINDS, (u.get("input_tokens"), u.get("output_tokens"),
+                                             u.get("cache_read_input_tokens"), five, hour)):
+            totals[kind] += value if isinstance(value, int) else 0
+    return totals
+
+
+def _excluded(settled):
+    """Why a start the table reads as an observation is not scored (D5, D6); a contamination hit on a start of
+    another class is recorded and excludes nothing (coordinator ruling)."""
+    if settled.get("indeterminate"):
+        return "indeterminate"
+    if settled["row"] == 5 and settled["class"] == "infrastructure_failure":
+        return "no reward after regrades"
+    hit = (settled.get("contamination") or {}).get("contaminated")
+    return "contaminated" if hit and settled["class"] == "observation" else None
+
+
+def _start_record(root, attempt):
+    settled = attempt["settled"]
+    hits = (settled.get("contamination") or {}).get("hits") or []
+    # "class" and "cause": the coordinator's rule for the layout's next revision (the class the launcher decided,
+    # the row as evidence; a stop's cause from LAUNCHER_STOPS or "D5 row N"); slot_record.py on feat/lh-readout
+    # names them, and the branch that lands second takes its names.
+    return {"slot": slot_id(attempt), "start": attempt["index"], "label": attempt["label"], "row": settled["row"],
+            "class": settled["class"], "cause": settled.get("stop") if settled["class"] == "stop" else None,
+            "reward": settled.get("reward"), "excluded": _excluded(settled),
+            "contamination": sorted({h["term_sha256"] for h in hits}), "usd": settled["usd"],
+            "minutes": settled.get("minutes") or 0.0, "tokens": settled.get("tokens") or _tokens([]),
+            "graded": None, "egress_refused": egress_refused(root / "slots" / attempt["id"])}
+
+
+def earlier_labels(text, label):
+    """Each earlier label the ledger's `Configuration label` rows name, ended by the next such row (open ruling:
+    the readout's `ended_by` is read as that row's text)."""
+    found = [(m.group(1), cell) for cell in ledger_cells(text, "Configuration label") if (m := LABEL_ROW.match(cell))]
+    ended = {}
+    for (old, _), (_, cell) in zip(found, found[1:]):
+        if old != label:
+            ended.setdefault(old, cell)
+    return [{"label": old, "ended_by": cell} for old, cell in ended.items()]
+
+
+def _end(root):
+    if (root / "end.json").is_file():
+        end = _read_json(root / "end.json")
+        return {"by": end["by"], "cause": end["cause"]}
+    state = gate_state(_jsonl(root / "passthrough" / "tranche.jsonl"))
+    return {"by": "stop", "cause": state["why"]} if state["kind"] == "stop" else None
+
+
+def export(ctx, ladder):
+    """The record the readout reads, in slot_record.py's layout (EXPORT, SLOT, START), from the state: every
+    settled start; an attempt still open is not in it."""
+    label = this_label()
+    return {"label": label, "earlier_labels": earlier_labels(ledger_text(ctx), label), "end": _end(ctx.root),
+            "slots": [{"slot": slot_id(e), "task": e["task"], "effort": e["effort"], "round": e["round"],
+                       "pilot": e["kind"] == "pilot"} for e in schedule(ladder)],
+            "starts": [_start_record(ctx.root, a) for a in attempts(ctx.root) if a["settled"]],
+            "allowance": None}
+
+
+def passthrough_command(ctx):
+    root = ctx.root
+    return (f"env -i PATH=/usr/bin:/bin python3 -I {KIT / 'passthrough.py'} --socket {root / 'relay' / 'passthrough.sock'}"
+            f" --state {root / 'passthrough'} --slots {root / 'passthrough' / 'slots.json'} --token-file <the owner's"
+            f" token file> >> {root / 'passthrough' / 'output.log'} 2>&1")
+
+
+def status(ctx, path=None):
+    """Print the tranche's state and the passthrough's command line; with `path`, write the readout's record."""
+    ladder = criterion(ctx)
+    ensure_state(ctx.root)
+    starts, committed, open_ = tally(ctx.root, ladder, prior_usd(ctx))
+    gate = starts_gate(ctx.root, time.time())
+    print(f"state {ctx.root}\nstarts {starts}, committed USD {committed:.2f}, in flight {len(open_)}")
+    print(f"starts: {'open' if gate['open'] else 'closed'} {gate['kind'] or ''} {gate['why'] or ''}".rstrip())
+    print(f"passthrough: {'up' if passthrough_up(ctx) else 'down'}; a person starts it, with the token file:")
+    print(f"  {passthrough_command(ctx)}")
+    if path:
+        _write_json(Path(path).resolve(), export(ctx, ladder))
+    return 0
+
+
+def plan(ctx):
+    for entry in schedule(criterion(ctx)):
+        print(slot_id(entry), entry["kind"])
+    return 0
+
+
 # ---- the command line ---------------------------------------------------------------------------------------
 
 
 def _parse(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("plan", "launch", "status"):
-        sub.add_parser(name)
+    sub.add_parser("plan")
+    sub.add_parser("launch").add_argument("--dry-run", action="store_true", help="every refusal; nothing started")
+    sub.add_parser("status").add_argument("--export", metavar="FILE", help="write the readout's record")
     _allowance_parser(sub)
     return parser.parse_args(argv)
 
 
 def _run(ctx, args):
     if args.command == "launch":
-        preflight(ctx)
-        return 0
+        return launch(ctx, args.dry_run)
     reason = mode_refusal(ctx.env)
     if reason and not reason.startswith("no authorization"):  # only a launch needs the authorization
         raise Refused(reason)
     if args.command == "allowance":
         return record_allowance(ctx, args)
-    return 0
+    return status(ctx, args.export) if args.command == "status" else plan(ctx)
 
 
 def main(argv=None, env=None):

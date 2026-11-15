@@ -51,7 +51,30 @@ def short():
 
 # ---- stand-ins: the cache, the harness's Python, the kit copy ---------------------------------------------------
 
-STANDIN = r'''
+REPLAY = r'''
+def replay(fx, trial, started="2026-11-20T10:00:00Z", finished="2026-11-20T10:30:00Z"):
+    """A harness trial as Harbor writes it, from a cut fixture: result.json, and the stream with the fixture's init
+    event, its count of events and of api_retry events, and its last events."""
+    import json
+    from pathlib import Path
+    trial = Path(trial)
+    (trial / "agent").mkdir(parents=True, exist_ok=True)
+    exc = fx.get("harness_exception")
+    info = {"exception_type": exc, "exception_message": fx.get("exception_message") or ""} if exc else None
+    (trial / "result.json").write_text(json.dumps({
+        "exception_info": info, "agent_result": fx.get("agent_result"), "verifier_result": fx.get("verifier_result"),
+        "agent_execution": {"started_at": started, "finished_at": finished}}))
+    if fx["n_events"]:
+        tail = fx["stream_tail"]
+        head = [fx["init"]] if fx.get("init") and fx["init"] not in tail else []
+        retries = fx["n_api_retry"] - sum(e.get("subtype") == "api_retry" for e in head + tail)
+        filler = max(fx["n_events"] - len(head) - len(tail) - retries, 0)
+        events = head + [{"type": "system", "subtype": "api_retry"}] * retries + [{"type": "user"}] * filler + tail
+        (trial / "agent" / "claude-code.txt").write_text("".join(json.dumps(e) + "\n" for e in events))
+    return trial
+'''
+
+STANDIN = REPLAY + r'''
 """The stand-in harness venv `python` (tests/experiments/test_long_horizon_launcher.py). `-I -c CODE ARGS` runs CODE
 with a stand-in `harbor.publisher.packager` and the package versions of standin/versions.json."""
 import hashlib, importlib.metadata, json, sys, types
@@ -80,9 +103,12 @@ def run_code(code, args):
 
 
 def log_call(args):
+    """The call and the environment it was given (/proc/self/environ: before Python's own locale coercion)."""
     import os
+    given = Path("/proc/self/environ").read_bytes().split(b"\0")
+    env = dict(e.decode().split("=", 1) for e in given if e)
     with open(HERE / "calls.jsonl", "a") as fh:
-        fh.write(json.dumps({"argv": args, "env": dict(os.environ), "pid": os.getpid()}) + "\n")
+        fh.write(json.dumps({"argv": args, "env": env, "pid": os.getpid()}) + "\n")
 
 
 def option(args, name):
@@ -104,11 +130,104 @@ def regrade(args):
     (out / "result.json").write_text(json.dumps({"exception_info": exc, "verifier_result": reward}))
 
 
+BODY = {"model": "claude-haiku-5-5", "stream": False, "max_tokens": 1000, "output_config": {"effort": "low"},
+        "tools": [{"name": "Bash", "input_schema": {"type": "object"}}], "messages": [{"role": "user", "content": "hi"}]}
+
+
+def post(sock, token):
+    """One request through the relay's socket, as the CLI sends it; its status, or the error's class."""
+    import http.client, socket
+    conn = http.client.HTTPConnection("relay", 8080, timeout=60)
+    conn.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.sock.settimeout(60)
+    try:
+        conn.sock.connect(sock)
+        conn.request("POST", "/v1/messages?beta=true", json.dumps(BODY), {
+            "authorization": f"Bearer {token}", "content-type": "application/json",
+            "anthropic-beta": "oauth-2025-04-20,extended-cache-ttl-2025-04-11"})
+        resp = conn.getresponse()
+        resp.read()
+        return resp.status
+    except OSError as exc:
+        return type(exc).__name__
+    finally:
+        conn.close()
+
+
+def note(what, **fields):
+    import time
+    with open(HERE / "notes.jsonl", "a") as fh:
+        fh.write(json.dumps({"time": time.time(), "what": what, **fields}) + "\n")
+
+
+def outlive(container, sock, token, most):
+    """The CLI after the harness's time limit: it goes on sending requests until its container is gone."""
+    import time
+    for _ in range(most):
+        if not container.exists():
+            break
+        note("after", status=post(sock, token))
+        time.sleep(0.2)
+
+
+def containers(trial, behaviour):
+    """The trial's stand-in containers (agent and egress sidecar) and network, named as Harbor's compose names them."""
+    project, folder = trial.name.lower() + "__env", HERE / "podman"
+    sidecar = behaviour.get("egress", '{"sid": "a", "msg": "bypass"}\n{"sid": "a", "dst": "203.0.113.9:443"}')
+    for name, extra in ((f"{project}_main_1", {"env": behaviour.get("container_env", ["PATH=/usr/bin"]),
+                                               "fs": behaviour.get("container_fs", "a file\n")}),
+                        (f"{project}_harbor-docker-egress-control-sidecar_1", {"log": sidecar})):
+        (folder / "containers" / f"{name}.json").write_text(json.dumps({"running": True, "stubborn":
+                                                                       behaviour.get("stubborn", 0), **extra}))
+    (folder / "networks" / f"{project}_default.json").write_text("{}")
+    return folder / "containers" / f"{project}_main_1.json"
+
+
+def run(args):
+    """`harbor_patient.py run ...`: the next behaviour of standin/plan.json, in call order."""
+    import os, subprocess, time
+    calls = [json.loads(line) for line in (HERE / "calls.jsonl").read_text().splitlines()]
+    n = sum(1 for c in calls if c["argv"][1:2] == ["run"])
+    plan = json.loads((HERE / "plan.json").read_text()) if (HERE / "plan.json").exists() else []
+    behaviour = plan[n - 1] if n <= len(plan) else {}
+    note("started", n=n, affinity=sorted(os.sched_getaffinity(0)), pgid=os.getpgid(0), pid=os.getpid())
+    task = Path(option(args, "--path")).name
+    trial = Path(option(args, "-o")) / option(args, "--job-name") / f"{task[:32]}__s{n:06d}"
+    trial.mkdir(parents=True)
+    container = containers(trial, behaviour)
+    sock = os.path.join(os.environ["LH_RELAY_SOCKET_DIR"], "passthrough.sock")
+    for _ in range(behaviour.get("requests", 1)):
+        note("request", status=post(sock, os.environ["CLAUDE_CODE_OAUTH_TOKEN"]))
+    if behaviour.get("child"):
+        subprocess.Popen(["sleep", "600"])
+        note("child")
+    time.sleep(behaviour.get("sleep", 0))
+    fx = json.loads(Path(behaviour.get("fixture", FIXTURES + "/token-three-tools-normal-end.json")).read_text())
+    replay(fx, trial)
+    if fx.get("verifier_result") is None and behaviour.get("reward", 1.0) is not None:  # the verifier ran after it
+        result = json.loads((trial / "result.json").read_text())
+        result["verifier_result"] = {"rewards": {"reward": behaviour.get("reward", 1.0)}}
+        (trial / "result.json").write_text(json.dumps(result))
+    for name, text in behaviour.get("write", {}).items():
+        (trial / name).parent.mkdir(parents=True, exist_ok=True)
+        (trial / name).write_text(text)
+    if behaviour.get("after_requests"):
+        subprocess.Popen([sys.executable, "-I", __file__, "--outlive", str(container), sock,
+                          os.environ["CLAUDE_CODE_OAUTH_TOKEN"], str(behaviour["after_requests"])],
+                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    note("ended", n=n)
+
+
 args = sys.argv[1:]
 if args[:1] == ["-I"]:
     args = args[1:]
-if args[:1] == ["-c"]:
+if args[:1] == ["--outlive"]:
+    outlive(Path(args[1]), args[2], args[3], int(args[4]))
+elif args[:1] == ["-c"]:
     run_code(args[1], args[2:])
+elif args[1:2] == ["run"]:
+    log_call(args)
+    run(args)
 elif args[1:3] == ["trial", "regrade"]:
     log_call(args)
     regrade(args[1:])
@@ -203,7 +322,7 @@ def _cache(short, records):
     (lh / "hvenv" / "bin").mkdir(parents=True)
     (lh / "standin").mkdir()
     python = lh / "hvenv" / "bin" / "python"
-    python.write_text(f"#!{sys.executable} -I\n{STANDIN}")
+    python.write_text(f"#!{sys.executable} -I\nFIXTURES = {str(KIT / 'fixtures')!r}\n{STANDIN}")
     python.chmod(0o700)
     (lh / "standin" / "versions.json").write_text(json.dumps({"harbor": "0.25.0", "podman-compose": "1.6.0"}))
     podman = lh / "hvenv" / "bin" / "podman"
@@ -240,7 +359,7 @@ STAND_INS = {"tasks.qualified": list(TASKS), "tasks.load_sensitive": ["wal-recov
              "usage_limits.vendor_headers_confirmed": {"stand-in": True}, "allowance_guard.utilisation_header": "none",
              "readout.contamination_scan.terms": ["stand-in-term"], "readout.contamination_scan.canary_sha256": "0" * 64,
              "readout.graded_outcome.verifiers": {"stand-in": True}, "schedule.order.seed": "stand-in seed",
-             "schedule.order.hash": "stand-in", "readout.fall_bound.seed": 1}
+             "schedule.order.hash": ladder.ORDER_HASH, "readout.fall_bound.seed": 1}
 
 
 def _filled(doc, values):
@@ -322,8 +441,8 @@ class Kit:
                                  "hours": ["daily 00:00-24:00"]}) + "\n")
 
     def launch(self, env):
-        """`ladder.py launch` run from the copy as its own process; (exit code, stderr)."""
-        done = subprocess.run([sys.executable, "-I", str(self.kit / "ladder.py"), "launch"], cwd=self.repo,
+        """`ladder.py launch --dry-run` (every refusal, nothing started) run from the copy; (exit code, stderr)."""
+        done = subprocess.run([sys.executable, "-I", str(self.kit / "ladder.py"), "launch", "--dry-run"], cwd=self.repo,
                               env=env, capture_output=True, text=True, timeout=WAIT)
         return done.returncode, done.stderr
 
@@ -733,23 +852,9 @@ def test_a_session_with_no_trial_is_settled_by_the_meter_alone(short):
 criterion_tests = _load("lh_criterion_tests", REPO / "tests" / "experiments" / "test_long_horizon_ladder.py")
 
 
-def _replay(fx, trial, started="2026-11-20T10:00:00Z", finished="2026-11-20T10:30:00Z"):
-    """A harness trial as Harbor writes it, from a cut fixture: result.json (absent for no harness result) and the
-    stream with the fixture's init event, its count of events and of api_retry events, and its last events."""
-    (trial / "agent").mkdir(parents=True, exist_ok=True)
-    exc = fx.get("harness_exception")
-    info = {"exception_type": exc, "exception_message": fx.get("exception_message") or ""} if exc else None
-    (trial / "result.json").write_text(json.dumps({
-        "exception_info": info, "agent_result": fx.get("agent_result"), "verifier_result": fx.get("verifier_result"),
-        "agent_execution": {"started_at": started, "finished_at": finished}}))
-    if fx["n_events"]:
-        tail = fx["stream_tail"]
-        head = [fx["init"]] if fx.get("init") and fx["init"] not in tail else []
-        retries = fx["n_api_retry"] - sum(e.get("subtype") == "api_retry" for e in head + tail)
-        filler = max(fx["n_events"] - len(head) - len(tail) - retries, 0)
-        events = head + [{"type": "system", "subtype": "api_retry"}] * retries + [{"type": "user"}] * filler + tail
-        (trial / "agent" / "claude-code.txt").write_text("".join(json.dumps(e) + "\n" for e in events))
-    return trial
+_NS = {}
+exec(compile(REPLAY, "<replay>", "exec"), _NS)
+_replay = _NS["replay"]
 
 
 def _attempt_dir(short, name="001-r1-wal-recovery-ordering-low"):
@@ -1278,3 +1383,494 @@ def test_a_malformed_allowance_entry_is_refused_and_not_recorded(short, argv):
     reh.mkdir()
     code = ladder.main(["allowance", *argv], {"HOME": str(short), "LH_REHEARSAL": str(reh)})
     assert (code, (reh / "state" / "allowance.jsonl").exists()) == (2, False)
+
+
+# ---- Host (Task 5, fifth checkbox): the tranche end to end against the stand-ins --------------------------------
+
+HOSTS = ["relay", "pypi.org", "files.pythonhosted.org"]
+NOW = None  # a rig's allowance is read at its own start
+
+
+def _fast(doc):
+    doc["host"]["load_wait"]["gate_closed_s"] = 4  # the two-hour load wait, shortened for the test
+
+
+class Rig:
+    """A kit copy in rehearsal mode with its passthrough (rehearsal switch, in front of stub_api.py), the stand-in
+    harness and podman, allowance inputs, a reading and the pilot's figures; `launch()` runs `ladder.py launch`."""
+
+    def __init__(self, short, plan=(), edit=_fast, stand_ins=None, figures=True, scenario="normal"):
+        self.kit = kit = Kit(short, edit=edit)
+        values = {**STAND_INS, "tasks.overlay_digests": {t: kit.ladder.overlay_digest(HOSTS) for t in TASKS},
+                  "schedule.order.hash": kit.ladder.ORDER_HASH, **(stand_ins or {})}
+        (kit.reh / "stand_ins.json").write_text(json.dumps(values))
+        self.root, self.lh, self.short = kit.reh / "state", kit.lh, short
+        kit.ladder.ensure_state(self.root)
+        (kit.reh / "host").mkdir()
+        (kit.reh / "host" / "loadavg").write_text("1.0 1.0 1.0 1/1 1\n")  # a quiet host, by stand-in
+        (kit.reh / "host" / "free_gb").write_text("100")  # and room on its disk
+        (self.lh / "standin" / "plan.json").write_text(json.dumps(list(plan)))
+        now = time.time()
+        rows = [{"kind": "inputs", "at": now - 120, "f_week": 10, "f_five": 10, "hours": ["daily 00:00-24:00"],
+                 "closing_margin_h": 0},
+                {"kind": "reading", "at": now - 60, "weekly": 0, "five": 0, "weekly_reset": now + DAY,
+                 "five_reset": now + 3600}]
+        rows += [{"kind": "figures", "at": now - 30, "weekly_usd_per_point": 50.0, "five_usd_per_point": 50.0,
+                  "reservation_raise": 1.0}] if figures else []
+        _allowance(self.root, *rows)
+        self.procs = []
+        stub = short / "stub.sock"
+        self._start([sys.executable, "-I", str(KIT / "stub_api.py"), "--unix", str(stub), "--model", ladder.MODEL,
+                     "--scenario", scenario, "--log", str(short / "stub.jsonl")], short / "stub.out")
+        self.canary_file = short / "canary"
+        self.passthrough = self._start(
+            [sys.executable, "-I", str(KIT / "passthrough.py"), "--socket", str(self.root / "relay" / "passthrough.sock"),
+             "--state", str(self.root / "passthrough"), "--slots", str(self.root / "passthrough" / "slots.json"),
+             "--rehearsal", str(stub), "--canary-out", str(self.canary_file), "--canary-length", "108"],
+            self.root / "passthrough" / "output.log")
+        self.canary = self.canary_file.read_text().strip()
+        self.label = hashlib.sha256((kit.kit / "manifest.json").read_bytes()).hexdigest()
+
+    def _start(self, argv, out):
+        fh = open(out, "ab")
+        proc = subprocess.Popen(argv, stdout=fh, stderr=fh)
+        self.procs.append(proc)
+        deadline = time.monotonic() + WAIT
+        while b"listening" not in out.read_bytes() and proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert b"listening" in out.read_bytes(), out.read_text()
+        return proc
+
+    def ledger(self, what, cell):
+        with open(self.kit.reh / "ledger.md", "a") as fh:
+            fh.write(f"| 2026-11-20 | {what} | {cell} |\n")
+
+    def launch(self, timeout=WAIT * 3, **extra):
+        env = self.kit.env(**extra)
+        done = subprocess.run([sys.executable, "-I", str(self.kit.kit / "ladder.py"), "launch"], cwd=self.kit.repo,
+                              env=env, capture_output=True, text=True, timeout=timeout)
+        return done.returncode, done.stdout, done.stderr
+
+    def start_launch(self):
+        env = self.kit.env()
+        return subprocess.Popen([sys.executable, "-I", str(self.kit.kit / "ladder.py"), "launch"], cwd=self.kit.repo,
+                                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    def attempts(self):
+        return self.kit.ladder.attempts(self.root)
+
+    def events(self):
+        return ladder._jsonl(self.root / "passthrough" / "tranche.jsonl")
+
+    def rows(self):
+        return ladder._jsonl(self.root / "passthrough" / "requests.jsonl")
+
+    def notes(self):
+        return ladder._jsonl(self.lh / "standin" / "notes.jsonl")
+
+    def calls(self):
+        return _calls(self.lh)
+
+    def podman_calls(self):
+        return [json.loads(l) for l in (self.lh / "standin" / "podman" / "calls.jsonl").read_text().splitlines()]
+
+    def close(self):
+        for proc in self.procs:
+            proc.terminate()
+            proc.wait(timeout=WAIT)
+
+
+@pytest.fixture
+def rig(short):
+    made = []
+
+    def make(**kwargs):
+        made.append(Rig(short, **kwargs))
+        return made[-1]
+    yield make
+    for one in made:
+        one.close()
+    for line in subprocess.run(["pgrep", "-f", str(short)], capture_output=True, text=True).stdout.split():
+        os.kill(int(line), 9)  # a stand-in "CLI" that outlived its test
+
+
+import time  # noqa: E402  (used by the rig and the tests below)
+
+
+def test_the_smoke_runs_end_to_end_and_the_tranche_then_waits_for_the_smoke_read(rig):
+    r = rig()
+    code, out, err = r.launch()
+    (attempt,) = r.attempts()
+    settled = attempt["settled"]
+    assert (code, "waiting for the smoke read" in out, (attempt["task"], attempt["effort"], attempt["kind"]),
+            settled["row"], settled["class"], settled["usd"] > 0, settled["figures"]["meter"] > 0,
+            json.loads((r.root / "passthrough" / "slots.json").read_text())["slots"]) == (
+        0, True, ("gsea-proteomics", "low", "smoke"), 5, "observation", True, True, {})
+
+
+def test_the_harness_command_carries_the_criterion_s_configuration_and_runs_in_its_own_session(rig):
+    r = rig()
+    r.launch()
+    (call,) = r.calls()
+    argv, env = call["argv"], call["env"]
+    started = next(n for n in r.notes() if n["what"] == "started")
+    attempt = r.attempts()[0]
+    want_flags = {"--agent": "claude-code", "-m": "anthropic/claude-haiku-5-5", "--base-url": "http://relay:8080",
+                  "--effort": "low", "--max-retries": "0", "--agent-setup-timeout-multiplier": "3",
+                  "--agent-timeout-multiplier": "1", "--verifier-timeout-multiplier": "1", "--env": "podman",
+                  "--job-name": attempt["id"]}
+    aks = [argv[i + 1] for i, a in enumerate(argv) if a == "--ak"]
+    assert ({k: argv[argv.index(k) + 1] for k in want_flags}, sorted(aks),
+            [argv[i + 1] for i, a in enumerate(argv) if a == "--ae"], "--skip-credential-checks" in argv,
+            ["keep_containers=true"] == [argv[i + 1] for i, a in enumerate(argv) if a == "--ek"],
+            argv[:2], {k: env[k] for k in ("CLAUDE_FORCE_OAUTH", "CLAUDE_CODE_OAUTH_TOKEN")},
+            started["affinity"], started["pgid"] == started["pid"]) == (
+        want_flags, sorted(["version=2.1.311", "disallowed_tools=" + ",".join(CRITERION["attempt"]["deny_list"]),
+                            "max_budget_usd=3.0"]),
+        ["CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000"], True, True,
+        [str(r.kit.kit / "harbor_patient.py"), "run"], {"CLAUDE_FORCE_OAUTH": "1", "CLAUDE_CODE_OAUTH_TOKEN": attempt["token"]},
+        list(range(24)), True)
+
+
+def test_no_credential_is_in_any_file_environment_or_command_line(rig):
+    """The passthrough's rehearsal canary stands for the real token: after an attempt it is in no file of the state,
+    the stand-in harness's recorded command line and environment, or the cache; the harness had nothing else."""
+    r = rig()
+    r.launch()
+    fingerprint = r.root / "passthrough" / "fingerprint.json"
+    scan = subprocess.run([sys.executable, "-I", str(KIT / "token_scan.py"), "scan", "--fingerprint", str(fingerprint),
+                           str(r.root), str(r.lh), str(r.kit.repo)], capture_output=True, text=True, timeout=WAIT)
+    env = r.calls()[0]["env"]
+    assert (scan.returncode, sorted(env), r.canary in json.dumps(r.calls())) == (
+        0, sorted(["HOME", "PATH", "HARBOR_TELEMETRY", "DO_NOT_TRACK", "XDG_RUNTIME_DIR", "CONTAINERS_CONF_OVERRIDE",
+                   "LH_RELAY_SOCKET_DIR", "CLAUDE_FORCE_OAUTH", "CLAUDE_CODE_OAUTH_TOKEN"]), False)
+
+
+def test_the_egress_log_is_followed_out_and_kept_before_the_containers_are_removed(rig):
+    r = rig(plan=[{"egress": '{"sid": "a", "msg": "bypass"}\n{"sid": "a", "dst": "198.51.100.7:443"}\n'
+                             '{"sid": "b", "msg": "10.0.0.2:1 <-> relay:8080"}'}])
+    r.launch()
+    attempt_dir = r.root / "slots" / r.attempts()[0]["id"]
+    calls = r.podman_calls()
+    sidecar = next(c[1] for c in calls if c[0] == "logs")
+    first_rm = next(i for i, c in enumerate(calls) if c[0] == "rm")
+    kept = [p.read_text() for p in attempt_dir.glob("egress-*.log")]
+    assert (calls.index(["logs", sidecar]) < first_rm, len(kept), "198.51.100.7:443" in kept[0],
+            ladder.egress_refused(attempt_dir)) == (True, 1, True, {"198.51.100.7:443": 1})
+
+
+def test_a_slot_closes_only_after_every_container_is_removed_and_the_cli_s_later_requests_are_metered_into_it(rig):
+    """The stand-in CLI goes on sending requests after the harness ends, as the real one does after a time limit,
+    until its container is gone; a container that survives two removals keeps the slot open meanwhile."""
+    r = rig(plan=[{"fixture": str(KIT / "fixtures" / "stub-timeout-AgentTimeoutError.json"), "stubborn": 2,
+                   "after_requests": 50}])
+    r.launch()
+    attempt = r.attempts()[0]
+    after = [n["status"] for n in r.notes() if n["what"] == "after"]
+    ended = next(n["time"] for n in r.notes() if n["what"] == "ended")
+    slot_rows = [row for row in r.rows() if row["slot"] == attempt["id"]]
+    rm_calls = [c for c in r.podman_calls() if c[0] == "rm"]
+    assert (bool(after), set(after), [row for row in r.rows() if row.get("refused")],
+            any(row["time"] > ended for row in slot_rows), len(rm_calls) >= 3, attempt["settled"]["row"],
+            attempt["settled"]["figures"]["meter"] == pytest.approx(sum(row["usd"] for row in slot_rows))) == (
+        True, {200}, [], True, True, 3, True)
+
+
+def test_low_disk_stops_the_tranche_and_a_running_attempt_ends_within_seconds_leaving_nothing(rig):
+    r = rig(plan=[{"sleep": 600, "child": True}])
+    host = r.kit.reh / "host"
+    proc = r.start_launch()
+    deadline = time.monotonic() + WAIT
+    while not any(n["what"] == "child" for n in r.notes()) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    started = next(n for n in r.notes() if n["what"] == "started")
+    (host / "free_gb").write_text("19")
+    flipped = time.monotonic()
+    out, err = proc.communicate(timeout=WAIT)
+    took = time.monotonic() - flipped
+    group = subprocess.run(["pgrep", "-g", str(started["pgid"])], capture_output=True, text=True).stdout.split()
+    assert (proc.returncode, took < 60, group, _containers(r.lh), r.attempts()[0]["settled"] is not None,
+            [e["reason"] for e in r.events() if e["event"] == "stop"]) == (
+        0, True, [], [], True, ["free disk under 20 GB"])
+
+
+def test_a_signal_to_the_launcher_ends_a_running_attempt_within_seconds_leaves_nothing_and_pauses(rig):
+    r = rig(plan=[{"sleep": 600, "child": True}])
+    proc = r.start_launch()
+    deadline = time.monotonic() + WAIT
+    while not any(n["what"] == "child" for n in r.notes()) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    started = next(n for n in r.notes() if n["what"] == "started")
+    proc.terminate()
+    signalled = time.monotonic()
+    proc.communicate(timeout=WAIT)
+    took = time.monotonic() - signalled
+    group = subprocess.run(["pgrep", "-g", str(started["pgid"])], capture_output=True, text=True).stdout.split()
+    assert (proc.returncode, took < 60, group, _containers(r.lh), r.attempts()[0]["settled"] is not None,
+            [e["reason"] for e in r.events() if e["event"] == "pause"]) == (
+        0, True, [], [], True, ["the launcher was signalled"])
+
+
+def test_a_passthrough_that_died_without_closing_starts_pauses_the_tranche(rig):
+    r = rig()
+    r.passthrough.kill()  # SIGKILL: it writes no close_starts, and its socket stays behind
+    r.passthrough.wait(timeout=WAIT)
+    code, out, err = r.launch()
+    assert (code, r.attempts(), [e["reason"] for e in r.events() if e["event"] == "pause"]) == (
+        0, [], ["the passthrough down"])
+
+
+def test_an_overlay_whose_digest_is_not_the_criterion_s_stops_the_tranche_before_the_harness_runs(rig):
+    r = rig(stand_ins={"tasks.overlay_digests": {t: "0" * 64 for t in TASKS}})
+    r.launch()
+    assert ([e["reason"] for e in r.events() if e["event"] == "stop"], r.calls(), _containers(r.lh)) == (
+        ["refused at launch"], [], [])
+
+
+@pytest.mark.parametrize("load", ["30.0 30.0 30.0", "24.0 24.5 20.0", "24.5 24.0 20.0"])  # both, 5-min, 1-min above
+def test_the_load_gate_waits_and_pauses_after_its_wait_with_nothing_in_flight(rig, load):
+    r = rig()
+    host = r.kit.reh / "host"
+    (host / "loadavg").write_text(f"{load} 1/1 1\n")
+    code, out, err = r.launch()
+    assert (code, r.attempts(), [(e["event"], e["reason"]) for e in r.events() if e["event"] == "pause"]) == (
+        0, [], [("pause", "the load wait: the gate stayed closed with nothing in flight")])
+
+
+def test_the_load_gate_opens_when_the_load_falls_below_it(rig):
+    r = rig()
+    host = r.kit.reh / "host"
+    (host / "loadavg").write_text("24.0 24.5 20.0 1/1 1\n")  # the 5-minute average is above 24
+    proc = r.start_launch()
+    time.sleep(2)
+    waited = r.attempts()
+    (host / "loadavg").write_text("23.0 24.0 30.0 1/1 1\n")  # both at or below the gate
+    proc.communicate(timeout=WAIT * 3)
+    assert (waited, len(r.attempts())) == ([], 1)
+
+
+def _export(r):
+    path = r.kit.reh / "export.json"
+    subprocess.run([sys.executable, "-I", str(r.kit.kit / "ladder.py"), "status", "--export", str(path)],
+                   cwd=r.kit.repo, env=r.kit.env(), check=True, capture_output=True, timeout=WAIT)
+    return json.loads(path.read_text())
+
+
+def test_a_match_of_the_token_scanner_at_teardown_stops_the_tranche_and_the_attempt_is_never_scored(rig):
+    """The session ended normally (row 5) with reward 1; the launcher's stop makes it a stop, not a success."""
+    r = rig()
+    (r.lh / "standin" / "plan.json").write_text(json.dumps([{"write": {"agent/kept.log": f"x {r.canary} y"}}]))
+    r.launch()
+    stops = [e["reason"] for e in r.events() if e["event"] == "stop"]
+    start = _export(r)["starts"][0]
+    cause = "a match of token_scan.py in the attempt's output"
+    assert (stops, r.attempts()[0]["settled"]["class"], [start[k] for k in ("row", "class", "cause", "reward")]) == (
+        [cause], "stop", [5, "stop", cause, None])
+
+
+def test_the_runtime_check_scans_every_container_s_configuration_and_environment_and_a_match_stops_the_tranche(rig):
+    r = rig()
+    (r.lh / "standin" / "plan.json").write_text(json.dumps([{"container_env": ["PATH=/usr/bin", f"X={r.canary}"]}]))
+    r.launch()
+    stops = [e["reason"] for e in r.events() if e["event"] == "stop"]
+    attempt_dir = r.root / "slots" / r.attempts()[0]["id"]
+    kept = sorted(p.name for p in (attempt_dir / "containers").iterdir())
+    assert (stops, sum(n.endswith(".inspect.json") for n in kept), sum(n.endswith(".environ") for n in kept)) == (
+        ["a match of the runtime check in the attempt's containers"], 2, 2)
+
+
+def test_the_smoke_s_runtime_check_also_scans_the_agent_container_s_exported_file_system(rig):
+    r = rig()
+    (r.lh / "standin" / "plan.json").write_text(json.dumps([{"container_fs": f"etc/x {r.canary}\n"}]))
+    r.launch()
+    assert [e["reason"] for e in r.events() if e["event"] == "stop"] == [
+        "a match of the runtime check in the attempt's containers"]
+
+
+def test_after_the_smoke_read_the_pilot_s_block_runs_three_together_and_waits_for_the_pilot_s_row(rig):
+    r = rig(plan=[{}, {"sleep": 2}, {"sleep": 2}, {"sleep": 2}])
+    r.launch()
+    r.ledger("Smoke read", f"{r.label} pass")
+    code, out, err = r.launch()
+    pilot = [a for a in r.attempts() if a["kind"] == "pilot"]
+    starts = sorted(n["time"] for n in r.notes() if n["what"] == "started")[1:]
+    assert (code, "waiting for the pilot's ledger row" in out, sorted(a["effort"] for a in pilot),
+            {a["task"] for a in pilot}, starts[-1] - starts[0] < 2) == (
+        0, True, ["high", "low", "medium"], {"rs-archive-clone"}, True)
+
+
+def test_a_failed_smoke_stops_the_tranche(rig):
+    r = rig()
+    r.launch()
+    r.ledger("Smoke read", f"{r.label} fail")
+    code, out, err = r.launch()
+    assert ([e["reason"] for e in r.events() if e["event"] == "stop"], len(r.attempts())) == (["a failed smoke"], 1)
+
+
+# The schedule (D7.3, D7.4).
+
+def _criterion(**values):
+    doc = json.loads(json.dumps(CRITERION))
+    for field, value in {**STAND_INS, "schedule.order.hash": ladder.ORDER_HASH, **values}.items():
+        ladder._set(doc, field, value)
+    return doc
+
+
+ALL16 = [t["name"] for t in CRITERION["tasks"]["list"]]
+
+
+def test_the_schedule_is_deterministic_begins_with_the_smoke_then_the_pilot_s_block_and_runs_in_blocks():
+    one, again = (ladder.schedule(_criterion(**{"tasks.qualified": ALL16})) for _ in range(2))
+    other = ladder.schedule(_criterion(**{"tasks.qualified": ALL16, "schedule.order.seed": "another seed"}))
+    rounds = [e for e in one if e["kind"] == "round"]
+    blocks = [[e for e in rounds if (e["round"], e["task"]) == key] for key in dict.fromkeys((e["round"], e["task"]) for e in rounds)]
+    positions = [[rounds.index(e) for e in block] for block in blocks]
+    assert (one == again, one != other, [(e["kind"], e["task"], e["effort"]) for e in one[:4]],
+            [(e["round"], e["task"]) for e in one[4:6]], len(one),
+            {len({(e["round"], e["task"], e["effort"]) for e in one})}, all(p == list(range(p[0], p[0] + len(p))) for p in positions),
+            [e["round"] for e in rounds] == sorted(e["round"] for e in rounds)) == (
+        True, True, [("smoke", "gsea-proteomics", "low")] + [("pilot", "rs-archive-clone", e) for e in
+                                                            [x["effort"] for x in one[1:4]]],
+        [(1, "gsea-proteomics")] * 2, 240, {240}, True, True)
+
+
+def test_the_four_slots_already_run_are_skipped_and_only_qualified_tasks_have_blocks():
+    plan = ladder.schedule(_criterion())
+    keys = [(e["round"], e["task"], e["effort"]) for e in plan]
+    assert (len(plan), len(set(keys)), {e["task"] for e in plan}, keys.count((1, "gsea-proteomics", "low")),
+            sorted(e["effort"] for e in plan[1:4])) == (45, 45, set(TASKS), 1, ["high", "low", "medium"])
+
+
+def test_cut_at_any_start_the_schedule_leaves_at_most_one_block_partial_and_no_task_more_than_a_block_behind():
+    plan = ladder.schedule(_criterion(**{"tasks.qualified": ALL16}))
+    worst = []
+    for cut in range(len(plan) + 1):
+        done = {}
+        for e in plan[:cut]:
+            done.setdefault(e["task"], {}).setdefault(e["round"], 0)
+            done[e["task"]][e["round"]] += 1
+        partial = sum(1 for rounds in done.values() for n in rounds.values() if n < 3)
+        whole = [sum(1 for n in done.get(t, {}).values() if n == 3) for t in ALL16]
+        worst.append((partial, max(whole) - min(whole)))
+    assert (max(p for p, _ in worst[4:]), max(d for _, d in worst)) == (1, 1)
+
+
+@pytest.mark.parametrize("head,rows,want", [
+    ({"kind": "smoke", "round": 1}, [], None),
+    ({"kind": "pilot", "round": 1}, [], "waiting for the smoke read"),
+    ({"kind": "pilot", "round": 1}, [("Smoke read", "pass")], None),
+    ({"kind": "round", "round": 1}, [("Smoke read", "pass")], "waiting for the pilot's ledger row"),
+    ({"kind": "round", "round": 1}, [("Smoke read", "pass"), ("Pilot read", "")], None),
+    ({"kind": "round", "round": 2}, [("Smoke read", "pass"), ("Pilot read", "")], "waiting for the round-one read"),
+    ({"kind": "round", "round": 2}, [("Smoke read", "pass"), ("Pilot read", ""), ("Round 1 read", "")], None),
+    ({"kind": "pilot", "round": 1}, [("Smoke read", "fail")], "a failed smoke")])
+def test_the_schedule_waits_for_the_smoke_read_the_pilot_s_ledger_row_and_the_round_one_read(head, rows, want):
+    label = "c" * 64
+    text = "".join(f"| 2026-11-20 | {what} | {label} {cell} |\n" for what, cell in rows)
+    assert ladder.hold(head, text, [label]) == want
+
+
+def test_a_criterion_naming_another_order_hash_is_refused(short):
+    kit = Kit(short)
+    (kit.reh / "stand_ins.json").write_text(json.dumps({**STAND_INS, "schedule.order.hash": "md5"}))
+    env = kit.env()
+    kit.allowance_inputs(env)
+    assert _refused(kit, env)[1].startswith("the criterion's schedule.order.hash is not the launcher's")
+
+
+# The contamination scan (coordinator ruling): the frozen terms over the transcript and the exported files.
+
+def test_the_contamination_scan_finds_a_term_in_the_transcript_and_in_an_exported_file_and_records_no_term(short):
+    trial = short / "trial"
+    (trial / "agent").mkdir(parents=True)
+    (trial / "artifacts").mkdir()
+    (trial / "agent" / "claude-code.txt").write_text("cd /x && cat secret-term-one/solve.sh\n")
+    (trial / "artifacts" / "out.txt").write_text("nothing\nnothing then secret-term-two\n")
+    (trial / "verifier").mkdir()
+    (trial / "verifier" / "log.txt").write_text("secret-term-one\n")  # not the agent's: not scanned
+    terms = ["secret-term-one", "secret-term-two", "absent-term"]
+    found = ladder.contamination(trial, terms)
+    sha = {t: hashlib.sha256(t.encode()).hexdigest() for t in terms}
+    assert (found, any(t in json.dumps(found) for t in terms)) == (
+        {"contaminated": True, "hits": [
+            {"term_sha256": sha["secret-term-one"], "file": "agent/claude-code.txt", "offset": 13},
+            {"term_sha256": sha["secret-term-two"], "file": "artifacts/out.txt", "offset": 21}]}, False)
+
+
+def test_the_contamination_scan_finds_nothing_in_a_clean_trial(short):
+    trial = short / "trial"
+    (trial / "agent").mkdir(parents=True)
+    (trial / "agent" / "claude-code.txt").write_text("all clean\n")
+    assert ladder.contamination(trial, ["secret-term-one"]) == {"contaminated": False, "hits": []}
+
+
+def test_the_contamination_scan_finds_a_term_split_across_a_chunk_boundary(short):
+    trial = short / "trial"
+    (trial / "agent").mkdir(parents=True)
+    chunk = 64
+    (trial / "agent" / "big.txt").write_bytes(b"x" * (chunk - 5) + b"secret-term-one" + b"y" * 200)
+    found = ladder.contamination(trial, ["secret-term-one"], chunk=chunk)
+    assert [(h["file"], h["offset"]) for h in found["hits"]] == [("agent/big.txt", chunk - 5)]
+
+
+def test_the_canary_identifier_is_read_from_the_package_by_its_sha256(short):
+    package = short / "x"
+    package.mkdir()
+    (package / "task.toml").write_text("# A HEADER LINE\n# made-up-canary 0f0e-11\n[task]\nname = \"t\"\n")
+    assert (ladder.canary_term(package, hashlib.sha256(b"0f0e-11").hexdigest()),
+            ladder.canary_term(package, "0" * 64)) == ("0f0e-11", None)
+
+
+def test_a_contaminated_attempt_is_an_excluded_observation_and_three_tasks_with_one_of_any_class_stop_the_tranche(rig):
+    r = rig(stand_ins={"readout.contamination_scan.terms": ["stand-in-term"]},
+            plan=[{"write": {"agent/note.txt": "found stand-in-term here"}}])
+    r.launch()
+    (attempt,) = r.attempts()
+    start = _export(r)["starts"][0]
+    three = [{"task": t, "settled": {"class": c, "contamination": {"contaminated": True}}}
+             for t, c in zip(TASKS, ("observation", "cut", "stop"))]
+    assert (attempt["settled"]["class"], attempt["settled"]["contamination"]["contaminated"], start["excluded"],
+            start["contamination"], [e for e in r.events() if e["event"] == "stop"],
+            ladder.contamination_stop(three[:2], CRITERION), ladder.contamination_stop(three, CRITERION)) == (
+        "observation", True, "contaminated", [hashlib.sha256(b"stand-in-term").hexdigest()], [], None,
+        "contaminated attempts on three tasks")
+
+
+@pytest.mark.parametrize("cls,row", [("cut", 10), ("infrastructure_failure", 15), ("stop", 13)])
+def test_a_contamination_hit_on_a_start_of_another_class_is_recorded_and_excludes_nothing(short, cls, row):
+    sha = hashlib.sha256(b"stand-in-term").hexdigest()
+    settled = {"row": row, "class": cls, "reward": None, "usd": 1.0, "stop": "D5 row 13" if cls == "stop" else None,
+               "contamination": {"contaminated": True, "hits": [{"term_sha256": sha, "file": "agent/x", "offset": 0}]}}
+    (short / "slots" / "001").mkdir(parents=True)
+    start = ladder._start_record(short, {"id": "001", "index": 1, "label": "c" * 64, "round": 1,
+                                         "task": "gsea-proteomics", "effort": "low", "settled": settled})
+    assert (start["class"], start["excluded"], start["contamination"]) == (cls, None, [sha])
+
+
+# The export the readout reads (feat/lh-readout, slot_record.py: EXPORT, SLOT, START, copied here until one branch
+# imports the other's module).
+
+EXPORT = {"label": str, "earlier_labels": list, "end": (dict, type(None)), "slots": list, "starts": list,
+          "allowance": (dict, type(None))}
+SLOT = {"slot": str, "task": str, "effort": str, "round": int, "pilot": bool}
+START = {"slot": str, "start": int, "label": str, "row": int, "class": str, "cause": (str, type(None)),
+         "reward": (int, float, type(None)),
+         "excluded": (str, type(None)), "contamination": list, "usd": (int, float), "minutes": (int, float), "tokens": dict,
+         "graded": (dict, type(None)), "egress_refused": dict}
+
+
+def _fits(doc, layout):
+    return set(doc) == set(layout) and all(isinstance(doc[k], t) for k, t in layout.items())
+
+
+def test_the_export_is_the_readout_s_record_layout(rig):
+    r = rig()
+    r.launch()
+    doc = _export(r)
+    slots = {s["slot"] for s in doc["slots"]}
+    start = doc["starts"][0]
+    assert (_fits(doc, EXPORT), all(_fits(s, SLOT) for s in doc["slots"]), all(_fits(s, START) for s in doc["starts"]),
+            start["slot"] in slots, doc["label"], start["label"], sorted(start["tokens"]), start["egress_refused"],
+            sum(s["pilot"] for s in doc["slots"])) == (
+        True, True, True, True, r.label, r.label, sorted(["input", "output", "cache_read", "cache_write_5m",
+                                                          "cache_write_1h"]), {"203.0.113.9:443": 1}, 3)
