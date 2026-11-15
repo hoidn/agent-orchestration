@@ -2033,7 +2033,8 @@ workflow call for example, under the two conditions of §16.3:
   or of a function, nor in the body of a `let-proc` local. The body of a `defproc` and an
   argument of a workflow `call` take it.
 
-Otherwise the program is refused: bind the value with `let*` first and use its name.
+Otherwise the program is refused: bind the part that is not simple with `let*` first and use
+its name.
 Diagnostics, by the place that holds the effect: `effect_not_permitted` (an element, a path
 child), `list_map_body_effect_forbidden` (a `list/map` source),
 `list_map_effect_body_unsupported` (a `list/map-effect` source, serial or parallel). A source
@@ -2121,7 +2122,8 @@ source's order. An empty source gives the empty list and evaluates no body.
   the entry and every definition it reaches. A workflow the entry does not reach does not count.
   `list/map` is not concerned. Diagnostics: `list_map_effect_body_unsupported`.
 - *`:max`* of a serial map is a positive integer literal or any `Int` expression: an `if`, a
-  `match`, a loop or another map among them, with or without an effect. It is evaluated once,
+  `match`, a loop or an expression over another map's result among them, with or without an
+  effect. It is evaluated once,
   after the source and before the first element, and does not see the binder. Diagnostics:
   `list_map_effect_max_invalid` (absent, a literal below 1, or not an `Int`).
 - *More elements than `:max`.* A serial map evaluates the body for the first `:max` elements and
@@ -2154,7 +2156,8 @@ source's order. An empty source gives the empty list and evaluates no body.
   `pure_expr_operand_type_mismatch` (a workspace of another type);
   `list_map_effect_body_unsupported` (an unknown or repeated clause). A `:parallel` that is
   absent or not a positive integer literal is refused with the code of `:max` spelled with
-  `parallel` in place of `max`, a name not yet catalogued.
+  `parallel` in place of `max`; the diagnostic catalogue does not list that name (an open
+  defect: the name is built when the refusal is raised).
 - *Parallel, at run time.* The run fails before any element is evaluated when the list is
   longer than `:max` (`list_map_effect_cap_exceeded`), when a workspace directory does not
   exist, and when two elements name one directory (`parallel_workspace_shared`). When an
