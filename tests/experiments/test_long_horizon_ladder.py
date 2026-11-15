@@ -610,6 +610,30 @@ def test_the_log_keys_the_criterion_names_are_keys_the_passthrough_writes():
     assert (bool(named), sorted(set(classification["passthrough_row_keys"]) - named), unwritten) == (True, [], [])
 
 
+# ---- D6: the contamination terms (Task 2b's dry run) --------------------------------------------------------
+
+def _tasks_json():
+    return json.loads((KIT / "tasks.json").read_text())
+
+
+def test_the_scan_terms_are_the_checked_copy_s_repository_and_each_task_s_reference_solution_path_in_it():
+    """D6: the benchmark repository's path and the reference solution's full path in that repository, held to the
+    copy tasks.json records (`<repository> at <commit>`, its tasks under `tasks/<name>`)."""
+    tasks = _tasks_json()
+    repository = tasks["checked_copy"].split(" at ")[0]
+    names = [t["name"].rsplit("/", 1)[-1] for t in tasks["tasks"]]
+    assert _ladder()["readout"]["contamination_scan"]["terms"] == [repository] + [
+        f"tasks/{name}/solution" for name in names]
+
+
+def test_the_canary_exempt_tasks_are_those_whose_agent_image_holds_the_canary():
+    """Task 7 ruling 6: a task whose agent-visible starting files hold the canary is scanned without it. The
+    withholding check searched each pinned agent image's whole file system for it (tasks.json, `withholding`)."""
+    holding = [t["name"].rsplit("/", 1)[-1] for t in _tasks_json()["tasks"]
+               if t["withholding"]["canary"] != "not found"]
+    assert (_ladder()["readout"]["contamination_scan"]["canary_exempt_tasks"], len(holding)) == (holding, 7)
+
+
 # ---- pending, manifest and freeze ---------------------------------------------------------------------------
 
 PENDING_OR_FILLED = {
