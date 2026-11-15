@@ -2108,30 +2108,35 @@ source's order. An empty source gives the empty list and evaluates no body.
   then fails the run with `list_map_effect_cap_exceeded`; a list of exactly `:max` elements
   succeeds. A computed `:max` below 1 fails with the same code before the first element of a
   non-empty list, and gives the empty list for an empty one.
-- *Failure and resume.* A body that fails for one element fails the run with the failing
-  effect's own code; the elements after it are not evaluated and no partial list is returned. On
-  `resume`, the elements that completed are not evaluated again: the map continues at the failed
-  element and returns every value in order
-  ([evaluated execution](workflow_lisp_evaluated_execution.md) owns resume).
+- *Failure and resume.* A body of a serial map that fails for one element fails the run with
+  the failing effect's own code; the elements after it are not evaluated and no partial list is
+  returned. On `resume`, the elements that completed are not evaluated again: the map continues
+  at the failed element and returns every value in order
+  ([evaluated execution](workflow_lisp_evaluated_execution.md) owns resume). A parallel map
+  differs: see *Parallel, at run time*.
 - A discriminant proof does not reach a serial map's body (§12.2). Open defects: a body that
   calls a generic procedure holding an effect is refused with `procedure_call_unknown` (E7); a
   serial map in the body of a `let-proc` local does not build (D9-map).
 - A serial map takes each element with a compiler-owned head read. That read fails with
   `list_nonempty_invariant_broken` on an empty list; the map evaluates it after testing that
   elements remain, and no source form names it.
-- *Parallel.* With `:parallel k` and `:workspace w` the map is a parallel map: each element is
-  evaluated in its workspace
+- *Parallel, the clauses.* With `:parallel k` and `:workspace w` the map is a parallel map:
+  each element is evaluated in its workspace
   ([evaluated execution §11](workflow_lisp_evaluated_execution.md#11-parallel-effects)). `:max`
   and `:parallel` are positive integer literals and `:workspace` is required; the clauses come in
-  any order before the body, each once. A list longer than `:max` fails with
-  `list_map_effect_cap_exceeded` before any element. `:workspace` is a pure `String` or path
-  expression that may read the binder. A parallel map may be written directly in the body of a
-  serial map or of a loop. Diagnostics: `list_map_effect_max_invalid`;
-  `list_map_effect_workspace_invalid` (absent, or not pure);
-  `pure_expr_operand_type_mismatch` (a workspace of another type);
+  any order before the body, each once. `:workspace` is a pure `String` or path expression that
+  may read the binder. A parallel map may be written directly in the body of a serial map or of
+  a loop. Diagnostics: `list_map_effect_max_invalid`; `list_map_effect_workspace_invalid`
+  (absent, or not pure); `pure_expr_operand_type_mismatch` (a workspace of another type);
   `list_map_effect_body_unsupported` (an unknown or repeated clause). A `:parallel` that is
   absent or not a positive integer literal is refused with the code of `:max` spelled with
   `parallel` in place of `max`.
+- *Parallel, at run time.* A list longer than `:max` fails with `list_map_effect_cap_exceeded`
+  before any element. When an element fails, its own later effects do not run, and the other
+  elements still run to completion and their results are committed; then the map fails the run
+  with the failing effect's own code and returns no list. On `resume` no committed effect runs
+  again: the failed element continues at the effect that failed, and the map returns every
+  value in the source's order.
 
 **`path/join-under`.** `(path/join-under PathType child)` gives a value of `PathType`: the
 type's `:under` root joined with `child`.
