@@ -272,7 +272,7 @@ Targets 2.35/2.36, admitted bounded 2.37, registered bounded 2.38 (agent
 sessions; see versioning), 2.39 and 2.40 use this persistence contract, with
 their separately specified class-specific extensions.
 [Versioning](versioning.md#version-gating-summary) owns the 2.37 and 2.38
-qualification limits; W3 changes authoring and graph-selected helper source without changing
+qualification limits; W3 changes authoring and the packaged `std/improve` API without changing
 this profile, journal or resume guards.
 
 ### Authority and run root
