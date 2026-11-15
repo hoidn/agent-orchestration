@@ -21,6 +21,8 @@
   study.py readout                                        anchors first, then V1-V4, G1-G4, incidents, baselines
   study.py ledger                                         calls reserved and made, and the events
   study.py resume-after-limit --reset T --five-hour P --weekly P --read-at T   reopen starts a usage limit closed
+  study.py not-a-limit UNIT --reason R                    the raw result shows no usage limit: the unit is what the
+                                                          rules make it (an incident or a failure), its pause goes
 
 `candidates`, `settle`, `pool`, `judge`, `summarize` and `probe` run one at a time per study (`study.lock` beside the
 ledger, so ruling R3's two units in flight hold across processes), and each starts by removing every credential
@@ -367,12 +369,59 @@ def pause_on_limit(study, calls_root, unit):
 
 def provider_end(study, calls_root, unit, out):
     """The provider's own ending of a unit: a usage limit cuts it (not an incident, not an observation) and closes
-    every start (`pause_on_limit`); any other provider error ends a failed unit as an incident."""
+    every start (`pause_on_limit`); the incident a cut sets aside is kept in the cut, for `not_a_limit`. Any other
+    provider error ends a failed unit as an incident (`provider_error`)."""
     if limit := pause_on_limit(study, calls_root, unit):
-        return {key: value for key, value in out.items() if key != "incident"} | {"cut": limit}
-    if out.get("outcome") == "failed" and (why := units.provider_incident(calls_root)):
+        aside = {"incident": out["incident"]} if "incident" in out else {}
+        return {key: value for key, value in out.items() if key != "incident"} | {"cut": limit | aside}
+    return provider_error(calls_root, out)
+
+
+def provider_error(calls_root, out):
+    """A failed run whose calls show a provider error (`units.provider_incident`) is an incident."""
+    if out.get("outcome") == "failed" and "incident" not in out and (why := units.provider_incident(calls_root)):
         out["incident"] = f"provider: {why}"
     return out
+
+
+@exclusive
+def not_a_limit(study, unit, reason):
+    """The operator's decision, after reading the raw result, that a usage-limit pause was no usage limit
+    (re-review n3). The settled unit is no longer `cut` but what the rules then make it: the incident its cut set
+    aside, an incident when it failed with a provider error, else what its outcome says (a natural failure scores
+    0). The decision and the reason go to the ledger, and that pause no longer closes starts; nothing runs again
+    (a unit that is not cut has no re-run). Taken only while the pause is open. A unit not yet settled refuses:
+    `settle` it (a probe run is settled by `probe` once starts reopen)."""
+    if not reason.strip():
+        raise SystemExit("not-a-limit needs the operator's reason: what the raw result shows")
+    spend.limit_pause(spend.rows(study.ledger), unit)
+    path, calls_root = unit_files(unit)
+    if not path.is_file() or "calls" not in load(path):
+        raise SystemExit(f"{unit} is not settled: `settle` it first (a probe run: `probe`, once starts reopen)")
+    if "not_a_limit" not in (facts := load(path)):  # a decision whose ledger row a crash lost is not applied twice
+        dump(path, uncut(facts, calls_root) | {"not_a_limit": reason})
+    row = spend.not_a_limit(study.ledger, unit, reason)
+    for why in rules.stop_reasons(study):
+        rules.stop(study, why)
+    return row
+
+
+def unit_files(unit):
+    """(facts file, calls root) of a ledger unit: a run's records directory, or `<pool>#<judge>`."""
+    pool, _, judge = str(unit).partition("#")
+    if judge:
+        return Path(pool) / "records" / f"study-{judge}.json", Path(pool) / "records" / "judges" / judge
+    return Path(unit) / "study.json", Path(unit)
+
+
+def uncut(facts, calls_root):
+    """A unit's facts once its cut is withdrawn: the incident the cut set aside comes back, and a failed run whose
+    calls show a provider error becomes an incident."""
+    aside = (facts.get("cut") or {}).get("incident")
+    out = {key: value for key, value in facts.items() if key != "cut"}
+    if aside and "incident" not in out:
+        out["incident"] = aside
+    return provider_error(calls_root, out)
 
 
 @exclusive
@@ -727,6 +776,9 @@ def parser():
     limit.add_argument("--five-hour", type=float, required=True, help="the owner's five-hour meter, percent used")
     limit.add_argument("--weekly", type=float, required=True, help="the owner's weekly meter, percent used")
     limit.add_argument("--read-at", type=iso_time, required=True, help="when the owner read both meters, ISO 8601")
+    withdrawn = sub.add_parser("not-a-limit", help="record that a usage-limit pause's raw result shows no limit")
+    withdrawn.add_argument("unit", help="the pause's unit: a run's records directory, or <pool>#<judge>")
+    withdrawn.add_argument("--reason", required=True, help="what the raw result shows")
     transcripts = sub.add_parser("record-transcripts")
     transcripts.add_argument("--fault", choices=("yes", "no"), required=True)
     transcripts.add_argument("--note", required=True)
@@ -770,6 +822,7 @@ def main(argv=None):
         "ledger": lambda: ledger_report(study),
         "resume-after-limit": lambda: print(json.dumps(spend.resume_after_limit(
             study.ledger, a.reset, a.five_hour, a.weekly, a.read_at))),
+        "not-a-limit": lambda: print(json.dumps(not_a_limit(study, a.unit, a.reason))),
     }
     commands[a.command]()
 

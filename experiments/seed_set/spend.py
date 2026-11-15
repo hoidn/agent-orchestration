@@ -107,10 +107,12 @@ def remaining(entries, tranche, kind, model):
 
 
 def open_pauses(entries):
-    """The `pause` events after the last `resume`: while one is open, nothing starts."""
+    """The `pause` events after the last `resume` that no `not_a_limit` decision withdrew: while one is open,
+    nothing starts."""
     events = [row for row in entries if row["kind"] == "event" and row["event"] in ("pause", "resume")]
     resumed = max((k for k, row in enumerate(events) if row["event"] == "resume"), default=-1)
-    return events[resumed + 1:]
+    withdrawn = {row["pause"] for row in entries if row["kind"] == "event" and row["event"] == "not_a_limit"}
+    return [row for row in events[resumed + 1:] if row["seq"] not in withdrawn]
 
 
 def refuse_closed(entries):
@@ -119,11 +121,37 @@ def refuse_closed(entries):
     if stop:
         raise SystemExit(f"the study is stopped ({stop['reason']}); nothing more starts")
     if pauses := open_pauses(entries):
-        pause = pauses[0]
-        flag = f"; {pause['flag']}" if pause.get("flag") else ""
-        raise SystemExit(f"starts are closed by {pause.get('reason') or 'a usage limit'} ({pause.get('unit')}, resets "
-                         f"{when(pause.get('reset'))}{flag}): read the raw result ({pause.get('raw') or pause.get('unit')})"
-                         ", then `resume-after-limit` after the reset, with the owner's meter reading")
+        raise SystemExit(closed_by(pauses[0]))
+
+
+def closed_by(pause):
+    """What the operator reads while `pause` closes starts: the unit, the reset, and for a usage limit its flag, the
+    rule that fired, the line it read, and how to record that the raw result shows no limit (re-review n3)."""
+    unit, limit = pause.get("unit"), bool(pause.get("rule"))
+    fired = f"; {pause['flag']}" if pause.get("flag") else ""
+    fired += f"; rule: {pause['rule']}, on {pause.get('text')!r}" if limit else ""
+    return (f"starts are closed by {pause.get('reason') or 'a usage limit'} ({unit}, resets {when(pause.get('reset'))}"
+            f"{fired}): read the raw result ({pause.get('raw') or unit}), then `resume-after-limit` after the reset, "
+            "with the owner's meter reading" + (f"; if it shows no usage limit, `not-a-limit {unit} --reason R` "
+                                                "records that" if limit else ""))
+
+
+def limit_pause(entries, unit):
+    """The open pause a recognised usage limit of `unit` wrote (it names its rule); refuses without one."""
+    pause = next((row for row in open_pauses(entries) if row.get("unit") == str(unit) and row.get("rule")), None)
+    if pause is None:
+        raise SystemExit(f"no open usage-limit pause of {unit}: nothing to record (a pause by a unit settled above its "
+                         "worst case reopens by `resume-after-limit` only)")
+    return pause
+
+
+def not_a_limit(ledger, unit, reason):
+    """Record the operator's decision that the open usage-limit pause of `unit` was no usage limit, with the reason
+    (re-review n3): that pause no longer closes starts (`open_pauses`). Returns the row."""
+    with locked(ledger) as (stream, entries):
+        pause = limit_pause(entries, unit)
+        return _append(stream, entries, {"kind": "event", "event": "not_a_limit", "unit": str(unit),
+                                         "pause": pause["seq"], "reason": reason})
 
 
 def when(epoch):

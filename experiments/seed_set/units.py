@@ -37,6 +37,12 @@ from orchestrator.providers.usage import usage_from_stdout
 LIMIT_WORDINGS = (r"hit your .*limit", r"usage limit", r"session limit", r"weekly limit")
 LIMIT_TEXT = re.compile("|".join(LIMIT_WORDINGS), re.I)
 UNRECOGNISED = "unrecognised limit shape"
+# The rule that recognised a possible usage limit (`limit_rule`), named in its pause and in every refusal it causes.
+RECORDED = "the recorded answer (api_error usage_limit_reached, status 429)"
+STATUS_429 = "an error result with status 429"
+REJECTED = "an error result beside a rejected rate_limit_event"
+WORDING = "a limit wording in an error line of a call that did not succeed"
+OLDER_RESET = re.compile(r"usage limit reached\|(\d{9,11})\b", re.I)  # an older CLI: "...|<epoch seconds>"
 PROVIDER_ERRORS = re.compile(
     r"\b(?:429|529|401|403)\b|rate.?limit|overloaded|unauthori[sz]ed|authenticat|invalid (?:api|x-api)"
     r"[ -]key|oauth|credit balance|quota|api error|connection error|econnreset|etimedout|eai_again|"
@@ -102,37 +108,50 @@ def provider_incident(records):
 
 
 def usage_limit(records):
-    """{"call", "reset", "text", "raw"} of the first call the vendor may have answered with a usage limit, or None;
-    with "flag": `UNRECOGNISED` unless it is the recorded answer (the stream-json result event's `api_error:
+    """{"call", "rule", "reset", "text", "raw"} of the first call the vendor may have answered with a usage limit, or
+    None; with "flag": `UNRECOGNISED` unless `rule` is `RECORDED` (the stream-json result event's `api_error:
     usage_limit_reached` with `api_error_status: 429`, experiments/long_horizon_tasks/fixtures/
-    token-usage-limit-NonZeroAgentExitCodeError.json). `reset` is the `resetsAt` (epoch seconds) of the call's
-    rejected `rate_limit_event`, None when the answer names none; `raw` is the call's directory."""
+    token-usage-limit-NonZeroAgentExitCodeError.json). `rule` is the rule that fired (`limit_rule`) and `text` the
+    line it read (the last error result's text; for `WORDING`, the matched error line). `reset` is the `resetsAt`
+    (epoch seconds) of the call's rejected `rate_limit_event`, else the epoch an older CLI's wording names
+    (`Claude AI usage limit reached|<epoch>`), None when the answer names none; `raw` is the call's directory."""
     for call in calls(records):
         events = stream_events(call / "stdout.txt")
-        shape = limit_shape(call, events)
-        if shape:
-            rejected = [e["rate_limit_info"] for e in events if rejected_event(e)]
-            reset = rejected[-1].get("resetsAt") if rejected else None
-            errors = [e for e in events if e.get("type") == "result" and e.get("is_error")]
-            text = errors[-1].get("result") if errors else next(limit_lines(call), "")
-            return {"call": call.name, "reset": reset if type(reset) in (int, float) else None,
-                    "text": str(text)[:300], "raw": str(call)} | ({"flag": shape} if shape == UNRECOGNISED else {})
+        if rule := limit_rule(call, events):
+            return limit_facts(call, events, rule)
     return None
 
 
-def limit_shape(call, events):
-    """"recorded" for the vendor's recorded answer; `UNRECOGNISED` for an error result with status 429 (a number or
-    a string), an error result beside a rejected `rate_limit_event`, or, in a call that failed (an error result, or
-    no result event at all), an error line in a limit wording that no other named status explains; else None. A
-    model's or a tool's text is never read (`error_lines`)."""
+def limit_facts(call, events, rule):
+    """The facts `usage_limit` returns for a call where `rule` fired."""
+    rejected = [e["rate_limit_info"] for e in events if rejected_event(e)]
+    named = rejected[-1].get("resetsAt") if rejected else None
+    errors = [e for e in events if e.get("type") == "result" and e.get("is_error")]
+    text = next(limit_lines(call), "") if rule == WORDING or not errors else errors[-1].get("result")
+    return {"call": call.name, "rule": rule, "reset": named if type(named) in (int, float) else older_reset(call),
+            "text": str(text)[:300], "raw": str(call)} | ({} if rule == RECORDED else {"flag": UNRECOGNISED})
+
+
+def older_reset(call):
+    """The reset epoch an older CLI's wording names in the call's error lines, or None."""
+    return next((int(found.group(1)) for line in limit_lines(call) if (found := OLDER_RESET.search(line))), None)
+
+
+def limit_rule(call, events):
+    """`RECORDED` for the vendor's recorded answer; else, each flagged `UNRECOGNISED` by `usage_limit`: `STATUS_429`
+    for an error result with status 429 (a number or a string), `REJECTED` for an error result beside a rejected
+    `rate_limit_event`, `WORDING` for a call that did not succeed with an error line in a limit wording that no
+    other named status explains; else None. A model's or a tool's text is never read (`error_lines`)."""
     results = [e for e in events if e.get("type") == "result"]
     if recorded_answer(results):
-        return "recorded"
+        return RECORDED
     errors = [e for e in results if e.get("is_error")]
     statuses = error_statuses(errors)
-    if "429" in statuses or (errors and any(map(rejected_event, events))):
-        return UNRECOGNISED
-    return UNRECOGNISED if worded_failure(call, events, statuses) else None
+    if "429" in statuses:
+        return STATUS_429
+    if errors and any(map(rejected_event, events)):
+        return REJECTED
+    return WORDING if worded_failure(call, events, statuses) else None
 
 
 def worded_failure(call, events, statuses):

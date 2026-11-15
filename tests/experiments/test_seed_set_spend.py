@@ -399,6 +399,88 @@ def test_cut_runs_do_not_count_toward_the_incident_stop(runner):
     assert rules.stop_reasons(runner) == []
 
 
+def cut_run(runner, k=1, cut=None, stdout=(), stderr="", **facts):
+    """A settled calibration run cut by a falsely recognised usage limit, with its pause open in the ledger."""
+    records = run_dir(runner, k=k, calls=1, outcome="failed", failure={}, scan_hits=0, **facts,
+                      cut={"call": "1", "reset": None, "text": "x", "raw": "r", "rule": units.REJECTED,
+                           "flag": units.UNRECOGNISED} | (cut or {}))
+    (records / "calls" / "1" / "stdout.txt").write_text("".join(json.dumps(e) + "\n" for e in stdout))
+    (records / "calls" / "1" / "stderr.txt").write_text(stderr)
+    (records / "study.json").write_text(json.dumps(json.loads((records / "study.json").read_text()) | {"calls": 1}))
+    spend.record(runner.ledger, "pause", unit=str(records), **units.usage_limit(records) or {"rule": units.REJECTED})
+    return records
+
+
+def test_not_a_limit_reopens_starts_and_files_a_provider_error_as_an_incident(runner, monkeypatch):  # re-review n3
+    records = cut_run(runner, stdout=[REJECTED, {**ERROR, "api_error_status": 403, "result": "API Error: 403"}])
+    row = study.not_a_limit(runner, str(records), "a 403 beside a stale rejected event, not a limit")
+    spend.reserve(runner.ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"), price=P)  # reopened
+    facts = json.loads((records / "study.json").read_text())
+    assert (row["event"], row["unit"], row["reason"], "cut" in facts, facts["incident"], facts["not_a_limit"]) == (
+        "not_a_limit", str(records), "a 403 beside a stale rejected event, not a limit", False,
+        "provider: call 1: API Error: 403", "a 403 beside a stale rejected event, not a limit")
+
+
+def test_not_a_limit_leaves_a_failure_with_no_provider_error_a_natural_failure(runner):
+    records = cut_run(runner, stdout=[REJECTED, {**ERROR, "result": "AssertionError: 2 != 3"}])
+    study.not_a_limit(runner, str(records), "the task's own failure")
+    assert study.load_records(runner, {"direct": H}, ["t1"])[0][0]["status"] == "failed"
+
+
+def test_not_a_limit_restores_the_incident_the_cut_set_aside(runner):
+    records = cut_run(runner, cut={"incident": "expected one orchestrator run, found 0"},
+                      stdout=[REJECTED, {**ERROR, "result": "AssertionError"}])
+    study.not_a_limit(runner, str(records), "no limit")
+    assert json.loads((records / "study.json").read_text())["incident"] == "expected one orchestrator run, found 0"
+
+
+def test_not_a_limit_runs_nothing_again(runner):
+    records = cut_run(runner, stdout=[REJECTED, {**ERROR, "result": "AssertionError"}])
+    entries = [{"kind": "candidate", "tranche": "calibration", "task": "t1", "arm": "direct", "unit": str(records)}]
+    study.not_a_limit(runner, str(records), "no limit")
+    assert study.slot_limits(runner, entries, "calibration", "direct", ["t1"]) == ({"t1": 4}, {"t1": 4})  # cut: 5
+
+
+def test_not_a_limit_on_a_judge_keeps_its_pool_from_a_rebuild(runner):
+    out = runner.pools / "t1" / "first"
+    (out / "records" / "judges" / H).mkdir(parents=True)
+    (out / "records" / f"study-{H}.json").write_text(json.dumps({"calls": 1, "cut": {"rule": units.REJECTED}}))
+    spend.record(runner.ledger, "pause", unit=f"{out}#{H}", reset=None, rule=units.REJECTED)
+    study.not_a_limit(runner, f"{out}#{H}", "no limit")
+    assert (layout.cut_judges(out), spend.open_pauses(spend.rows(runner.ledger))) == ([], [])
+
+
+@pytest.mark.parametrize("ledger_rows", ["none", "resumed", "above its worst case"])
+def test_not_a_limit_refuses_without_an_open_usage_limit_pause_of_the_unit(runner, ledger_rows):
+    records = run_dir(runner, calls=1, outcome="failed", cut=CUT)
+    if ledger_rows == "resumed":
+        spend.record(runner.ledger, "pause", unit=str(records), reset=RESET, rule=units.WORDING)
+        resume(runner.ledger)
+    elif ledger_rows == "above its worst case":
+        spend.record(runner.ledger, "pause", unit=str(records), reset=None, reason="a unit settled above its worst case")
+    with pytest.raises(SystemExit, match="no open usage-limit pause"):
+        study.not_a_limit(runner, str(records), "no limit")
+    assert "cut" in json.loads((records / "study.json").read_text())
+
+
+def test_not_a_limit_refuses_an_unsettled_unit_and_a_missing_reason(runner):
+    records = run_dir(runner, calls=1)
+    spend.record(runner.ledger, "pause", unit=str(records), reset=None, rule=units.WORDING)
+    with pytest.raises(SystemExit, match="not settled"):
+        study.not_a_limit(runner, str(records), "no limit")
+    with pytest.raises(SystemExit, match="reason"):
+        study.not_a_limit(runner, str(records), " ")
+
+
+def test_not_a_limit_from_the_command_line(runner, monkeypatch):
+    monkeypatch.setattr(spend, "ledger_path", lambda: runner.ledger)
+    records = cut_run(runner, stdout=[REJECTED, {**ERROR, "result": "AssertionError"}])
+    study.main(["--runtime", str(runner.runtime), "--work", str(runner.work), "--pools", str(runner.pools),
+                "--results", str(runner.results), "--task-list", str(runner.tasks_file), "--criterion",
+                str(runner.criterion), "not-a-limit", str(records), "--reason", "read the raw result: a 403"])
+    assert spend.latest(spend.rows(runner.ledger), "not_a_limit")["reason"] == "read the raw result: a 403"
+
+
 def test_runs_launch_two_at_a_time():
     lock, live, peak = threading.Lock(), [0], [0]
 
@@ -572,6 +654,36 @@ def test_a_pause_of_an_unrecognised_shape_tells_the_operator_to_read_the_raw_res
         spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"), price=P)
     assert all(part in str(refused.value) for part in (units.UNRECOGNISED, limit["raw"], "read the raw result",
                                                        "resume-after-limit"))
+
+
+REJECTED = {"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": RESET}}
+
+
+@pytest.mark.parametrize("stdout, stderr, rule, text", [  # re-review n3: which rule fired, on which line
+    ([REJECTED, {**ERROR, "api_error": "usage_limit_reached", "api_error_status": 429, "result": "hit"}], "",
+     units.RECORDED, "hit"),
+    ([{**ERROR, "api_error_status": "429", "result": "API Error: 429"}], "", units.STATUS_429, "API Error: 429"),
+    ([REJECTED, {**ERROR, "api_error_status": 403, "result": "forbidden"}], "", units.REJECTED, "forbidden"),
+    ([{**ERROR, "result": "x"}], "warn\nYou've hit your session limit\n", units.WORDING,
+     "You've hit your session limit"),
+])
+def test_a_usage_limit_names_the_rule_that_fired_and_the_line_it_read(tmp_path, stdout, stderr, rule, text):
+    limit = units.usage_limit(call_printing(tmp_path, stdout, stderr))
+    assert (limit["rule"], limit["text"]) == (rule, text)
+
+
+def test_the_refusal_names_the_rule_the_line_and_the_way_to_record_no_limit(ledger, tmp_path):  # re-review n3
+    limit = units.usage_limit(call_printing(tmp_path, [{**ERROR, "result": "x"}], "You've hit your weekly limit\n"))
+    spend.record(ledger, "pause", unit=str(tmp_path), **limit)
+    with pytest.raises(SystemExit) as refused:
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"), price=P)
+    assert all(part in str(refused.value) for part in (units.WORDING, "You've hit your weekly limit", "not-a-limit"))
+
+
+@pytest.mark.parametrize("stdout, stderr", [([{**ERROR, "result": "Claude AI usage limit reached|1794627837"}], ""),
+                                            ([], "Error: Claude AI usage limit reached|1794627837\n")])
+def test_the_older_wordings_reset_is_read(tmp_path, stdout, stderr):  # re-review n3
+    assert units.usage_limit(call_printing(tmp_path, stdout, stderr))["reset"] == 1794627837
 
 
 def test_the_session_limit_wording_is_a_provider_error(tmp_path):
