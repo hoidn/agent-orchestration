@@ -125,6 +125,7 @@ VALUE_POSITIONS = {
     "a procedure result": ("(f n)", (f"(defproc f ((k Int)) -> Int {ASK})",)),
     "a procedure argument": (f"(take {ASK} n)", (TAKE,)),
     "a defun argument": (f"(g {ASK})", ("(defun g ((x Int)) -> Int x)",)),
+    "a defun body": ("(g n)", (f"(defun g ((x Int)) -> Int (let* ((p {ASK})) x))",)),
     "a workflow input": (f"(call inner :x {ASK})", ("(defworkflow inner ((x Int)) -> Int x)",)),
     "a workflow result": (ASK, ()),
     "a procedure parameter used as a value": ("n", ("(defproc f ((p Prompt[Pair])) -> Int (let* ((q p)) 1))",)),
