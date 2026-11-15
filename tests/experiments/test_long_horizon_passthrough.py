@@ -837,7 +837,7 @@ def _start(short, slots, *mode, name="pt"):
 
 
 def _rehearsal(short, upstream, name="pt"):
-    return ("--rehearsal", upstream, "--canary-out", short / f"{name}.canary", "--canary-length", 108)
+    return ("--rehearsal", upstream, "--canary-out", short / f"{name}.canary")
 
 
 def _stop(proc):
@@ -878,6 +878,16 @@ def test_at_its_start_the_passthrough_reads_the_token_file_and_writes_its_finger
     fp = json.loads((state / "fingerprint.json").read_text())
     assert (token_scan.matches(fp, real), real in out.read_text(), real.encode() in cmdline,
             real in (state / "fingerprint.json").read_text(), fp["mode"]) == (True, False, False, False, "live")
+
+
+def test_the_rehearsal_canary_has_the_shape_and_length_of_a_setup_token_token(short, stub):
+    """Task 8 m7: 108 characters with the setup-token prefix, whatever the person who starts it passes."""
+    upstream, _ = stub("normal")
+    proc, _, state, out = _start(short, _slots(short / "slots.json", {}), *_rehearsal(short, upstream))
+    _stop(proc)
+    canary = (short / "pt.canary").read_text().strip()
+    assert (len(canary), canary.startswith("sk-ant-oat01-"), token_scan.matches(
+        json.loads((state / "fingerprint.json").read_text()), canary)) == (108, True, True)
 
 
 def test_a_rehearsal_passthrough_records_its_mode_beside_its_fingerprint(short, stub):

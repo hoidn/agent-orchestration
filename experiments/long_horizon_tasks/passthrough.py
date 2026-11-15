@@ -80,10 +80,11 @@ exception text: errors print the exception's class and this module's own message
 process is not dumpable. It starts no child process. The vendor client is `http.client` (it reads no proxy
 variable), verifies TLS against the trust store compiled into Python (not one named by the environment) and
 connects to api.anthropic.com:443 only. --rehearsal connects to a stand-in's unix socket instead, refuses
---token-file, and holds a canary it makes itself and writes once to --canary-out (a new mode-600 file).
+--token-file, and holds a canary it makes itself, of a setup-token token's shape (its prefix, 108 characters),
+and writes once to --canary-out (a new mode-600 file).
 
 Usage: python -I passthrough.py --socket PATH --state DIR --slots FILE [--paid-usage HEADER=VALUE]...
-         [--stop-on-non-200] (--token-file FILE | --rehearsal STAND_IN_SOCKET --canary-out FILE --canary-length N)
+         [--stop-on-non-200] (--token-file FILE | --rehearsal STAND_IN_SOCKET --canary-out FILE)
 Prints `listening <socket>` once bound, and again for each slot's own socket. Exit 2: refused at the start.
 SIGTERM: records close_starts ("passthrough down"), removes every socket, exits 0. A crash leaves no such record: the launcher (Task 5) must
 treat an unanswered socket as the passthrough being down.
@@ -201,9 +202,14 @@ def read_token(path):
     return value
 
 
-def make_canary(path, length):
-    """A canary of `length` base64url characters, written once to a new mode-600 file (the rehearsal's token)."""
-    value = "".join(secrets.choice(string.ascii_letters + string.digits + "-_") for _ in range(length))
+CANARY_PREFIX, CANARY_LENGTH = "sk-ant-oat01-", 108  # a `claude setup-token` token's shape (Task 8 m7)
+
+
+def make_canary(path):
+    """A canary of a setup-token token's shape (its prefix, then base64url characters to its length), written once
+    to a new mode-600 file (the rehearsal's token)."""
+    value = CANARY_PREFIX + "".join(secrets.choice(string.ascii_letters + string.digits + "-_")
+                                    for _ in range(CANARY_LENGTH - len(CANARY_PREFIX)))
     with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as fh:
         fh.write(value + "\n")
     return value
@@ -965,9 +971,9 @@ def _credential(args):
     if args.rehearsal:
         if args.token_file:
             raise Refused("--rehearsal never opens a token file")
-        if not (args.canary_out and args.canary_length and args.canary_length > 0):
-            raise Refused("--rehearsal needs --canary-out and a positive --canary-length")
-        return make_canary(args.canary_out, args.canary_length), "rehearsal", unix_upstream(args.rehearsal)
+        if not args.canary_out:
+            raise Refused("--rehearsal needs --canary-out")
+        return make_canary(args.canary_out), "rehearsal", unix_upstream(args.rehearsal)
     if not args.token_file:
         raise Refused("--token-file or --rehearsal is required")
     return read_token(args.token_file), "live", vendor_upstream()
@@ -1001,7 +1007,6 @@ def _parse(argv):
     parser.add_argument("--token-file")
     parser.add_argument("--rehearsal", metavar="STAND_IN_SOCKET")
     parser.add_argument("--canary-out")
-    parser.add_argument("--canary-length", type=int)
     return parser.parse_args(argv)
 
 

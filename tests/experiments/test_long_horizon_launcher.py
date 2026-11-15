@@ -1589,7 +1589,7 @@ class Rig:
         self.passthrough = self._start(
             [sys.executable, "-I", str(KIT / "passthrough.py"), "--socket", str(self.root / "relay" / "passthrough.sock"),
              "--state", str(self.root / "passthrough"), "--slots", str(self.root / "passthrough" / "slots.json"),
-             "--rehearsal", str(stub), "--canary-out", str(self.canary_file), "--canary-length", "108"],
+             "--rehearsal", str(stub), "--canary-out", str(self.canary_file)],
             self.root / "passthrough" / "output.log")
         self.canary = self.canary_file.read_text().strip()
         self.label = hashlib.sha256((kit.kit / "manifest.json").read_bytes()).hexdigest()
