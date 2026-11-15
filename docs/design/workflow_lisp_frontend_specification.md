@@ -1470,6 +1470,18 @@ identity meets at `resume`.
     binding of the same name, in `body` or in the procedure that calls the
     local, does not change it. A captured name that holds an effect's result
     is read, not run again, by each call.
+  - From target 2.39, a captured name that holds a `proc-ref` literal, or a
+    `bind-proc` over one whose bound values are literals or value names, is
+    bound in the local's own body when `body` references the local, and the
+    value names it reads are captured instead: the local builds the program of
+    the same local with the reference written in its body. The copy reads the
+    binders the reference read, by binding identity. When a name it reads is
+    bound again between the reference and the local (a loop or `fn` state
+    binder, a `let*`, a `match` arm, a binder a macro takes from its caller) or
+    by a parameter of the local, no copy is made and the local keeps its
+    capture parameters, as at earlier targets; called, such a local is still
+    open defect `D10-rebound-*`. A bound value that is neither a literal nor a
+    name (a field read) stays a capture parameter too.
   - A declared provider extern is used in a `local-body` without being a
     capture and is not listed in `:captures`. An `Agent` value is not
     captured (`let_proc_capture_agent_forbidden`).
@@ -1527,7 +1539,7 @@ that has no row yet; the ledger gives the smallest program of each finding.
 | `E6` | A `ProcRef` parameter bound to another name with `let*` | `name_unknown` where the procedure is called | call or pass the parameter itself |
 | `T9.7` | A `ProcRef` parameter as the `base` of `bind-proc` | `proc_ref_literal_required` at the definition | - |
 | `T9.8` | A `ProcRef` parameter read in a `local-body` of its procedure | `procedure_call_unknown` at the definition | - |
-| `D10`, `D10-R1`, `D11`, `D11-R1`, `D11-R2`, `D11-R5` | A `local-body` calls or passes an outer `let*` name bound to a reference or to a `bind-proc` | `compiler_defect` | write `(proc-ref …)` in the `local-body`; call the bound name in `body` |
+| `D10-input-pure`, `D10-field`, `D10-field-pure`, `D10-literal-let`, `D10-literal-let-pure`, `D10-rebound-*` | A `local-body` calls or passes an outer `let*` name bound to a `bind-proc` whose bound value is a name and whose procedure has no effect, a field read, or a name bound to a literal; or whose bound name is bound again between the `bind-proc` and the `let-proc` | `compiler_defect` | a procedure with an effect, for a bound name; rename the inner binder; call the bound name in `body` |
 | `E8`, `D25`, `D25-plain`, `T9.5` | In a `defproc`, a `bind-proc` or a local whose bound or captured value is not a literal or a name bound to a literal: a parameter of the procedure, a computed value, a field of a record | called by name: `compiler_defect`; passed to a procedure that has no effect: `proc_ref_binding_parameter_unsupported` for a `bind-proc` whose bound value reads a parameter of the procedure (`E8`), otherwise `procedure_lowering_unresolved`; with an effect in the procedure or in the local: `compiler_defect` when the procedure is called with a literal argument, a build when it is called with a workflow input | the same form in a workflow body; a literal, or a name bound to a literal; a local passed to a procedure that has an effect |
 | `D24` | In a workflow, a local whose body is a loop that reads a field of a captured `let*` record | `compiler_defect` | - |
 | `E23-local`, `E23-input` | `bind-proc` written as an argument binds a value that reads a name: a name, a field read, a computed value | `name_unknown` | bind the `bind-proc` with `let*`, then pass the name |

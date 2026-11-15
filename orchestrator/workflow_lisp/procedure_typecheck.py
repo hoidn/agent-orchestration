@@ -1280,6 +1280,9 @@ def _typecheck_let_proc_expr_impl(
 
     if procedure_catalog is None:
         raise TypeError("procedure_catalog is required for let-proc expressions")
+    original_expr = expr
+    expr = _bind_captured_references(expr, type_env=type_env, value_env=value_env, binding_env=binding_env,
+        value_exprs=session_state.value_expr_env)
 
     if (
         expr.binding.local_name in value_env
@@ -1620,7 +1623,7 @@ def _typecheck_let_proc_expr_impl(
             outer_body_expr, typed_outer_body.expr, procedure_catalog=generated_catalog,
         )
     )
-    session_state.let_proc_rewrite_results[id(expr)] = retained_outer_body
+    session_state.let_proc_rewrite_results[id(original_expr)] = (original_expr, retained_outer_body)
     return replace(typed_outer_body, expr=retained_outer_body)
 
 
@@ -1834,7 +1837,87 @@ def _prepare_local_hook_call(call, bindings, *, creator, signature, recurse):
     return completed
 
 
+def _reference_reads(expr) -> tuple[tuple[str, object], ...] | None:
+    """The value names a compile-time reference reads, each with the binding it read where the reference was
+    typed: none for a `proc-ref` literal; for a `bind-proc` over such a reference, the bound values that are names;
+    `None` when a bound value is neither a literal, a name nor such a reference."""
+    if isinstance(expr, ProcRefLiteralExpr):
+        return ()
+    if not isinstance(expr, BindProcExpr):
+        return None
+    reads = _reference_reads(expr.base_expr)
+    for binding in expr.bindings:
+        value = binding.value_expr
+        if isinstance(value, NameExpr):
+            nested = ((value.name, binding.source_binding_identity),)
+        elif isinstance(value, LiteralExpr):
+            nested = ()
+        else:
+            nested = _reference_reads(value)
+        if reads is None or nested is None:
+            return None
+        reads = reads + nested
+    return reads
+
+
+def _is_held_reference(name, reads, value_env) -> bool:
+    """A captured reference the local binds itself: a compile-time reference that reads only value names."""
+    return isinstance(value_env.get(name), ProcRefTypeRef) and reads is not None and all(
+        read in value_env and not isinstance(value_env[read], ProcRefTypeRef) for read, _ in reads)
+
+
+def _reads_a_rebound_name(expr, reads, binding_env) -> bool:
+    """Whether a copy of the reference in the local's body would read another binder than the reference read: by
+    the typechecker's binding identity, the binder visible at the local is not the one recorded where the reference
+    was typed, or a parameter of the local (always a new binder) takes the name."""
+    params = {param.name for param in expr.binding.params}
+    return any(read in params or origin is None or binding_env.get(read) != origin for read, origin in reads)
+
+
+def _bind_captured_references(expr, *, type_env, value_env, binding_env, value_exprs):
+    """A captured name that holds a compile-time procedure reference is bound by `let*` in the local's own body,
+    instead of becoming a capture parameter of the local; the value names that reference reads are captured.
+    Applied from the target where locals lower inline, to a local its `let-proc` body references; an earlier
+    target, or a local never referenced, keeps the capture parameter and the identity it has. The copied
+    reference must read the bindings the original read; where one would not, the local is left as it is."""
+    if not target_dsl_supports_effect_ceilings(type_env.target_dsl_version):
+        return expr
+    if not _collect_proc_ref_use_spans(expr.body, authored_name=expr.binding.local_name):
+        return expr
+    held, read_names = [], []
+    for name in expr.binding.capture_names:
+        reads = _reference_reads(value_exprs.get(name))
+        if not _is_held_reference(name, reads, value_env):
+            continue
+        if _reads_a_rebound_name(expr, reads, binding_env):
+            return expr  # a copy would read another binder: the local keeps every capture parameter, as before
+        held.append((name, value_exprs[name]))
+        read_names.extend(read for read, _ in reads)
+    if not held:
+        return expr
+    body = expr.binding.local_body
+    kept = tuple(name for name in expr.binding.capture_names if name not in dict(held))
+    added = tuple(sorted(set(read_names) - set(kept)))
+    return replace(expr, binding=replace(expr.binding,
+        capture_names=tuple(sorted(kept + added)) if added else kept,
+        local_body=LetStarExpr(bindings=tuple(held), body=body, span=body.span, form_path=body.form_path,
+            expansion_stack=body.expansion_stack)))
+
+
+def _bind_group_reference_captures(expr, creator):
+    """`_bind_captured_references` for each local of a group, before any is typed; the group itself when no
+    local changes."""
+    bindings = tuple(_bind_captured_references(replace(expr, binding=binding, additional_bindings=()),
+        type_env=creator["type_env"], value_env=creator["value_env"], binding_env=creator["binding_env"],
+        value_exprs=creator["session_state"].value_expr_env).binding for binding in expr.bindings)
+    if all(new is old for new, old in zip(bindings, expr.bindings, strict=True)):
+        return expr
+    return replace(expr, binding=bindings[0], additional_bindings=bindings[1:])
+
+
 def _typecheck_local_hook_group(expr, **creator):
+    original_expr = expr
+    expr = _bind_group_reference_captures(expr, creator)
     _validate_local_hook_sites(expr.body, expr.bindings)
     session = creator["session_state"]
     creator = dict(creator, value_env=dict(creator["value_env"]), binding_env=dict(creator["binding_env"]))
@@ -1913,7 +1996,7 @@ def _typecheck_local_hook_group(expr, **creator):
             _raise_error("local procedure escaped its lexical scope", code="let_proc_scope_escape",
                 span=expr.body.span, form_path=expr.body.form_path)
     retained = typed.expr
-    session.let_proc_rewrite_results[id(expr)] = retained
+    session.let_proc_rewrite_results[id(original_expr)] = (original_expr, retained)
     return replace(typed, expr=retained)
 
 
@@ -2540,17 +2623,17 @@ def _semantic_identity(value: object) -> str:
 def _replace_eliminated_let_procs(
     node: object,
     *,
-    let_proc_rewrite_results: Mapping[int, ExprNode] | None = None,
+    let_proc_rewrite_results: Mapping[int, tuple[ExprNode, ExprNode]] | None = None,
 ):
     rewrite_results = (
         {} if let_proc_rewrite_results is None else let_proc_rewrite_results
     )
     if not rewrite_results:
         return node  # nothing to replace; skip the full-tree copy
-    replacement = rewrite_results.get(id(node))
-    if replacement is not None:
+    entry = rewrite_results.get(id(node))  # the map holds each keyed node, so a found id is that node's
+    if entry is not None:
         return _replace_eliminated_let_procs(
-            replacement,
+            entry[1],
             let_proc_rewrite_results=rewrite_results,
         )
     # Checked TypeRefs carry the original nominal owner object.  Preserve that
