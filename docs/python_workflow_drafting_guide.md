@@ -108,9 +108,10 @@ parameter `name` takes `name=` as that argument instead. The
 [design](design/python_workflow_frontend.md#branches-matching-and-loops)
 owns the rule and its refusals.
 
-The module's `TARGET` defaults to 2.39; admitted targets are 2.35–2.40.
-Procedures infer effects at 2.39 and later. Older targets require explicit effect
-descriptors and emit inline lowering; imported definitions keep their own rules.
+The module's `TARGET` defaults to 2.40, the only admitted target; an older
+value refuses when the generated source is compiled (`target_dsl_unsupported`,
+see [Migrating from an older target](lisp_workflow_drafting_guide.md#migrating-from-an-older-target)).
+Procedures infer effects; explicit effect descriptors are a checked upper bound.
 Supply repeatable `--source-root` paths for additional source libraries, select
 an exported entry with `--entry-workflow`, and supply the relevant provider,
 prompt, command or imported-bundle manifests. When a manifest flag is absent,
@@ -121,7 +122,6 @@ documents the declaration API and concrete `.orc` imports.
 
 ## Ask For A Durable Decision
 
-Select explicit `TARGET = "2.40"` in the module; the default stays 2.39.
 Use `ask` with a string or fully applied typed prompt and `returns=...` to bind
 an ordinary generic `HostReply[A]`. Match its ANSWERED, CANCELLED and EXPIRED
 cases; compare an enum answer with supported equality inside lazy `when`

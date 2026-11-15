@@ -24,7 +24,9 @@ the same program, input and closure freshness checks.
 Executable entries through 2.34 are retired. `resume` admits only a supported
 evaluated header and refuses old profiles, including force-restart, before
 changing their run contents. Invalidation has the same old-profile boundary;
-see [CLI](../specs/cli.md#executable-support-boundary). `report` and the
+see [CLI](../specs/cli.md#executable-support-boundary). Source compiles at one
+target, 2.40, and a run recorded at 2.35–2.39 is read-only (see
+[Resume](#resume)). `report` and the
 dashboard read evaluated runs only and refuse older runs with
 `workflow_execution_profile_retired`; the old readers are kept at the git tag
 `archive/retired-run-readers-2026-11-11`. Native `prompt resume [--in-place]` is a separate retained session
@@ -38,7 +40,7 @@ states remain readable; nothing converts a run between profiles.
 | Profile | Targets | Authority on disk | Sections |
 | --- | --- | --- | --- |
 | Flat (historical, read-only) | through 2.34 | `state.json` (schema `2.1`, optionally `derived_pure_replay.v1`) | [Historical protocol](#execution-timeline); no creation, replay, repair or translation in this package |
-| Evaluated | 2.35/2.36, bounded 2.37, bounded 2.38 Agent Sessions and command-only confined run-ref children, 2.39 procedure authoring/bounded phased providers, and 2.40 serial typed host input | `run.json` + `closed_program.json` + `memo.jsonl` (schema `3.0`, `evaluated_execution.v1`); `state.json` is a derived view | [Evaluated Profile (Target 2.35)](#evaluated-profile-target-235); [Agent Sessions guide](lisp_workflow_drafting_guide.md#agent-sessions-target-238); [confined-command recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only) (public confined providers remain closed); [2.39 procedure contracts](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239) (same profile); [2.39 phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239) (commit/settlement and exact-attempt recovery; paid-provider qualification unselected) |
+| Evaluated | 2.40: bounded parallel map, bounded Agent Sessions and command-only confined run-ref children, procedure authoring, bounded phased providers and serial typed host input. Runs recorded at 2.35–2.39 are read-only | `run.json` + `closed_program.json` + `memo.jsonl` (schema `3.0`, `evaluated_execution.v1`); `state.json` is a derived view | [Evaluated Profile (Target 2.35)](#evaluated-profile-target-235); [Agent Sessions guide](lisp_workflow_drafting_guide.md#agent-sessions-target-238); [confined-command recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only) (public confined providers remain closed); [2.39 procedure contracts](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239) (same profile); [2.39 phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239) (commit/settlement and exact-attempt recovery; paid-provider qualification unselected) |
 
 The linked flat record preserves the historical protocol for interpreting
 old state, not commands to execute with this package. Recovery requires an
@@ -63,7 +65,7 @@ The retired flat timeline/state machine/provider/call protocol is preserved for 
 
 ## Evaluated Profile (Target 2.35)
 
-A target-2.35 program is compiled to a checked closed program and evaluated;
+A program is compiled to a checked closed program and evaluated;
 there is no flat IR, no `step_id`, no `call_frames`, no heartbeat and no
 `transition_count` for it. Normative keys and transitions are in
 [State](../specs/state.md#evaluated-execution-persistence-profile-target-235);
@@ -135,6 +137,14 @@ terminal value. A failed attempt is retried on the next resume with the next
 ordinal, never by rewriting the old one.
 
 ### Resume
+
+A run recorded at target 2.35–2.39 is not continued. `resume`, with or without
+`--accept-changes`, reads the stored program's `target` first and refuses with
+`run_target_retired`, exit 2, before any lock or write; `invalidate`,
+`input answer`, `input cancel` and REPL attach refuse the same way. Finish such
+a run with the release tagged `v0.2.1`, or start a new run from
+[migrated source](lisp_workflow_drafting_guide.md#migrating-from-an-older-target).
+`report`, the dashboard and the monitor still read it.
 
 ```text
 1) Load and validate the header (profile, schema, run id, shapes of the recipe and roots)
