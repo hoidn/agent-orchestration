@@ -169,8 +169,8 @@
   "experiments/long_horizon_tasks/harbor_patient.py": "c451648e6dc0fbca93b33cd93b09f64ba6ef0797bbd97d44f03a63684a268458",
   "experiments/long_horizon_tasks/image_check.py": "491def2691d7f110f3ad2a327f8e9ff98557bc9db7aae44a609015c6fcff9806",
   "experiments/long_horizon_tasks/image_measure.json": "2f48231beebe570b88efea4644a9d85d5bca5e007915990a396e8f5d9576ec9d",
-  "experiments/long_horizon_tasks/ladder.json": "8b15c1181e65474d305c7b86c887e1856a878299878a254653498f845730645d",
-  "experiments/long_horizon_tasks/manifest.py": "3eef027e02743c28658912b8437377f93c0c7b03b3d8be7333daddbc5b74c86f",
+  "experiments/long_horizon_tasks/ladder.json": "e57ce7c59f5186b57e6e1e969f94d0ba6b178295fe4199e865ecbceecd7b8265",
+  "experiments/long_horizon_tasks/manifest.py": "6ac81cf6bc144a7f07ea8b78cd27b2cb7dc61907af79f8f34e9167b9e5239dad",
   "experiments/long_horizon_tasks/oracle_check.sh": "d65f9fdb46240a28863d8bb7ad0b8b640e28ed4a63f9ba7b558b2280ce810965",
   "experiments/long_horizon_tasks/price_check.py": "6b02486b711cf7398a572b1e725f55ac0c03bc0213734fe4b27613e297f93cb1",
   "experiments/long_horizon_tasks/price_rule.json": "7adece52af6119cf4b4c9d46ac2d1337f08ef105960d87d53edf132ac8b4442c",
@@ -179,7 +179,8 @@
   "experiments/long_horizon_tasks/relay-compose.yaml": "e86f395a055698c3760fa7a6b50f146a54758f1f3555b9397d81acb7f83b522b",
   "experiments/long_horizon_tasks/stub_api.py": "342f0998efd42ce8b09d22ff53d6d39649ea3c216f50fbdbd10e7a30d7685d18",
   "experiments/long_horizon_tasks/summarize.py": "6bf9a3beeb73a535c319d2550279790708855311891f76490ae3f73d167ed57a",
-  "experiments/long_horizon_tasks/tasks.json": "66e58aec6693d8b7694a44057b9c80c9505febed1591852a435b85a1cde8138c",
-  "orchestrator/providers/price_table.json": "77a237c6934a5ff1663a347c2d3757e52f576ac4752d8456facfd227cf52452b"
+  "experiments/long_horizon_tasks/tasks.json": "53c0a9d0cf3e1559dfc3b5a3beafff7c36a761fcf1bb8fec51c130d0ae6d6ac8",
+  "orchestrator/providers/price_table.json": "77a237c6934a5ff1663a347c2d3757e52f576ac4752d8456facfd227cf52452b",
+  "tests/experiments/test_long_horizon_ladder.py": "1ed0ce087f1e4793e4ddc386744318037b7cc2922117cf908c0efb521355858f"
  }
 }

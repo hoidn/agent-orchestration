@@ -55,8 +55,10 @@ def test_each_cap_follows_the_d1_formula_and_one_cap_per_task_serves_every_effor
     caps, rows = ladder["caps"], ladder["tasks"]["list"]
     names = [t["name"].rsplit("/", 1)[-1] for t in json.loads((KIT / "tasks.json").read_text())["tasks"]]
     want = {t["name"]: round(max(caps["floor_usd"], caps["multiple"] * t["public_mean_usd_at_max"]), 2) for t in rows}
+    second_home = [t["name"] for t in json.loads((KIT / "tasks.json").read_text())["tasks"] if "cap" in t]
     assert ([t["name"] for t in rows], {t["name"]: t["cap_usd"] for t in rows}, (caps["floor_usd"], caps["multiple"]),
-            set(ladder["attempt"]["efforts"]) & (_keys(caps) | _keys(rows))) == (names, want, (3.0, 3), set())
+            set(ladder["attempt"]["efforts"]) & (_keys(caps) | _keys(rows)), second_home) == (
+        names, want, (3.0, 3), set(), [])
 
 
 def test_the_pilot_falls_back_to_the_next_dearest_task_unchanged_since_4_0_0():
@@ -181,6 +183,8 @@ def _field(fx, name):
         return result if not key or result is MISSING else result.get(key, MISSING)
     if head == "harness":
         return fx if not key else fx.get(HARNESS.get(key), MISSING)
+    if head == "passthrough":
+        return fx.get("_log", {}).get(key, MISSING)
     return STREAM[key](fx) if head == "stream" and key in STREAM else MISSING
 
 
@@ -244,16 +248,22 @@ def _unseen(name):
 def _field_problems(row, ladder):
     """Every field a row names is in the language, and every field read from a fixture occurs in one."""
     fields = ladder["classification"]["fields"]
-    named = {f for alt in _alts(row) for f in alt} | set(row.get("recorded_form", {}))
+    named = {f for alt in _alts(row) + row.get("recorded_form", []) for f in alt}
     unknown = [f"field {f} not in the language" for f in named
                if f not in fields and f"{f.split('.')[0]}.*" not in fields]
     return unknown + [f"field {f} in no fixture" for f in named if _unseen(f)]
 
 
+def _local_forms(row):
+    """What a row asks of the fields fixtures hold: its recorded forms where it has them (its match reads the
+    passthrough's log alone), else its alternatives without their passthrough conditions."""
+    return row.get("recorded_form") or [{f: t for f, t in alt.items() if not f.startswith("passthrough.")}
+                                        for alt in _alts(row)]
+
+
 def _match_problems(row, cited):
-    """Each alternative matches a cited fixture, and each cited fixture is matched, on the fields fixtures hold."""
-    local = [{f: t for f, t in alt.items() if not f.startswith("passthrough.")} | row.get("recorded_form", {})
-             for alt in _alts(row)]
+    """Each local form matches a cited fixture, and each cited fixture is matched by one."""
+    local = _local_forms(row)
     ok = {name: [all(_holds(t, _field(fx, f)) for f, t in alt.items()) for alt in local] for name, fx in cited.items()}
     unmatched = [f"alternative {i} matches no cited fixture" for i in range(len(local))
                  if not any(v[i] for v in ok.values())]
@@ -301,6 +311,143 @@ def _recording_of(fx):
     return local.group(1) if local else f"public-{public.group(1)}" if public else None
 
 
+INDEX = {r["name"]: r for r in json.loads((KIT / "recordings.json").read_text())["recordings"]}
+SLOTLESS = ("tranche stopped", "path not allowed", "unknown token")  # logged with no slot by feat/lh-passthrough
+SIGNAL_1 = {"anthropic-ratelimit-unified-status": "rejected"}
+
+
+def _log_row(status, reason, scenario):
+    if status == 403 and reason:
+        return {"slot": None if reason in SLOTLESS else "s", "status": 403, "refused": reason}
+    signal = {"headers": SIGNAL_1} if status == 429 and scenario == "usage_limit" else {}
+    return {"slot": "s", "status": status, **signal}
+
+
+def _log(rows):
+    return {"requests": [row for row in rows if row["slot"]], "tranche_requests": rows}
+
+
+def _session(fx):
+    """The fixture with a stand-in for the passthrough's log of its attempt, built from what was recorded: one row per
+    request the stand-in answered, with the status its request fixture holds; a 403 carries the reason the result text
+    names, and a 429 of the usage-limit scenario carries signal 1. A refusal the passthrough logs with no slot is in
+    the tranche's rows only."""
+    name = _recording_of(fx)
+    path = FIXTURES / "requests" / f"{name}.json"
+    statuses = [row[1] for row in json.loads(path.read_text())["requests"]] if path.is_file() else []
+    text = (_result(fx).get("result") or "") if _result(fx) is not MISSING else ""
+    reason = re.search(r"lh-passthrough: ([a-z -]*[a-z])", text)
+    scenario = re.search(r"scenario (\S+)", INDEX.get(name, {}).get("source", ""))
+    return {**fx, "_log": _log([_log_row(status, reason and reason.group(1), scenario and scenario.group(1))
+                                for status in statuses])}
+
+
+def _matches(row, session):
+    return any(all(_holds(t, _field(session, f)) for f, t in alt.items()) for alt in _alts(row)) or not _alts(row)
+
+
+def _classify(session, ladder, order=None):
+    rows = {row["row"]: row for row in ladder["classification"]["rows"]}
+    return next(n for n in order or ladder["classification"]["order"] if _matches(rows[n], session))
+
+
+BY_NAME = [("pre-session-", 1), ("no-credential", 2), ("forced-empty", 2), ("token-simple-mode-", 2), ("timeout", 3),
+           ("normal-end", 5), ("budget-stop", 6), ("context-limit", 7), ("refusal", 8), ("output-limit", 9),
+           ("usage-limit", 10), ("passthrough-cap", 11), ("passthrough-total", 12), ("passthrough-stopped", 12),
+           ("passthrough-", 13), ("unauthorized", 14), ("rate-limit", 15), ("server-error", 15), ("overloaded", 15),
+           ("slow-first-byte", 15)]
+REJECTED_FORMS = {"simple-mode-passthrough-model-NonZeroAgentExitCodeError": "the 404 form D4 rejected: retried; lost",
+                  "simple-mode-passthrough-tool-UnknownApiError": "the 400 form D4 rejected: retried"}
+SESSIONS = sorted(p.stem for p in FIXTURES.glob("*.json"))
+
+
+def _named_row(name):
+    """The row a fixture's name says its ending belongs to; the two refusal forms D4 rejected match no row."""
+    return 16 if name in REJECTED_FORMS else next(row for part, row in BY_NAME if part in name)
+
+
+def test_every_session_fixture_is_classified_in_order_into_the_row_that_cites_it_or_that_its_name_says():
+    ladder = _ladder()
+    cited = {f: row["row"] for row in ladder["classification"]["rows"] for f in row["fixtures"]}
+    got = {name: _classify(_session(_fixture(name)), ladder) for name in SESSIONS}
+    want = {name: cited.get(name, _named_row(name)) for name in SESSIONS}
+    assert (len(SESSIONS), {n: (got[n], want[n]) for n in SESSIONS if got[n] != want[n]},
+            {n: _named_row(n) for n in cited if _named_row(n) != cited[n]}) == (73, {}, {})
+
+
+def _constructed():
+    """Two sessions no recording shows, built from recorded ones: a vendor 401 behind the passthrough, whose retries
+    meet `tranche stopped`; and a completed result after a usage-limit answer in the slot's log."""
+    behind_401 = {**_fixture("passthrough-stopped-UnknownApiError"),
+                  "_log": _log([{"slot": "s", "status": 200}, {"slot": "s", "status": 401},
+                                {"slot": None, "status": 403, "refused": "tranche stopped"}])}
+    limit_then_completed = {**_fixture("token-three-tools-normal-end"),
+                            "_log": _log([{"slot": "s", "status": 429, "headers": SIGNAL_1}])}
+    return {"a vendor 401 behind the passthrough": behind_401,
+            "signal 1, then a completed result": limit_then_completed}
+
+
+def _matching(session, ladder):
+    return frozenset(row["row"] for row in ladder["classification"]["rows"] if row["row"] != 16
+                     and _matches(row, session))
+
+
+def test_two_rows_match_one_session_only_where_a_listed_pair_says_why_the_order_resolves_it():
+    ladder = _ladder()
+    listed = {frozenset(pair["rows"]) for pair in ladder["classification"]["order_resolves"]}
+    sessions = {name: _session(_fixture(name)) for name in SESSIONS} | _constructed()
+    many = {name: m for name, s in sessions.items() if len(m := _matching(s, ladder)) > 1}
+    assert ({n: sorted(m) for n, m in many.items() if m not in listed}, set(many.values())) == ({}, listed)
+
+
+def test_the_order_is_d5_s_and_the_natural_order_would_misclassify():
+    ladder = _ladder()
+    cases = _constructed()
+    stated = {name: _classify(s, ladder) for name, s in cases.items()}
+    natural = {name: _classify(s, ladder, list(range(1, 17))) for name, s in cases.items()}
+    assert (ladder["classification"]["order"], stated, natural) == (
+        [10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 11, 12, 13, 15, 16],
+        {"a vendor 401 behind the passthrough": 14, "signal 1, then a completed result": 10},
+        {"a vendor 401 behind the passthrough": 12, "signal 1, then a completed result": 5})
+
+
+def test_a_session_with_signal_2_alone_pauses():
+    session = {**_fixture("token-usage-limit-NonZeroAgentExitCodeError"), "_log": _log([{"slot": "s", "status": 429}])}
+    assert _classify(session, _ladder()) == 16
+
+
+def test_the_rate_limit_event_of_signal_2_tells_a_usage_limit_from_a_plain_429():
+    row = next(r for r in _ladder()["classification"]["rows"] if r["row"] == 10)
+    event = row["recorded_form"][0]["stream.rate_limit"]
+    assert [_holds(event, _field(_fixture(name), "stream.rate_limit"))
+            for name in ("token-usage-limit-NonZeroAgentExitCodeError", "stub-rate-limit-ApiRateLimitError")] == [
+        True, False]
+
+
+ROW_CLASSES = {1: ("pre_session_failure", False, False), 2: ("stop", False, False), 3: ("observation", True, False),
+               4: ("infrastructure_failure", False, False), 5: ("observation", False, False),
+               6: ("observation", True, False), 7: ("observation", True, False), 8: ("observation", True, False),
+               9: ("observation", True, False), 10: ("cut", False, False), 11: ("observation", True, False),
+               12: ("infrastructure_failure", False, False), 13: ("stop", False, False),
+               14: ("infrastructure_failure", False, True), 15: ("infrastructure_failure", False, False),
+               16: ("ruling", False, False)}
+COUNTING = {"observation": (True, True, True, False), "infrastructure_failure": (True, True, False, False),
+            "cut": (True, True, False, True), "pre_session_failure": (False, False, False, True),
+            "stop": (True, True, False, False), "ruling": (True, True, None, None)}
+
+
+def _count(value):
+    return None if value == "by the ruling" else bool(value)
+
+
+def test_each_row_s_class_and_each_class_s_count_are_d5_s():
+    classification = _ladder()["classification"]
+    rows = {r["row"]: (r["class"], r.get("flagged", False), r.get("stop", False)) for r in classification["rows"]}
+    counting = {name: tuple(_count(c[k]) for k in ("starts", "usd", "k_n", "rerun"))
+                for name, c in classification["classes"].items()}
+    assert (rows, counting) == (ROW_CLASSES, COUNTING)
+
+
 def test_every_fixture_a_row_cites_exists_and_its_recording_is_indexed():
     names = {r["name"] for r in json.loads((KIT / "recordings.json").read_text())["recordings"]}
     cited = sorted({f for row in _ladder()["classification"]["rows"] for f in row["fixtures"]})
@@ -311,17 +458,22 @@ def test_every_fixture_a_row_cites_exists_and_its_recording_is_indexed():
 
 # ---- pending, manifest and freeze ---------------------------------------------------------------------------
 
-def _under(path, field):
-    return path == field or path.startswith((field + ".", field + "["))
+PENDING_OR_FILLED = {
+    "tasks.qualified", "tasks.load_sensitive", "tasks.overlay_digests", "tasks.extra_hosts", "tasks.withholding",
+    "network.agent_phase.allowed_hosts", "host.cpu_set", "host.disk_plan", "refusal.form_reasons",
+    "classification.passthrough_log", "usage_limits.vendor_headers_confirmed", "allowance_guard.utilisation_header",
+    "readout.contamination_scan.terms", "readout.contamination_scan.canary_sha256", "readout.graded_outcome.verifiers",
+    "schedule.order.seed", "schedule.order.hash", "readout.fall_bound.seed"}
+TYPE_NAMES = {"array", "object", "string", "sha256", "scalar"}
 
 
-def test_every_null_of_the_criterion_is_pending_and_every_pending_entry_holds_a_null():
+def test_every_null_is_a_pending_field_and_no_field_leaves_the_list_without_a_record():
     ladder = _ladder()
     manifest = _load("lh_manifest", KIT / "manifest.py")
-    nulls, fields = list(manifest.nulls(ladder)), [p["field"] for p in ladder["pending"]]
-    assert ([n for n in nulls if not any(_under(n, f) for f in fields)],
-            [f for f in fields if not any(_under(n, f) for n in nulls)],
-            [p["field"] for p in ladder["pending"] if not p.get("filled_by")]) == ([], [], [])
+    entries = ladder["pending"] + ladder["filled"]
+    assert (set(manifest.nulls(ladder)), {e["field"] for e in entries},
+            [e["field"] for e in entries if e.get("type") not in TYPE_NAMES or not e.get("filled_by")]) == (
+        {p["field"] for p in ladder["pending"]}, PENDING_OR_FILLED, [])
 
 
 def _kit_copy(tmp_path):
@@ -329,6 +481,8 @@ def _kit_copy(tmp_path):
     shutil.copytree(KIT, kit, ignore=shutil.ignore_patterns("__pycache__"))
     (tmp_path / "repo" / "orchestrator" / "providers").mkdir(parents=True)
     shutil.copy(TABLE, tmp_path / "repo" / "orchestrator" / "providers")
+    (tmp_path / "repo" / "tests" / "experiments").mkdir(parents=True)
+    shutil.copy(__file__, tmp_path / "repo" / "tests" / "experiments" / "test_long_horizon_ladder.py")
     return kit
 
 
@@ -337,10 +491,17 @@ def _run(kit, *args):
                           check=False)
 
 
-def test_the_committed_manifest_is_current():
-    """A kit change merged without `manifest.py write` fails here (README: the rerun belongs in that merge)."""
-    checked = _run(KIT, "check")
-    assert (checked.returncode, checked.stderr) == (0, "")
+def test_a_frozen_committed_manifest_is_current_and_an_unfrozen_one_reproduces_itself(tmp_path):
+    """Before the freeze the committed manifest labels nothing, so only `write` is held to reproduce itself on a copy;
+    once frozen, the committed manifest must be current."""
+    if json.loads((KIT / "manifest.json").read_text())["frozen"]:
+        checked = _run(KIT, "check")
+        assert (checked.returncode, checked.stderr) == (0, "")
+    else:
+        kit = _kit_copy(tmp_path)
+        first, second, checked = _run(kit, "write"), _run(kit, "write"), _run(kit, "check")
+        assert (first.returncode, second.stdout, checked.returncode, checked.stdout.split()[1:]) == (
+            0, first.stdout, 0, ["not", "frozen"])
 
 
 def _flip(path):
@@ -352,6 +513,9 @@ def _flip(path):
 CHANGES = {"one byte of a covered kit file": (lambda kit: _flip(kit / "tasks.json"), 1, "tasks.json"),
            "one byte of the price table": (lambda kit: _flip(kit.parents[1] / "orchestrator" / "providers"
                                                              / "price_table.json"), 1, "price_table.json"),
+           "one byte of the reference reader": (lambda kit: _flip(kit.parents[1] / "tests" / "experiments"
+                                                                  / "test_long_horizon_ladder.py"), 1,
+                                                "test_long_horizon_ladder.py"),
            "a new file in the kit": (lambda kit: (kit / "fixtures" / "extra.json").write_text("{}"), 1, "extra.json"),
            "a covered file removed": (lambda kit: (kit / "fixtures" / "public-normal-end.json").unlink(), 1,
                                       "public-normal-end.json"),
@@ -370,19 +534,35 @@ def test_manifest_check_fails_exactly_when_a_covered_file_changes(tmp_path, chan
             after.stdout.split()[:1]) == (0, [label], 0, code, True, [label])
 
 
-def _fill(obj):
-    if isinstance(obj, dict):
-        return {k: _fill(v) for k, v in obj.items()}
-    return [_fill(v) for v in obj] if isinstance(obj, list) else ("filled" if obj is None else obj)
+SAMPLES = {"array": ["x"], "object": {"x": 1}, "string": "x", "sha256": "0" * 64, "scalar": 1}
+
+
+def _set(doc, field, value):
+    *path, last = field.split(".")
+    for key in path:
+        doc = doc[key]
+    doc[last] = value
+
+
+def _filled(ladder, value=None, source="a test"):
+    """Every pending field filled (with a sample of its type, or `value`) and moved to `filled` with `source`."""
+    out = copy.deepcopy(ladder)
+    for entry in out["pending"]:
+        _set(out, entry["field"], SAMPLES[entry["type"]] if value is None else value)
+    out["filled"], out["pending"] = [{**e, "source": source} for e in out["pending"]], []
+    return out
 
 
 FREEZES = {"pending entries left": (lambda d: d, 2),
            "pending emptied, a null left": (lambda d: {**d, "pending": []}, 2),
-           "pending emptied, every null filled": (lambda d: {**_fill(d), "pending": []}, 0)}
+           "every field filled, typed and sourced": (_filled, 0),
+           "a field filled with an empty string": (lambda d: _filled(d, value=""), 2),
+           "a field filled with the wrong type": (lambda d: _filled(d, value=7), 2),
+           "a field filled with no source": (lambda d: _filled(d, source=""), 2)}
 
 
 @pytest.mark.parametrize("case", FREEZES)
-def test_freeze_is_refused_while_anything_is_pending(tmp_path, case):
+def test_freeze_is_refused_while_anything_is_pending_or_a_filled_field_is_untyped_or_unsourced(tmp_path, case):
     kit = _kit_copy(tmp_path)
     edit, code = FREEZES[case]
     (kit / "ladder.json").write_text(json.dumps(edit(_ladder()), indent=1))
@@ -391,3 +571,21 @@ def test_freeze_is_refused_while_anything_is_pending(tmp_path, case):
     after = json.loads((kit / "manifest.json").read_text())
     assert (frozen.returncode, after["frozen"] if code == 0 else (kit / "manifest.json").read_bytes() == before) == (
         code, True)
+
+
+def test_check_fails_a_manifest_frozen_by_hand_while_anything_is_pending(tmp_path):
+    kit = _kit_copy(tmp_path)
+    _run(kit, "write")
+    recorded = json.loads((kit / "manifest.json").read_text())
+    (kit / "manifest.json").write_text(json.dumps({**recorded, "frozen": True}, indent=1) + "\n")
+    checked = _run(kit, "check")
+    assert (checked.returncode, "pending:" in checked.stderr) == (1, True)
+
+
+def test_a_plain_write_over_a_frozen_manifest_is_refused(tmp_path):
+    kit = _kit_copy(tmp_path)
+    (kit / "ladder.json").write_text(json.dumps(_filled(_ladder()), indent=1))
+    frozen = _run(kit, "write", "--freeze")
+    before = (kit / "manifest.json").read_bytes()
+    plain = _run(kit, "write")
+    assert (frozen.returncode, plain.returncode, (kit / "manifest.json").read_bytes() == before) == (0, 2, True)

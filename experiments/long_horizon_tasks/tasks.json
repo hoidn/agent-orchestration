@@ -13,7 +13,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -28,7 +27,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -43,7 +41,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -58,7 +55,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -73,7 +69,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -88,7 +83,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -103,7 +97,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -118,7 +111,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -134,7 +126,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -149,7 +140,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -164,7 +154,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -180,7 +169,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -196,7 +184,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -212,7 +199,6 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -228,7 +214,6 @@
     "only in the checked copy: THIRD_PARTY_NOTICES"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   },
@@ -244,11 +229,10 @@
     "task.toml differs"
    ],
    "overlay_digest": null,
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": null
   }
  ],
  "recompute": "digests: $LH/hvenv/bin/python -I -c 'import sys; from pathlib import Path; from harbor.publisher.packager import Packager; [print(p, \"sha256:\" + Packager.compute_content_hash(Path(p))[0]) for p in sys.argv[1:]]' <task dir>... (each a 4.1.0 or 4.0.0 package unpacked, or a checked copy under harbor-framework/terminal-bench/tasks); packages: the hub's public storage, path packages/terminal-bench/<task>/<hex digest>/dist.tar.gz, read with the publishable key that ships in the harbor package (not copied here)",
- "pending": "overlay_digest, cap, extra_hosts and oracle_evidence are filled by the plan's Task 2 oracle runs (five oracle and five do-nothing runs per task under the final policy), which were not run in the recording rounds; null means not yet measured"
+ "pending": "overlay_digest, extra_hosts and oracle_evidence are filled by the plan's Task 2 oracle runs (five oracle and five do-nothing runs per task under the final policy), which were not run in the recording rounds; null means not yet measured; the per-attempt cap's home is ladder.json (tasks.list[].cap_usd)"
 }

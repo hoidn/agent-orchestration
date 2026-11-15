@@ -49,28 +49,36 @@ recording's harness arguments back from its trial's `config.json`; its decoy tes
 | `manifest.py`, `manifest.json` | The SHA-256 of every file the manifest covers. The SHA-256 of `manifest.json` is the configuration label of D7 |
 
 **Covered:** every file of this directory, `ladder.json`, `tasks.json`, the scripts, `recordings.json` and the
-fixtures among them, and `orchestrator/providers/price_table.json`, which D4 names by hash. **Not covered** (the
+fixtures among them; `orchestrator/providers/price_table.json`, which D4 names by hash; and
+`tests/experiments/test_long_horizon_ladder.py`, the reference reader of the pattern language until the launcher
+reads it. **Not covered** (the
 list is in `manifest.py` and in `manifest.json`): `manifest.json` itself; `README.md` and `RECORDINGS.md`, prose that
 no code reads, so a wording fix makes no new label; `results/`, the readout's output; `__pycache__/`. The allowance
 inputs, the meter readings, the raw recordings, the task packages and images, and the token are outside the
-repository and in neither file (the last three by their hashes and digests only).
+repository and in neither file (the last three by their hashes and digests only). The package code the launcher
+reuses is bound by the runtime commit (`LH_RUNTIME_COMMIT`), not by the label.
 
 ```
-python -I experiments/long_horizon_tasks/manifest.py check            # exit 1 names each changed, new or gone file
+python -I experiments/long_horizon_tasks/manifest.py check            # exit 1 names each changed, new or gone file,
+                                                                        # or a frozen manifest whose ladder.json is not ready
 python -I experiments/long_horizon_tasks/manifest.py write            # rewrite after a kit change; prints the label
 python -I experiments/long_horizon_tasks/manifest.py write --freeze   # the freeze (Task 9); refused while anything is pending
+                                                                        # (a plain write over a frozen manifest is refused)
 pytest -q -n 4 tests/experiments/test_long_horizon_ladder.py
 ```
 
 **`pending`** lists each value that `ladder.json` cannot take from `main` yet. Each such field is `null`, and its
 entry says what fills it: one of the two branches in flight (`feat/long-horizon-oracle-2b`: the qualified tasks,
-overlay digests, extra hosts, withholding, the host list, the CPU set; `feat/lh-passthrough`: the refusal reasons of
-a request's form and its log's field names), Task 2b's dry run of the contamination terms, the live probe, or the
-freeze (the schedule's seed and hash, the bootstrap seed). `--freeze` refuses while `pending` is non-empty or any
-`null` is left; a test holds every `null` to a `pending` entry.
+the load-sensitive list, overlay digests, extra hosts, withholding, the host list, the CPU set; `feat/lh-passthrough`:
+the refusal reasons of a request's form, its log's field names and how a log row with no slot is joined to an
+attempt), Task 2b (the disk plan, the contamination terms and the canary's SHA-256, which verifiers report
+sub-tests), the live probe (the vendor's header names, the utilisation header), or the freeze (the schedule's seed and
+hash, the bootstrap seed). A filled field moves from `pending` to `filled` with
+its `type` and a `source` (the commit or ledger row it came from). `--freeze` refuses while `pending` is non-empty, any
+`null` is left, or a filled field fails its type or names no source; a test holds every `null` to a `pending` entry.
 
-**Run `manifest.py write` again after every kit merge.** Until the freeze, the committed `manifest.json` is unfrozen:
-it is only a check that the command works, and it labels nothing. `test_the_committed_manifest_is_current` fails
-while it is stale, so a branch that changes the kit fails that test until it reruns `write`. The rerun belongs in the
-merge that changes the kit: the merge commit carries the rewritten `manifest.json`. A conflict in `manifest.json` is
+**`manifest.py write` is rerun at the freeze.** Until then the committed `manifest.json` is unfrozen: it only shows
+that the command works, labels nothing, and may be stale after a kit merge without failing a test (a rerun of `write`
+in the merge keeps it current, but no step needs it). A test checks that `write` reproduces itself on a copy of the
+kit; once the manifest is frozen, a test checks that the committed one is current. A conflict in `manifest.json` is
 resolved by running `write` on the merged tree, never by hand.

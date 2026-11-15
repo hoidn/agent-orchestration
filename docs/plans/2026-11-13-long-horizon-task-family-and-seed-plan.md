@@ -251,7 +251,8 @@ recorded per task and per attempt. All 16 packages were fetched and match their 
   not set: a session that meets a limit ends at once (D5).
 - **Harness and limits:** Harbor 0.25.0 and podman-compose 1.6.0 from a pinned environment,
   one harness run per attempt, its retry count at zero, its agent setup timeout multiplier 3, taken
-  from the recordings (every Task 2a recording used it). Equal at every effort level: the task's
+  from the recordings (the 33 Task 2a recordings of the CLI used 3; the two Task 2a oracle probes
+  set none). Equal at every effort level: the task's
   own agent limit (28,800 s for all 16) and verifier limit, multiplier 1; its CPUs and memory;
   a process limit of 4,096; the dollar cap of D4.
 - **Load and CPUs.** Load slows the agent's commands, not the model, and some verifiers depend
@@ -453,13 +454,14 @@ stream the CLI repeats the request with `stream: false` and `max_tokens: 64000`
 (recorded as `rateLimitType: five_hour`) and a weekly one. The owner's sessions, the
 coordinating session and the ladder draw on the same allowance.
 
-- **How a limit is recognised: two signals, and the class needs both.** (1) The passthrough
+- **How a limit is recognised: two signals, and the passthrough's decides.** (1) The passthrough
   saw, for that slot, a vendor 429 whose `anthropic-ratelimit-unified-status` header is
   `rejected`. (2) The session's result event has `api_error: usage_limit_reached` and
   `api_error_status: 429`, after a `rate_limit_event` with `status: rejected` and a
   `rateLimitType` (fixture `token-usage-limit-NonZeroAgentExitCodeError`; a plain 429 also
-  brings a `rejected` event, without a `rateLimitType`: `stub-rate-limit-ApiRateLimitError`). Requiring both keeps a model-side ending
-  from being taken for a limit.
+  brings a `rejected` event, without a `rateLimitType`: `stub-rate-limit-ApiRateLimitError`). Signal 1 decides the class (D5 row 10), whatever the
+  CLI's result says: the vendor's answer, which no model output can produce, keeps a model-side
+  ending from being taken for a limit. Signal 2 without signal 1 pauses the tranche for a ruling.
 - **Signal 1 is the stand-in's form,** written from the header names the CLI's bundle reads.
   The vendor's real answer is recorded the first time one occurs: a probe of a few requests
   cannot produce one, and the allowance is not spent to provoke one. Until it is recorded,
@@ -634,15 +636,19 @@ limit the second revision named as a precondition.
 **A session has started** when its stream holds an init event; every recorded session emitted
 one before its first request. **The ending is read from five things:** the result event's
 `terminal_reason`, `api_error`, `api_error_status` and `stop_reason`; the `lh-passthrough:`
-prefix in the result text; and the passthrough's log for the slot (for the tranche, in row 13's
-unknown-token case). `subtype` decides nothing:
+prefix in the result text; and the passthrough's log. The log is the authority for a usage limit
+(row 10). It is read for the slot, except for the refusals it logs with no slot (rows 12 and 13):
+there the reason in the attempt's own result text decides, and the tranche's rows in the attempt's
+time window corroborate it; how such a row is joined to an attempt is settled when the passthrough
+branch is on `main`. `subtype` decides nothing:
 it is `success` for refusal, output-limit and context-limit endings. **The harness class
 decides nothing where endings share one,** and they do: a 529, a stalled first byte, a refused
 credential and every passthrough refusal end as `UnknownApiError`; a context limit, the CLI's
 budget stop and a usage limit end as `NonZeroAgentExitCodeError` (recorded). The class is
 read only in the three rows that name it as deciding.
 
-The rows are tried in order and the first match decides, except that row 14 is tried before
+The rows are tried in order and the first match decides, except that row 10 is tried first,
+because the passthrough's log is the authority for a usage limit, and row 14 is tried before
 rows 11 and 12: behind the passthrough, a vendor 401 sets the tranche stopped, so the CLI's
 retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's form.
 
@@ -657,18 +663,19 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
 | 7 | Context limit | `terminal_reason: prompt_too_long` (with `api_error_status: 400`) or `blocking_limit` | `NonZeroAgentExitCodeError` | `stub-context-limit-…`, `stub-context-limit-after-compaction-…` | Observation, flagged |
 | 8 | Refusal | `stop_reason: refusal`, after a `model_refusal_no_fallback` event | `AgentSafetyRefusalError` | `public-refusal-…`, `stub-refusal-…` | Observation, flagged |
 | 9 | Output limit | `api_error: max_output_tokens` | `OutputTokenExceededError` | `stub-output-limit-…` | Observation, flagged |
-| 10 | Usage limit | `api_error: usage_limit_reached` with `api_error_status: 429`, after a `rate_limit_event` with `status: rejected` and a `rateLimitType`, and signal 1 of D4 in the passthrough's log | `NonZeroAgentExitCodeError` | `token-usage-limit-…` | Cut by a usage limit: excluded, and the slot is run again |
+| 10 | Usage limit | Signal 1 of D4 for the slot in the passthrough's log, whatever the CLI's result says. The CLI's own form with both signals: `api_error: usage_limit_reached` with `api_error_status: 429`, after a `rate_limit_event` with `status: rejected` and a `rateLimitType`; with signal 1 alone, an ordinary 429 after ten retries | `NonZeroAgentExitCodeError` | `token-usage-limit-…`; `simple-mode-stub-usage-limit-headers-key-mode-…` (signal 1 alone, recorded in key mode) | Cut by a usage limit: excluded, and the slot is run again |
 | 11 | The passthrough refused: the slot's cap | `api_error_status: 403`, the result text holds `lh-passthrough: slot cap reached`, and the passthrough's log agrees; the priced cap and the optional request count (D4) end alike | `UnknownApiError` | `passthrough-cap-…` | Observation, flagged |
-| 12 | The passthrough refused: total or stop | The same, with `tranche total reached` or `tranche stopped` | `UnknownApiError` | `passthrough-total-…`, `passthrough-stopped-…` | Infrastructure failure |
-| 13 | The passthrough refused: model, tool, path or unknown token | `api_error_status: 403`, the prefix, and that reason in the passthrough's log: the slot's entries for model, tool or path; the tranche's for an unknown token, whose refusal names no slot | `UnknownApiError` | `passthrough-model-…`, `passthrough-tool-…`, `passthrough-path-…`, `passthrough-unknown-token-…` (and `passthrough-unknown-token-first-request-…`) | A stop |
+| 12 | The passthrough refused: total or stop | `api_error_status: 403`, the result text holds `lh-passthrough: tranche total reached` or `lh-passthrough: tranche stopped`, and the passthrough's log agrees, in the tranche's rows of the attempt's time window | `UnknownApiError` | `passthrough-total-…`, `passthrough-stopped-…` | Infrastructure failure |
+| 13 | The passthrough refused: model, tool, path or unknown token | `api_error_status: 403`, the result text holds `lh-passthrough:` and that reason, and the passthrough's log agrees, in the tranche's rows of the attempt's time window | `UnknownApiError` | `passthrough-model-…`, `passthrough-tool-…`, `passthrough-path-…`, `passthrough-unknown-token-…` (and `passthrough-unknown-token-first-request-…`) | A stop |
 | 14 | The vendor refused the credential | A vendor 401 for the slot in the passthrough's log (the CLI's own form: `api_error_status: 401`) | `UnknownApiError` | `token-unauthorized-…` | Infrastructure failure, and a stop |
-| 15 | Provider fault, after the CLI's ten retries | `terminal_reason: api_error` with `api_error_status` 429 (and no `usage_limit_reached`), 500 or 529; or `null` after ten `api_retry` events | `ApiRateLimitError`, `ApiInternalServerError`, `UnknownApiError` | `stub-rate-limit-…`, `stub-server-error-…`, `stub-overloaded-…`, `stub-slow-first-byte-…` | Infrastructure failure |
+| 15 | Provider fault, after the CLI's ten retries | `terminal_reason: api_error` with `api_error_status` 429 (and no `usage_limit_reached`), 500 or 529; or `null` after ten `api_retry` events; and no signal 1 of D4 for the slot in the passthrough's log (that is row 10) | `ApiRateLimitError`, `ApiInternalServerError`, `UnknownApiError` | `stub-rate-limit-…`, `stub-server-error-…`, `stub-overloaded-…`, `stub-slow-first-byte-…` | Infrastructure failure |
 | 16 | Anything else | No row above matches | any | none | The launcher pauses for a recorded ruling |
 
 - **What the fixtures were recorded in.** Rows 2, 3 and 5 to 15 cite recordings in the
   ladder's configuration (Task 2a); row 1's are harness-level failures from Task 1; row 8 also
   cites the public archive. The simple-mode recordings stay under `simple-mode-` names, as
-  evidence for D2 only.
+  evidence for D2, except that row 10 cites one, recorded in key mode, for the CLI's form when
+  only the passthrough's log shows the limit.
 - **Row 3's fixture is a loop, not a hung command.** The stand-in answered every turn with a
   standalone `sleep 30`, which the CLI's Bash tool refuses locally, so the session made 1,212
   requests in 187 s (6.5 per second) until the limit. Cheap at the stand-in's fixed usage
@@ -687,15 +694,18 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
   excluded from k and n, listed, never scored zero; its slot is not run again. A *pre-session
   failure* counts against neither; the slot is relaunched at most twice and is lost after the
   third failure. A *stop* halts the tranche: no new start. The attempt in which it occurred is
-  not an observation and is not scored; its slot is not run again, and nothing resumes until a
-  coordinator row in the ledger names the cause and the decision.
+  not an observation and is not scored. It counts against the 240 and the USD 200, as every start
+  does (D4: every start's settled cost is committed, and launches stop at 240 starts); for row
+  2's second form, which ends before a session, that is the conservative count. Its slot is not
+  run again, and nothing resumes until a coordinator row in the ledger names the cause and the
+  decision.
 - **An attempt cut by a usage limit** is an infrastructure failure with one difference: its
   slot is run again, at the head of the queue, when starts reopen. The cut start still counts
   against the 240 and its tokens against the USD 200, so **each cut costs one slot at the
   hashed tail of the schedule** (D7). This is the reading that cannot exceed the approval's
   240 attempts. The cut session's reward is never read.
-- **Why the rerun is not a second chance.** The account decides a cut, by two signals the
-  model cannot produce, and the rule is fixed before any data. One bias remains: a long
+- **Why the rerun is not a second chance.** The account decides a cut, by the vendor's answer in the
+  passthrough's log, which the model cannot produce, and the rule is fixed before any data. One bias remains: a long
   session is more exposed to a cut than a short one, so many cuts would lean the completed
   sessions toward short ones. The readout lists cuts per effort, and cuts above 5% of starts
   (from 20 starts on) pause the tranche for a ruling; the allowance guard exists to keep the
@@ -840,6 +850,8 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
    allowance figures may be corrected by a ledger row.
 6. **A change after the pilot's first attempt makes a new configuration label.** The label is
    the manifest hash, which covers the kit, the configuration and the task and image digests.
+   The package code the launcher reuses is bound by the runtime commit (`LH_RUNTIME_COMMIT`), not
+   by the label.
    - A change is allowed only to repair a safety or correctness fault. Its ledger row is
      written before the next start and names the fault, the change and the new hash. The
      round-1 read is not an occasion for one.
@@ -992,7 +1004,7 @@ wherever a new recording differs, before Task 3 freezes them.
 ### Task 2b: measure, check and qualify the 16 on the pinned images (impl_code; 9 h plus about 16 h of machine time)
 
 **Files:** modify `tasks.json` (image digests and sizes, the withholding result, overlay
-digest, cap, extra hosts, oracle evidence), `oracle_check.sh` (repeats, the two-key overlay,
+digest, extra hosts, oracle evidence; the cap's home is `ladder.json`), `oracle_check.sh` (repeats, the two-key overlay,
 the CPU set, the load gate) and `summarize.py` (counts); create `image_check.py` (pull, size,
 export, listing and search; D1).
 
@@ -1161,7 +1173,8 @@ Tests, against a stand-in harness that replays the recorded fixtures on a closed
       settlement takes the largest of four figures, never reads the result's `usage`, and
       counts a message id once; unreadable usage settles at the full reservation.
 - [ ] Classification over every fixture, by the rows of D5 in order: endings of one harness
-      class are told apart; a usage limit needs both signals, and a session with one of them
+      class are told apart; a usage limit is decided by the passthrough's log, so a slot whose
+      log holds signal 1 is cut whatever the CLI's result says, and a session with signal 2
       alone pauses; an ending with no row pauses. A slot cut by a usage limit is run again as
       a new counted start at the head of the queue and its reward is never read; a slot whose
       session ended in any other way is never launched again; a slot is lost after its third pre-session failure; a
@@ -1466,3 +1479,4 @@ without it.
 | 2026-11-14 | Task 2a, last items after the re-review (approve; no new recording, no spend) | A literal LAN address in a cutter test replaced by a documentation address; written fixtures now map every IPv4 address to `<address>` and a fake slot token to `<fake slot token>`. A test over committed files only checks each `t2a-*` index entry against its fixtures (effort, CLI version, the eighteen-name deny list, every fixture's recording indexed). The after-limit evidence is a fixture (`fixtures/after-limit/t2a-timeout-low.json`: 72 requests in the 18.3 s after the agent phase ended; the CLI's refusal of a standalone `sleep`, which points at Monitor). D4: an attempt settles when its slot closes; the live probe's 6 is per slot and its 18 the probe's total; the stop precedes paid usage only if ordinary responses carry `overage-status`. Live probe item 2 records every response header's name and every `anthropic-*` value, and its request log keeps beta flags, cache marks and declared tools. |
 | 2026-11-14 | Task 3, criterion and manifest, built on `feat/lh-criterion` (impl_code; no spend, no container, no request) | `experiments/long_horizon_tasks/ladder.json` holds D1 to D7 as data, each group with its source: the attempt (model, efforts, CLI 2.1.311, token-mode and output-token variables, the eighteen-name deny list, the init event and declared tools), the harness and host-side overrides, the 16 tasks with their public mean at `max` and cap, caps, price (rule file, the table's SHA-256, the five-minute write rate), the credential route and slot, the refusal form, both usage-limit signals, the paid-usage stop, ceiling, settlement, the allowance guard's rules (none of the owner's inputs), network, host, schedule (smoke, pilot and its fallback, blocks), stops and pauses, the label, the readout rules; D5 as sixteen ordered rows of field patterns, each citing its fixtures. `manifest.py write\|check` hashes every kit file but `README.md`, `RECORDINGS.md`, `results/` and caches, plus the price table, and prints the label; `write --freeze` refuses while anything is pending. Tests (`tests/experiments/test_long_horizon_ladder.py`): the cap formula, one cap at every effort, the pilot's fallback, every D5 pattern holding on the fixtures it cites (a misspelt field or a value no fixture shows fails), each cited fixture indexed, the three archives' totals by the kit's price check, the price table's rates, the deny list, the model and efforts, no other model id, every null pending, a one-byte change caught, the freeze refused. **Pending (18), each `null` in the file:** from `feat/long-horizon-oracle-2b`, the qualified tasks, the load-sensitive list, overlay digests, extra hosts, withholding verdicts in `tasks.json`, the agent phase's host list and the CPU set; from `feat/lh-passthrough`, the request-form refusal reasons, the request log's format (and how an unknown-token refusal, which names no slot, is joined to an attempt) and the scope of the paid-usage stop; from Task 2b's dry run, the contamination terms and the canary's SHA-256, and which verifiers report sub-tests; from the live probe, the confirmation of the vendor's header names; at the freeze, the schedule's seed and hash and the bootstrap's seed; by coordinator ruling, how an attempt ending in a stop row (2, 13) is counted and the agent setup timeout multiplier (the recordings used 3). The manifest is committed unfrozen. Spend: 0; subscription usage: none. |
 | 2026-11-14 | Coordinator rulings on Task 3's four contradictions and two gaps, applied on `feat/lh-criterion` (revise; no spend) | (1) One frozen seed gives both the schedule's order and the block order (D7.3); Task 3's list now names one seed; it stays pending until the freeze. (2) The paid-usage stop: the two overage clauses apply to any response, a 429 included, and the unified-status clause only to a response that carries the header and is not a 429. This is the reading of `feat/lh-passthrough`, whose D4 text carries it to `main`. `ladder.json` encodes it with `main`'s header names; D4's sentence is left to that branch. (3) The agent phase's host list is frozen after the oracle's second pass has run under it (D1); it stays pending. The oracle script's comment naming Task 3 is only on `feat/long-horizon-oracle-2b`. (4) Row 13 reads the slot's log entries for the model, tool and path reasons and the tranche's for an unknown token, whose refusal names no slot; D5's opening paragraph says so too. (5) D5 defines a stop: it halts the tranche, its attempt is neither an observation nor scored, its slot is not run again, and nothing resumes until a coordinator row names the cause and the decision. `ladder.json` counts the attempt against the 240 and the USD 200 by D7.6. (6) D7.1: if gsea-proteomics does not qualify, the smoke task is the first qualified task in `tasks.json` order that is not on the load-sensitive list. (7) D2: the agent setup timeout multiplier is 3, taken from the recordings; only the Task 2a recordings set one, all to 3. The kit's README says `manifest.py write` is rerun in every merge that changes the kit, and a test fails while the committed manifest is stale. Pending now 15: the oracle branch's seven, the passthrough branch's two (the request-form refusal reasons, the log's field names), Task 2b's three, the live probe's header confirmation, and at the freeze the schedule's seed and hash and the bootstrap's seed. Spend: 0. |
+| 2026-11-14 | Task 3 fix round 1 on `feat/lh-criterion`, after the independent review (approve after fixes: 0 blockers, 4 majors, 11 minors), with the coordinator's rulings (revise; no spend) | **(M1)** The passthrough's log is the authority for a usage limit. A slot whose log holds signal 1 is cut (row 10) whatever the CLI's result says. Row 10 is tried first. Row 15 applies only when the slot's log holds no usage-limit signal, and signal 2 alone pauses. D4, D5 rows 10 and 15, the order paragraph and Task 5 say so. Row 10 cites `simple-mode-stub-usage-limit-headers-key-mode-…` for the CLI's form with signal 1 alone. It was recorded in key mode; no token-mode recording of that form exists. **(M2)** Rows 12 and 13 require the specific `lh-passthrough: <reason>` in the attempt's own result text. The passthrough's log corroborates it, read from the tranche's rows in the attempt's time window. How a row with no slot is joined to an attempt is pending until the passthrough branch is on `main`, and D5's opening paragraph says so. **(M3)** New tests: every session fixture classified in order into its row; overlaps only where a listed pair says why the order resolves them; the order pinned, and the natural order shown to misclassify a vendor 401 behind the passthrough and a completed session after a usage-limit answer; each row's class and each class's count. Each of the review's four uncaught mutations now fails a test. **(M4)** The utilisation header is pending for the live probe, and the conditional check of D4 is encoded. **Ruling 5:** a stop's attempt counts against the 240 and the USD 200 (D4 and the approval); D5's stop sentence says so. **Ruling 7:** D2 says the 33 Task 2a recordings of the CLI used 3 and the two oracle probes set none. **Minors:** `read_from` follows D5 (m2); the ruling class counts its start (m4); `check` re-checks a frozen manifest, and a plain `write` over one is refused (m5); a filled field needs its type and a source at the freeze (m6); the cap's one home is `ladder.json`, so `tasks.json` lost its null `cap` and Task 2b's Files line names it no more (m7); readings at each weekly reset, the five-hour approximation, blocks per qualified task, the readout's lists, and the disk plan, pending for Task 2b's ledger row (m8); the overage clauses' scope is an empty condition (m9); the manifest covers the test module that is the pattern language's reference reader, and D7.6 says the package code is bound by the runtime commit (m10); the committed manifest is held current only once frozen (m11). Pending: 18 fields. Spend: 0. |
