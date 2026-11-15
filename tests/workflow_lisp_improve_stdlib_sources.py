@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import orchestrator.workflow_lisp as workflow_lisp_package
+from tests.source_edits import replace_exact
 
 
 STD_IMPROVE_PATH = Path(workflow_lisp_package.__file__).resolve().parent / "stdlib_modules" / "std" / "improve.orc"
@@ -88,9 +89,9 @@ ENTRY = """(workflow-lisp
              LIMIT)))
 """
 
-BARE_IMPORT_235 = """(workflow-lisp
+BARE_IMPORT = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
 """ + IMPORT_LINE + """  (export run)
   (defrecord Out (n Int))
@@ -115,8 +116,8 @@ ASSESS_LIB = (
     + "  (defmodule grt/assess)\n"
     + "  (import std/improve :only (Decision))\n"
     + "  (export Candidate Brief Feedback Blocker assess)\n"
-    + ENTRY[ENTRY.index("  (defrecord Candidate") : ENTRY.index("  (defproc revise-candidate")]
-    .replace("(defproc review-candidate", "(defproc assess")
+    + replace_exact(ENTRY[ENTRY.index("  (defrecord Candidate") : ENTRY.index("  (defproc revise-candidate")],
+                    "(defproc review-candidate", "(defproc assess")
     .rstrip()
     + ")\n"
 )
@@ -135,11 +136,12 @@ def wrapped_review_sources(imported: str, probes: dict[str, Path]) -> dict[str, 
 
     start = imported.index("  (defrecord Candidate")
     end = imported.index("  (defproc revise-candidate")
-    entry = (imported[:start] + WRAPPED_REVIEW + imported[end:]).replace(
+    entry = replace_exact(
+        imported[:start] + WRAPPED_REVIEW + imported[end:],
         IMPORT_LINE, IMPORT_LINE + "  (import grt/assess :only (Candidate Brief Feedback Blocker assess))\n"
     )
     return {
-        "grt/assess.orc": ASSESS_LIB.replace("PROBE_REVIEW", probes["probe_review"].as_posix()),
+        "grt/assess.orc": replace_exact(ASSESS_LIB, "PROBE_REVIEW", probes["probe_review"].as_posix()),
         "grt/entry.orc": entry,
     }
 
@@ -175,14 +177,16 @@ UNNAMED_UNION_CALLER = """(workflow-lisp
 
 def unnamed_union_caller_sources(*, seed: str, limit: int, probes: dict[str, Path]) -> dict[str, str]:
     entry = (
-        UNNAMED_UNION_CALLER
-        .replace("PROBE_REVISE", probes["probe_revise"].as_posix())
-        .replace("PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
-        .replace('"SEED"', f'"{seed}"')
-        .replace("LIMIT", str(limit))
+        replace_exact(
+            replace_exact(
+                replace_exact(
+                    replace_exact(UNNAMED_UNION_CALLER, "PROBE_REVISE", probes["probe_revise"].as_posix()),
+                    "PROBE_SUMMARIZE", probes["probe_summarize"].as_posix()),
+                '"SEED"', f'"{seed}"'),
+            "LIMIT", str(limit))
     )
     return {
-        "grt/assess.orc": ASSESS_LIB.replace("PROBE_REVIEW", probes["probe_review"].as_posix()),
+        "grt/assess.orc": replace_exact(ASSESS_LIB, "PROBE_REVIEW", probes["probe_review"].as_posix()),
         "grt/entry.orc": entry,
     }
 
@@ -191,19 +195,25 @@ def string_inputs_entry_source(entry: str) -> str:
     """The caller with a `String` workflow parameter `goal` as `improve`'s `inputs` (I = String)."""
 
     return (
-        entry.replace("(brief Brief)", "(goal String)")
-        .replace("brief.goal", "goal")
-        .replace('(record Brief :goal "tidy")', "goal")
-        .replace("(defworkflow run ()", "(defworkflow run ((goal String))")
+        replace_exact(
+            replace_exact(
+                replace_exact(
+                    replace_exact(entry, "(brief Brief)", "(goal String)", count=2),  # review and revise
+                    "brief.goal", "goal", count=2),
+                '(record Brief :goal "tidy")', "goal"),
+            "(defworkflow run ()", "(defworkflow run ((goal String))")
     )
 
 
 def entry_source(*, seed: str, limit: int, probes: dict[str, Path]) -> str:
     return (
-        ENTRY.replace("PROBE_REVIEW", probes["probe_review"].as_posix())
-        .replace("PROBE_REVISE", probes["probe_revise"].as_posix())
-        .replace('"SEED"', f'"{seed}"')
-        .replace("LIMIT", str(limit))
+        replace_exact(
+            replace_exact(
+                replace_exact(
+                    replace_exact(ENTRY, "PROBE_REVIEW", probes["probe_review"].as_posix()),
+                    "PROBE_REVISE", probes["probe_revise"].as_posix()),
+                '"SEED"', f'"{seed}"'),
+            "LIMIT", str(limit))
     )
 
 
@@ -212,7 +222,7 @@ def inline_entry_source(imported: str) -> str:
 
     library = STD_IMPROVE_PATH.read_text(encoding="utf-8")
     declarations = library[library.index("  (defunion Decision") :].rstrip()[:-1].rstrip()
-    return imported.replace(IMPORT_LINE, "").replace("  (export run)\n", "  (export run)\n" + declarations + "\n")
+    return replace_exact(replace_exact(imported, IMPORT_LINE, ""), "  (export run)\n", "  (export run)\n" + declarations + "\n")
 
 
 def provider_revise_entry_source(imported: str) -> str:

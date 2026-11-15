@@ -20,6 +20,7 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import PromptExtern
 from orchestrator.workflow.run_ref.config import decode_run_ref_static_config
 from tests.workflow_lisp_closed_program_helpers import install
+from tests.source_edits import replace_exact
 
 
 TARGET = CURRENT_TARGET_DSL_VERSION
@@ -629,7 +630,7 @@ def test_external_prompt_keeps_explicit_dependency_channel(tmp_path: Path) -> No
           :prompt-dependencies
             (:required (required) :optional (optional) :position append :instruction "INSTRUCTION")
           :model model :effort effort :timeout-sec 30)))'''
-    source = source.replace("INSTRUCTION", dependency_instruction)
+    source = replace_exact(source, "INSTRUCTION", dependency_instruction)
     root = tmp_path / "external-prompt-owner"
     path = install(root, source)
     typed = compile_typed_program(
@@ -1052,10 +1053,9 @@ def test_same_signature_run_refs_finalize_inside_phantom_loop_carriers(
 def test_projected_union_tag_finalizes_its_phantom_run_ref_owner(tmp_path, mutation):
     from tests.workflow_lisp_closed_program_helpers import BOUNDARIES
 
-    source = _CARRIER_RUN_REF_SOURCE.replace(':effects ((runs-ref child))',
-        ':effects ((runs-ref child) (uses-command fetch))').replace(
-        ':setup ())))) 0))', ':setup ())))) (command-result fetch :argv ("python" "probe.py" "${inputs.root}") :returns Int)))').replace(
-        '(defworkflow run ()', '(defworkflow run ((root Int))')
+    source = replace_exact(_CARRIER_RUN_REF_SOURCE,
+        ':setup ())))) 0))', ':setup ())))) (command-result fetch :argv ("python" "probe.py" "${inputs.root}") :returns Int)))')
+    source = replace_exact(source, '(defworkflow run ()', '(defworkflow run ((root Int))')
     assert 'command-result fetch' in source
     path = install(tmp_path, source)
     typed = compile_typed_program(path, entry_workflow='run', source_roots=(tmp_path,),
@@ -1258,13 +1258,8 @@ def test_local_proc_ref_generated_result_capture_resolves_actual_producer(
 def test_multiple_local_proc_ref_captures_keep_each_actual_producer(
     tmp_path: Path,
 ) -> None:
-    source = _LOCAL_RUN_REF_CAPTURE.replace(
-        ":captures (first)",
-        ":captures (first second)",
-    ).replace(
-        "(+ first.value n)",
-        "(+ (+ first.value second.value) n)",
-    )
+    source = replace_exact(_LOCAL_RUN_REF_CAPTURE, ":captures (first)", ":captures (first second)")
+    source = replace_exact(source, "(+ first.value n)", "(+ (+ first.value second.value) n)")
     root = tmp_path / "multiple-captures"
     path = install(root, source)
     typed = compile_typed_program(
@@ -1527,10 +1522,10 @@ def test_preparation_run_ref_generated_names_preserve_actual_producer_wiring(tmp
     run += ':program (:path "child.orc" :entry child) :inputs (:n VALUE) :returns Int '
     run += ':policy (:environment :deterministic-effect-free :setup ()))'
     declaration = '(defproc helper () -> Int '
-    declaration += '(let* ((first ' + run.replace('VALUE', '1') + ') (second ' + run.replace('VALUE', '2')
+    declaration += '(let* ((first ' + replace_exact(run, 'VALUE', '1') + ') (second ' + replace_exact(run, 'VALUE', '2')
     declaration += ') '
     if nested:
-        declaration += '(third ' + run.replace('VALUE', 'first') + ') (fourth ' + run.replace('VALUE', 'second') + ') '
+        declaration += '(third ' + replace_exact(run, 'VALUE', 'first') + ') (fourth ' + replace_exact(run, 'VALUE', 'second') + ') '
     declaration += '(out (command-result echo :argv ("python" "probe.py") :returns Int))) '
     declaration += '(+ third.value fourth.value)))' if nested else '(+ first.value second.value)))'
     first = _compile(tmp_path / 'first', '(helper)', declarations=declaration)

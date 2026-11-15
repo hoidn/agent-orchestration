@@ -16,6 +16,7 @@ from tests.workflow_evaluated_run_ref_helpers import _assert_complete_evidence_m
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from tests.test_workflow_evaluated_resume import _resume_cli
+from tests.source_edits import replace_exact
 
 
 def _public_fixture(root: Path, *, child_target="2.40", parent_target="2.40", body=None,
@@ -171,7 +172,8 @@ def test_public_private_and_native_calls_keep_resolved_child_inputs(tmp_path, ed
             '(defproc invoke ((flag Bool)) -> Bool :effects ((runs-ref run)) :lowering private-workflow')
         return f'{header} (let* ((child {call})) child.value))'
     invoke = '(call invoke :flag true)' if edge == "native" else '(invoke true)'
-    parent, source, refs = _public_fixture(tmp_path, child_target="2.35", parent_target="2.35",
+    target = "2.40" if edge == "native" else "2.35"  # the private edge is the old lowering (Task 4b)
+    parent, source, refs = _public_fixture(tmp_path, child_target=target, parent_target=target,
         definitions=definitions, body=lambda call: invoke,
         inputs="(flag-name Bool)", call_inputs=":flag-name flag", child_body="flag-name")
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
@@ -221,7 +223,7 @@ def _add_common_source(parent, source, candidate, common):
     (parent / "common.orc").write_text(common)
     _git(candidate, "add", "common.orc")
     _git(candidate, "-c", "user.name=Run Ref E2E", "-c", "user.email=run-ref-e2e@example.invalid", "commit", "--quiet", "-m", "common")
-    source.write_text(source.read_text().replace(old_commit, _git(candidate, "rev-parse", "HEAD")))
+    source.write_text(replace_exact(source.read_text(), old_commit, _git(candidate, "rev-parse", "HEAD")))
 
 
 def test_public_path_copy_is_confined_to_prepare_and_preserves_child_recipe(tmp_path, monkeypatch):

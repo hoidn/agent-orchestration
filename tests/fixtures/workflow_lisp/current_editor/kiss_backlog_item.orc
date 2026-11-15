@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule kiss_backlog_item)
   (export run-backlog-item)
   (defrecord PhaseCtx (name String))
@@ -12,8 +12,6 @@
   (defproc draft-plan-phase
     ((inputs BacklogItemInputs))
     -> PlanDraftSurfaceResult
-    :effects ((uses-provider providers.plan))
-    :lowering auto
     (provider-result providers.plan
       :prompt prompts.plan.draft
       :inputs (inputs.backlog_item inputs.work_instructions)

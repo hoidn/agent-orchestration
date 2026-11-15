@@ -70,10 +70,9 @@ def _nested_sources(mode):
         helper = helper.replace('(defrecord Payload (item-id String))', declarations)
         entry = entry.replace('(defrecord Payload (item-id String))', declarations)
         helper = helper.replace('-> Output', '-> Payload').replace(
-            ''':effects ((uses-command probe)) :lowering inline
-    (command-result probe
+            '''(command-result probe
       :argv ("python" "consumer.py" choice.selection.item-id) :returns Output)''',
-            ':effects () :lowering inline choice.selection')
+            'choice.selection')
         entry = entry.replace('(h.project (command-result produce :argv ("python" "producer.py") :returns Choice))',
             '''(let* ((choice (command-result produce :argv ("python" "producer.py") :returns Choice))
                      (selected (h.project choice)))

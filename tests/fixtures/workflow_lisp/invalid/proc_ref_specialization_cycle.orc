@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defpath WorkReport
     :kind relpath
     :under "artifacts/work"
@@ -13,14 +13,10 @@
     ((runner ProcRef[WorkflowInput -> WorkflowOutput])
      (input WorkflowInput))
     -> WorkflowOutput
-    :effects ()
-    :lowering inline
     (runner input))
   (defproc loop-helper
     ((input WorkflowInput))
     -> WorkflowOutput
-    :effects ()
-    :lowering inline
     (use-runner (proc-ref loop-helper) input))
   (defworkflow entry
     ((input WorkflowInput))

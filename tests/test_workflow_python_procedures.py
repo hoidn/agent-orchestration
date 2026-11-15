@@ -422,6 +422,7 @@ def test_generated_mirror_preserves_digest_and_sites(tmp_path):
         "closure": ["probe.py"],
     }}
     source = '''
+    TARGET = "2.40"
     probe = Command("probe", returns=int)
     @proc(effects=(uses_command(probe),))
     def fetch(value: int) -> int:
@@ -441,7 +442,7 @@ def test_generated_mirror_preserves_digest_and_sites(tmp_path):
     mirror_path.parent.mkdir(parents=True)
     mirror = mirror_path
     mirror.write_text('''
-    (workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    (workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule py/sample) (export fetch run)
       (defproc fetch ((value Int)) -> Int
         :effects ((uses-command probe))

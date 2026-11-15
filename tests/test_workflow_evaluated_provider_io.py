@@ -15,6 +15,7 @@ from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.reader import SourceReadTrace
+from tests.source_edits import replace_exact
 
 
 CONFIG = {"provider_externs": {"provider": "provider-id"},
@@ -159,17 +160,17 @@ def test_reference_forwarding_preserves_creation_selection(tmp_path, wrapper):
             body = f"(let* ((alias runner)) {body})"
         declaration = f'''(defproc outer ((runner WorkflowRef[Box -> Box]) (input Box)) -> Box
           {body})'''
-        source = source.replace("(defworkflow run", declaration + "\n  (defworkflow run")
-        source = source.replace("(foo (workflow-ref", "(outer (workflow-ref")
+        source = replace_exact(source, "(defworkflow run", declaration + "\n  (defworkflow run")
+        source = replace_exact(source, "(foo (workflow-ref", "(outer (workflow-ref", count=2)  # left and right
     else:
         declaration = '''(defproc invoke ((hook ProcRef[Box -> Box]) (input Box)) -> Box
           (hook input))'''
-        source = source.replace("(defworkflow run", declaration + "\n  (defworkflow run")
+        source = replace_exact(source, "(defworkflow run", declaration + "\n  (defworkflow run")
         for side in ("left", "right"):
             bound = f"(bind-proc (proc-ref foo) :runner (workflow-ref {side}))"
             if wrapper == "nested-bound":
                 bound = f"(bind-proc (proc-ref invoke) :hook {bound})"
-            source = source.replace(f"(foo (workflow-ref {side})", f"(invoke {bound}")
+            source = replace_exact(source, f"(foo (workflow-ref {side})", f"(invoke {bound}")
     checked, io = _checked(_typed(tmp_path, source, imports))
     root_owner = checked.tree["entry"]
     for outer, side in zip(_calls(checked.tree["body"]), ("left", "right"), strict=True):
@@ -231,17 +232,19 @@ def test_relocation_changes_only_physical_carrier(tmp_path):
 
 @pytest.mark.parametrize("mode", ("inline", "private-workflow"))
 def test_original_procedure_snapshot_preserves_reader_decision(tmp_path, mode):
+    # The private-workflow case is the old lowering (Task 4b); the inline case is the current procedure.
+    target, lowering = ("2.35", " :lowering private-workflow") if mode == "private-workflow" else ("2.40", "")
     sources = {
-        "lib/helper.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        "lib/helper.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
-          (defproc ask () -> R :effects ((uses-provider provider)) :lowering {mode}
+          (defproc ask () -> R :effects ((uses-provider provider)){lowering}
             (provider-result provider :prompt prompt :inputs () :returns R)))''',
-        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        "app/parent.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
           (defmodule app/parent) (import lib/helper :as helper) (export run)
           (defworkflow run () -> helper.R (helper.ask)))''',
         "lib/prompt.md": "PRIVATE HELPER\n", "app/prompt.md": "PARENT\n"}
     _, imports = _stages(tmp_path, sources, "app/parent.orc", "app/parent::run")
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
       (defmodule main) (export run) (defrecord R (n Int))
       (defworkflow run () -> R (call parent)))'''
     checked, io = _checked(_typed(tmp_path, source, {"parent": imports["left"]}))
@@ -362,9 +365,9 @@ def _bound_typed(tmp_path):
     _, imports = _stages(tmp_path)
     declaration = '''(defproc invoke ((hook ProcRef[Box -> Box]) (input Box)) -> Box
         (hook input))'''
-    source = WREF.replace("(defworkflow run", declaration + "\n(defworkflow run")
+    source = replace_exact(WREF, "(defworkflow run", declaration + "\n(defworkflow run")
     for side in ("left", "right"):
-        source = source.replace(f"(foo (workflow-ref {side})",
+        source = replace_exact(source, f"(foo (workflow-ref {side})",
             f"(invoke (bind-proc (proc-ref foo) :runner (workflow-ref {side}))")
     return _typed(tmp_path, source, imports)
 

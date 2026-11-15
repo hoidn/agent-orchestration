@@ -9,8 +9,7 @@ before launch with `stale_bundle_removal_failed` and the step's source origin,
 also inside a call frame, and a `.orchestrate` that is a link is refused at
 run start with `state_root_symlink`, before any effect.
 
-Programs, probes and stand-in providers come from
-`tests/test_workflow_result_file_freshness.py`.
+Each test builds its own workspace, step executor and stand-ins.
 """
 
 from __future__ import annotations

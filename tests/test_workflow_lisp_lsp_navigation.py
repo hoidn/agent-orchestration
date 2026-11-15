@@ -42,6 +42,7 @@ from orchestrator.workflow_lisp.syntax import (
 )
 from orchestrator.workflow_lisp.reader import SourceReadTrace
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.source_edits import replace_exact
 
 
 FIXTURES = (
@@ -54,6 +55,8 @@ CALLABLE_ENTRY = CALLABLE_ROOT / "neurips" / "entry.orc"
 CALLABLE_HELPER = CALLABLE_ROOT / "neurips" / "helper.orc"
 CALLABLE_PROCEDURES = CALLABLE_ROOT / "neurips" / "procedures.orc"
 CALLABLE_TYPES = CALLABLE_ROOT / "neurips" / "types.orc"
+# The same modules at 2.35, for the completion rows that depend on the target (Task 4b).
+CALLABLE_235_ROOT = FIXTURES / "modules" / "valid" / "callables_235"
 L1_SYMBOLS_ROOT = (
     FIXTURES / "modules" / "valid" / "lsp_l1_symbols"
 )
@@ -235,9 +238,18 @@ def _completions(index: object, source_path: Path) -> tuple[object, ...]:
 
 @pytest.fixture(scope="module")
 def callable_result() -> LinkedStage3CompileResult:
+    return _compile_callables(CALLABLE_ROOT)
+
+
+@pytest.fixture(scope="module")
+def callable_235_result() -> LinkedStage3CompileResult:
+    return _compile_callables(CALLABLE_235_ROOT)
+
+
+def _compile_callables(root: Path) -> LinkedStage3CompileResult:
     return compile_stage3_entrypoint(
-        CALLABLE_ENTRY.resolve(),
-        source_roots=(CALLABLE_ROOT.resolve(),),
+        (root / "neurips" / "entry.orc").resolve(),
+        source_roots=(root.resolve(),),
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={
             "prompts.implementation.execute": "prompts/implementation/execute.md"
@@ -1761,7 +1773,7 @@ def test_definition_reaches_imported_stdlib_defproc_authored_span(
     )
 
 
-@pytest.mark.parametrize("target", ("2.35", "2.39"))
+@pytest.mark.parametrize("target", ("2.40",))
 def test_definition_resolves_a_direct_local_procedure_call(
     tmp_path: Path,
     target: str,
@@ -1783,7 +1795,6 @@ def test_definition_resolves_a_direct_local_procedure_call(
                 "    (report WorkReport))",
                 "  (defproc identity ((report_path WorkReport)) -> ChecksResult",
                 "    :effects ()",
-                "    :lowering inline" if target == "2.35" else "",
                 "    (record ChecksResult",
                 "      :report report_path))",
                 "  (defworkflow run ((report_path WorkReport)) -> ChecksResult",
@@ -1820,7 +1831,7 @@ def test_definition_resolves_a_direct_local_procedure_call(
     assert _definition_at(
         _build_index(result),
         source_path=source_path,
-        line=17,
+        line=16,
         character=5,
         accepted_text_by_path=_accepted_texts(result),
     ) == _definition_span(
@@ -1830,20 +1841,19 @@ def test_definition_resolves_a_direct_local_procedure_call(
     )
 
 
-@pytest.mark.parametrize("target", ("2.35", "2.39"))
+@pytest.mark.parametrize("target", ("2.40",))
 def test_function_expansion_does_not_create_an_authored_procedure_call_site(
     tmp_path: Path,
     target: str,
 ) -> None:
     source_path = tmp_path / "entry.orc"
-    lowering = ":lowering inline" if target == "2.35" else ""
     source_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
   (:target-dsl "{target}")
   (defmodule entry)
   (export run)
-  (defproc identity ((x Int)) -> Int :effects () {lowering} x)
+  (defproc identity ((x Int)) -> Int :effects () x)
   (defun helper ((x Int)) -> Int (identity x))
   (defworkflow run () -> Int (helper 1))
   (defworkflow direct () -> Int (identity 2)))
@@ -2296,8 +2306,10 @@ def test_document_symbol_index_uses_projection_without_reading_or_parsing(
 
 
 def test_completion_preserves_exact_import_scope_spellings_and_namespaces(
-    callable_result: LinkedStage3CompileResult,
+    callable_235_result: LinkedStage3CompileResult,
 ) -> None:
+    # Below 2.39 completion lists every registered form head; 2.39 on hides the private and
+    # fallback heads (Task 4b).
     registry = import_module("orchestrator.workflow_lisp.form_registry")
     registered_form_heads = getattr(registry, "registered_form_heads", None)
     assert callable(registered_form_heads), "registered_form_heads is missing"
@@ -2345,8 +2357,8 @@ def test_completion_preserves_exact_import_scope_spellings_and_namespaces(
     }
 
     completions = _completions(
-        _build_index(callable_result),
-        CALLABLE_ENTRY.resolve(),
+        _build_index(callable_235_result),
+        (CALLABLE_235_ROOT / "neurips" / "entry.orc").resolve(),
     )
     kind_rank = {"procedure": 0, "workflow": 1, "form": 2}
     expected_order = tuple(
@@ -2392,9 +2404,11 @@ def test_completion_preserves_same_label_procedure_workflow_and_form_rows(
     shutil.copytree(L1_SYMBOLS_ROOT, root)
     entry_path = root / "lsp_l1_symbols" / "entry.orc"
     entry_path.write_text(
-        entry_path.read_text(encoding="utf-8").replace(
+        replace_exact(
+            entry_path.read_text(encoding="utf-8"),
             "normalize-status",
             "review",
+            count=3,  # the definition and both calls
         ),
         encoding="utf-8",
     )
@@ -2548,9 +2562,11 @@ def test_server_maps_completion_namespaces_details_and_protocol_kinds(
     shutil.copytree(L1_SYMBOLS_ROOT, root)
     entry_path = root / "lsp_l1_symbols" / "entry.orc"
     entry_path.write_text(
-        entry_path.read_text(encoding="utf-8").replace(
+        replace_exact(
+            entry_path.read_text(encoding="utf-8"),
             "normalize-status",
             "review",
+            count=3,  # the definition and both calls
         ),
         encoding="utf-8",
     )

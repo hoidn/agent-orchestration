@@ -24,7 +24,7 @@ def _fixture_sources(target: str) -> dict[str, dict[tuple[str, str], str]]:
         ("defrecord", "Plan"): "(defrecord Plan (title String) (status Status))",
         ("defun", "hidden-fn"): "(defun hidden-fn ((plan Plan)) -> String plan.title)",
         ("defproc", "hidden-proc"): (
-            "(defproc hidden-proc ((plan Plan)) -> Plan :effects () :lowering inline plan)"
+            "(defproc hidden-proc ((plan Plan)) -> Plan plan)"
         ),
         ("defworkflow", "unused-flow"): "(defworkflow unused-flow ((plan Plan)) -> Plan plan)",
         ("defprompt", "typed-prompt"): (
@@ -42,7 +42,6 @@ def _fixture_sources(target: str) -> dict[str, dict[tuple[str, str], str]]:
         ),
         ("defproc", "effectful-proc"): (
             "(defproc effectful-proc ((plan Plan)) -> Plan "
-            ":effects ((uses-provider providers.review)) :lowering inline "
             "(provider-result providers.review :prompt prompts.external :inputs () :returns Plan))"
         ),
     }
@@ -81,7 +80,7 @@ def _normalize_newlines(source: str) -> str:
     return source.replace("\r\n", "\n").replace("\r", "\n")
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36"])
+@pytest.mark.parametrize("target", ["2.40"])
 def test_existing_introspection_substrate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -219,7 +218,7 @@ def test_existing_introspection_substrate(
     )
 
 
-@pytest.fixture(params=["2.35", "2.36"])
+@pytest.fixture(params=["2.40"])
 def loaded_catalog(tmp_path, request):
     import json
     from orchestrator.workflow_lisp.build import FrontendBuildRequest

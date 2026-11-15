@@ -13,8 +13,10 @@ from tests.test_workflow_evaluated_provider_io import CONFIG, PRODUCER, _checked
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from tests.test_workflow_lisp_parallel_map_wcc import MAP as WCC_MAP, COMMAND, source
+from tests.source_edits import replace_exact
 
-MAP = WCC_MAP.replace('(list "a" "b")', '(list "a" "b" "c" "d")')
+
+MAP = replace_exact(WCC_MAP, '(list "a" "b")', '(list "a" "b" "c" "d")')
 
 
 def test_public_parallel_compilation_and_readback(tmp_path):
@@ -45,15 +47,20 @@ def test_parallel_helper_bodies_roundtrip(tmp_path, kind):
     command = '(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)'
     declaration = f'(defworkflow worker ((repo String)) -> Box {command})'
     call = '(call worker :repo repo)'
-    if kind in ('inline', 'private-workflow'):
+    if kind == 'inline':
+        declaration = f'(defproc worker ((repo String)) -> Box {command})'
+        call = '(worker repo)'
+    if kind == 'private-workflow':  # a lowering mode of a target below 2.39 (Task 4b)
         declaration = f'(defproc worker ((repo String)) -> Box :effects ((uses-command fetch)) :lowering {kind} {command})'
         call = '(worker repo)'
-    text = source(MAP.replace(command, call), declarations=declaration)
+    text = source(replace_exact(MAP, command, call), declarations=declaration)
+    if kind == 'private-workflow':
+        text = replace_exact(text, '(:target-dsl "2.40")', '(:target-dsl "2.37")')
     kwargs = {}
     if kind == 'imported-workflow':
-        text = {'parallel.orc': source(MAP.replace(command, '(call h.worker :repo repo)'),
+        text = {'parallel.orc': source(replace_exact(MAP, command, '(call h.worker :repo repo)'),
             imports='(import helper :as h :only (worker Box))', result='List[h.Box]'),
-            'helper.orc': f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+            'helper.orc': f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
                 (defmodule helper) (export worker Box) (defrecord Box (n Int)) {declaration})'''}
         kwargs['entry_path'] = 'parallel.orc'
     program = checked(tmp_path, text, **kwargs)
@@ -64,9 +71,9 @@ def test_parallel_helper_bodies_roundtrip(tmp_path, kind):
 
 
 def test_pure_workspace_helper_and_map_value(tmp_path):
-    declarations = '''(defproc cwd ((value String)) -> String :effects () :lowering inline
+    declarations = '''(defproc cwd ((value String)) -> String
         (let* ((copy value)) (string/concat copy "/work")))'''
-    body = f'(let* ((batch {MAP.replace(":workspace repo", ":workspace (cwd repo)")})) (list/length batch))'
+    body = f'(let* ((batch {replace_exact(MAP, ":workspace repo", ":workspace (cwd repo)")})) (list/length batch))'
     program = checked(tmp_path, source(body, declarations=declarations, result='Int'))
     node, = maps(program)
     assert node['workspace']['body']['k'] == 'let'
@@ -75,15 +82,15 @@ def test_pure_workspace_helper_and_map_value(tmp_path):
 
 
 def test_path_workspace_is_checked(tmp_path):
-    body = MAP.replace(':workspace repo', ':workspace root')
+    body = replace_exact(MAP, ':workspace repo', ':workspace root')
     program = checked(tmp_path, source(body, declarations='(defpath Repo :kind relpath :under "repos" :must-exist false)', params='(root Repo)'))
     assert maps(program)[0]['workspace']['k'] == 'block'
 
 
 def test_homonymous_captured_binder_roundtrip(tmp_path):
-    mapped = MAP.replace('(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)', '(hook repo)')
+    mapped = replace_exact(MAP, '(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)', '(hook repo)')
     declarations = f'''(defproc apply ((hook ProcRef[String -> String])) -> List[String]
-        :effects () :lowering inline {mapped})'''
+        {mapped})'''
     body = '''(let* ((repo "creation"))
         (let-proc (remember ((value String)) -> String :captures (repo) repo)
             (apply (proc-ref remember))))'''
@@ -100,17 +107,17 @@ def test_homonymous_captured_binder_roundtrip(tmp_path):
 @pytest.mark.parametrize('kind', ['direct', 'helper', 'nested'])
 def test_map_owned_command_index_scopes(tmp_path, kind):
     command = '(command-result fetch :argv ("python" "probe.py" "${loop.index}") :returns Box)'
-    mapped = MAP.replace('(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)', command)
+    mapped = replace_exact(MAP, '(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)', command)
     declarations = ''
     result = 'List[Box]'
     if kind == 'helper':
-        loop = '(loop/recur :max 1 :state 0 :on-exhausted own (fn (state) (done own)))'
-        declarations = f'(defproc worker ((repo String)) -> Box :effects ((uses-command fetch)) :lowering inline (let* ((own {command})) {loop}))'
-        mapped = MAP.replace('(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)', '(worker repo)')
+        loop = '(loop/recur ((state 0)) :max 1 :on-exhausted own (done own))'
+        declarations = f'(defproc worker ((repo String)) -> Box (let* ((own {command})) {loop}))'
+        mapped = replace_exact(MAP, '(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)', '(worker repo)')
     if kind == 'nested':
-        inner = mapped.replace('repo', 'inner')
-        declarations = f'(defproc worker ((repo String)) -> List[Box] :effects ((uses-command fetch)) :lowering inline (let* ((own {command})) {inner}))'
-        mapped = MAP.replace(COMMAND, '(worker repo)')
+        inner = replace_exact(mapped, 'repo', 'inner', count=2)
+        declarations = f'(defproc worker ((repo String)) -> List[Box] (let* ((own {command})) {inner}))'
+        mapped = replace_exact(MAP, COMMAND, '(worker repo)')
         result = 'List[List[Box]]'
     program = checked(tmp_path, source(mapped, declarations=declarations, result=result))
     nodes = maps(program)
@@ -127,10 +134,10 @@ def test_map_owned_command_index_scopes(tmp_path, kind):
 
 def test_nested_map_and_loop_sites(tmp_path):
     command = '(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)'
-    loop = f'(loop/recur :max 2 :state (loop-state (n Int 0)) :on-exhausted (record Box :n 0) (fn (state) (done {command})))'
-    inner = MAP.replace(command, '(call leaf :repo repo)')
+    loop = f'(loop/recur ((state (loop-state (n Int 0)))) :max 2 :on-exhausted (record Box :n 0) (done {command}))'
+    inner = replace_exact(MAP, command, '(call leaf :repo repo)')
     declarations = f'(defworkflow leaf ((repo String)) -> Box {loop}) (defworkflow worker ((root String)) -> List[Box] {inner})'
-    program = checked(tmp_path, source(MAP.replace(command, '(call worker :root repo)'), declarations=declarations, result='List[List[Box]]'))
+    program = checked(tmp_path, source(replace_exact(MAP, command, '(call worker :root repo)'), declarations=declarations, result='List[List[Box]]'))
     assert len(maps(program)) == 2
     assert any('loop:state[*]' in site for _, site in program.sites)
     assert sum('par-map:repo[*]' in n.get('frame', '') for body in [program.tree['body'], *(r['body'] for r in program.tree['definitions'].values())] for n in _ast_nodes(body)) == 2
@@ -179,7 +186,7 @@ def test_parallel_path_run_ref_result_descriptor_lineage(tmp_path):
     run_ref = '''(run-ref :source (:repo "file:///workspace" :commit "0123456789abcdef0123456789abcdef01234567")
         :program (:path "child.orc" :entry child) :inputs (:n 1) :returns Int
         :policy (:environment :deterministic-effect-free :setup ()))'''
-    mapped = MAP.replace(COMMAND, run_ref)
+    mapped = replace_exact(MAP, COMMAND, run_ref)
     body = f'(let* ((batch {mapped})) (list/map ((out batch)) out.value))'
     program = checked(tmp_path, source(body, result='List[Int]'))
     node, = maps(program)
@@ -191,10 +198,10 @@ def test_parallel_path_run_ref_result_descriptor_lineage(tmp_path):
 
 
 def test_parameterized_source_and_once_only_pure_source(tmp_path):
-    empty = checked(tmp_path / 'empty', source(MAP.replace('(list "a" "b" "c" "d")', 'repos'), params='(repos List[String])'))
+    empty = checked(tmp_path / 'empty', source(replace_exact(MAP, '(list "a" "b" "c" "d")', 'repos'), params='(repos List[String])'))
     node, = maps(empty)
     assert node['source']['n'] == empty.tree['params'][0][0]
-    once = MAP.replace('(list "a" "b" "c" "d")', '(let* ((one root)) (list one one))')
+    once = replace_exact(MAP, '(list "a" "b" "c" "d")', '(let* ((one root)) (list one one))')
     program = checked(tmp_path / 'once', source(once, params='(root String)'))
     node, = maps(program)
     assert program.tree['body']['k'] == 'let'
@@ -205,7 +212,7 @@ def test_parameterized_source_and_once_only_pure_source(tmp_path):
 
 def test_authored_map_label_percent_escaping(tmp_path):
     label = 'repo%/=#[]'
-    program = checked(tmp_path, source(MAP.replace('repo', label)))
+    program = checked(tmp_path, source(replace_exact(MAP, 'repo', label, count=3)))
     node, = maps(program)
     assert node['label'] == label
     assert any('par-map:repo%25%2F%3D%23%5B%5D[*]' in site for _, site in program.sites)
@@ -214,19 +221,19 @@ def test_authored_map_label_percent_escaping(tmp_path):
 def test_public_cli_compiles_actual_parallel_control(tmp_path):
     from tests.test_workflow_lisp_closed_program_compile_cli import _write_workspace, _compile
 
-    files = _write_workspace(tmp_path, target='2.37')
-    files['source'].write_text(source(MAP.replace('fetch', 'probe_revise').replace('probe.py', 'probe_revise.py')).replace('(defmodule parallel)', '(defmodule grt/entry)'))
+    files = _write_workspace(tmp_path)
+    files['source'].write_text(replace_exact(source(replace_exact(replace_exact(MAP, 'fetch', 'probe_revise', count=2), 'probe.py', 'probe_revise.py')), '(defmodule parallel)', '(defmodule grt/entry)'))
     completed = _compile(files)
     assert completed.returncode == 0, completed.stderr
     artifact = json.loads(completed.stdout)['build_root']
     program = ClosedProgram.from_artifact((tmp_path / artifact / 'closed_program.json').read_text())
     assert len(maps(program)) == 1
-    assert program.tree['target'] == '2.37'
+    assert program.tree['target'] == '2.40'
 
 
 def test_effectful_bound_capture_keeps_creation_binding_under_map(tmp_path):
     declaration = f'''(defproc apply ((hook ProcRef[String -> Box])) -> List[Box]
-        :effects () :lowering inline {MAP.replace(COMMAND, '(hook repo)')})'''
+        {replace_exact(MAP, COMMAND, '(hook repo)')})'''
     body = f'''(let* ((repo root))
       (let-proc (remember ((value String)) -> Box :captures (repo)
         {COMMAND}) (apply (proc-ref remember))))'''
@@ -239,10 +246,10 @@ def test_effectful_bound_capture_keeps_creation_binding_under_map(tmp_path):
     assert program.tree['definitions'][call['callee']]['key'][7]
 
 
-PURE_NESTED_INLINE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+PURE_NESTED_INLINE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule parallel) (export run)
-  (defproc identity ((value String)) -> String :effects () :lowering inline value)
-  (defproc worker ((root String)) -> List[String] :effects () :lowering inline
+  (defproc identity ((value String)) -> String value)
+  (defproc worker ((root String)) -> List[String]
     (list/map-effect ((child (list root))) :max 1 :parallel 1 :workspace child
       (identity child)))
   (defworkflow run () -> List[List[String]]
@@ -264,5 +271,5 @@ def test_pure_nested_inline_helper_retains_checked_maps(tmp_path):
 ])
 def test_nested_inline_bodies_of_any_shape_and_effectful_arguments_build(tmp_path, body, map_count, site_count):
     # Surface coherence I1: only a body that holds a run reference keeps the one-call and pure-argument rules.
-    program = checked(tmp_path, PURE_NESTED_INLINE.replace('(worker repo)', body))
+    program = checked(tmp_path, replace_exact(PURE_NESTED_INLINE, '(worker repo)', body))
     assert (len(maps(program)), len(program.sites)) == (map_count, site_count)

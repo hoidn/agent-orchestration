@@ -164,6 +164,20 @@ def test_proof_branch_command_facts_consume_actual_narrowed_environment(tmp_path
     assert _without_scopes(annotated) == _without_scopes(neutral)
 
 
+def _erased_ref_step(alias, reset_before):
+    """The callee name, the loop step and the helper body of the erased-reference cases."""
+    bindings = '((hook (proc-ref helper)) (alias hook))' if alias else '((hook (proc-ref helper)))'
+    callee = 'alias' if alias else 'hook'
+    arm = f'({callee} flag)'
+    if reset_before:
+        arm = f'(if flag (match other ((A item) {arm}) ((B item) (record Result :i 0 :s "inner"))) (record Result :i 0 :s "no"))'
+    helper = ('(if flag (command-result echo :argv ("python" "probe.py") :returns Result) '
+              '(record Result :i 0 :s "no")))')
+    step = (f'(let* {bindings[:-1]} (answer (match choice ((A a) {arm}) ((B b) (record Result :i 0 :s b.s))))) '
+            '(done answer))')
+    return callee, step, helper
+
+
 @pytest.mark.parametrize('alias', [False, True])
 @pytest.mark.parametrize('reset_before', [False, True])
 def test_erased_local_proc_refs_remain_available_to_command_facts(tmp_path, monkeypatch, alias, reset_before):
@@ -172,21 +186,14 @@ def test_erased_local_proc_refs_remain_available_to_command_facts(tmp_path, monk
     from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
     from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
     from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
-    from orchestrator.workflow_lisp.wcc.model import WccCase, WccLet
+    from orchestrator.workflow_lisp.wcc.model import WccCase
     from orchestrator.workflow_lisp.procedure_refs import ResolvedProcRefValue
     from orchestrator.workflow_lisp.closed import command_templates as summary
 
-    bindings = '((hook (proc-ref helper)) (alias hook))' if alias else '((hook (proc-ref helper)))'
-    callee = 'alias' if alias else 'hook'
-    arm = f'({callee} flag)'
-    if reset_before:
-        arm = f'(if flag (match other ((A item) {arm}) ((B item) (record Result :i 0 :s "inner"))) (record Result :i 0 :s "no"))'
-    program, inputs, facts = _compile(tmp_path, '(loop/recur :max 1 :state (loop-state (i Int 0)) '
-        f':on-exhausted (record Result :i 0 :s "stop") (fn (state) (let* {bindings[:-1]} '
-        f'(answer (match choice ((A a) {arm}) ((B b) (record Result :i 0 :s b.s))))) '
-        '(done answer))))', params='(choice Choice) (other Choice) (flag Bool)', target='2.35',
-        declarations='(defproc helper ((flag Bool)) -> Result :effects ((uses-command echo)) :lowering inline '
-        '(if flag (command-result echo :argv ("python" "probe.py") :returns Result) (record Result :i 0 :s "no")))')
+    callee, step, helper = _erased_ref_step(alias, reset_before)
+    program, inputs, facts = _compile(tmp_path, '(loop/recur ((state (loop-state (i Int 0)))) :max 1 '
+        f':on-exhausted (record Result :i 0 :s "stop") {step})', params='(choice Choice) (other Choice) (flag Bool)',
+        declarations='(defproc helper ((flag Bool)) -> Result ' + helper)
     seen = []
     original = summary._procedure_control_fact
     def observe(expr, **kwargs):
@@ -197,13 +204,31 @@ def test_erased_local_proc_refs_remain_available_to_command_facts(tmp_path, monk
         incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
     case = next(node for node in _walk(annotated) if isinstance(node, WccCase))
     assert seen and all(isinstance(value, ResolvedProcRefValue) for value in seen)
-    if reset_before:
-        assert tuple(name for name, _ in case.arms[0].command_scope) == ('other', 'flag')
-    else:
-        assert case.arms[0].command_scope is None  # The actual loop owner selects the private helper override.
+    expected = ('other', 'flag') if reset_before else ('flag',)
+    assert tuple(name for name, _ in case.arms[0].command_scope) == expected
     _assert_erased_proc_ref_binders(annotated)
     neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
     assert _without_scopes(annotated) == _without_scopes(neutral)
+
+
+@pytest.mark.parametrize('alias', [False, True])
+def test_erased_local_proc_ref_arm_has_no_command_scope_under_the_private_helper_override(tmp_path, alias):
+    """Below 2.40 the actual loop owner selects the private helper override (Task 4b)."""
+    from tests.test_workflow_lisp_command_scopes import _compile, _walk
+    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
+    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
+    from orchestrator.workflow_lisp.wcc.model import WccCase
+
+    _callee, step, helper = _erased_ref_step(alias, reset_before=False)
+    program, inputs, facts = _compile(tmp_path, '(loop/recur :max 1 :state (loop-state (i Int 0)) '
+        f':on-exhausted (record Result :i 0 :s "stop") (fn (state) {step}))',
+        params='(choice Choice) (other Choice) (flag Bool)', target='2.35',
+        declarations='(defproc helper ((flag Bool)) -> Result :effects ((uses-command echo)) :lowering inline '
+        + helper)
+    annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
+        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
+    case = next(node for node in _walk(annotated) if isinstance(node, WccCase))
+    assert case.arms[0].command_scope is None
 
 
 def _assert_erased_proc_ref_binders(body):

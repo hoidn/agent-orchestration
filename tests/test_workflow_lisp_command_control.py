@@ -48,7 +48,6 @@ def test_suffix_binding_resolver_preserves_unavailable_alias_and_caller():
     assert caller == {"available": RUNTIME_REFERENCE}
 
 
-_CONTROL_PROC = '(defproc pick ((flag Bool) (left String) (right String)) -> Pair :effects ((uses-command echo)) :lowering MODE (if flag (command-result echo :argv ("python" "probe.py" left) :returns Pair) (command-result echo :argv ("python" "probe.py" right) :returns Pair)))'
 _PURE_PROC = '(defproc pick ((flag Bool) (left String) (right String)) -> Pair (let* ((x (if flag left right))) (record Pair :left x :right right)))'
 
 

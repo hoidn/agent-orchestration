@@ -28,7 +28,8 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
 from tests.workflow_evaluated_totality_helpers import _public_run
 from tests.test_workflow_lisp_generic_unions_runtime import _compile
-from tests.workflow_lisp_improve_stdlib_sources import BARE_IMPORT_235, REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE, entry_source, inline_entry_source, provider_revise_entry_source, string_inputs_entry_source, unnamed_union_caller_sources
+from tests.source_edits import replace_exact
+from tests.workflow_lisp_improve_stdlib_sources import BARE_IMPORT, REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE, entry_source, inline_entry_source, provider_revise_entry_source, string_inputs_entry_source, unnamed_union_caller_sources
 
 
 def _write_project(root: Path, *, seed: str, limit: int, inline: bool = False) -> dict[str, Path]:
@@ -107,9 +108,10 @@ def test_current_target_imported_improve_caller_runs_to_exhaustion(
 def test_current_target_accepts_each_std_improve_applied_union_type(
     tmp_path: Path, use: str
 ) -> None:
-    source = BARE_IMPORT_235.replace(
+    source = replace_exact(
+        BARE_IMPORT,
         "  (defworkflow run",
-        f"  (defproc pick ({use}) -> Out :effects () :lowering inline (record Out :n 1))\n  (defworkflow run",
+        f"  (defproc pick ({use}) -> Out (record Out :n 1))\n  (defworkflow run",
     )
     _write_sources(tmp_path, {"grt/entry.orc": source})
 

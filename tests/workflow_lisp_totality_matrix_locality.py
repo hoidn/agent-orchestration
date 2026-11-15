@@ -53,7 +53,7 @@ REPRO_FAILURES = {
 
 
 def axes(name: str) -> tuple[str, str, str]:
-    target = "2.35"
+    target = "2.40"
     locality, separator, base = name.partition(":")
     if separator and locality in ("inline", "imported"):
         return target, locality, base
