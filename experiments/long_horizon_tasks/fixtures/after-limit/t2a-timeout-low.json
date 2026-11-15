@@ -1,0 +1,16 @@
+{
+ "source": "local recording t2a-timeout-low (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay; stub scenario timeout)",
+ "agent_phase_finished_at": "2026-11-14T21:57:02.408397Z",
+ "requests": 1212,
+ "requests_after_the_agent_phase": 72,
+ "last_request_after_s": 18.3,
+ "statuses_after": [
+  200
+ ],
+ "bearer_matches_after": [
+  true
+ ],
+ "cli_tool_errors": [
+  "<tool_use_error>Blocked: standalone sleep 30. To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.</tool_use_error>"
+ ]
+}

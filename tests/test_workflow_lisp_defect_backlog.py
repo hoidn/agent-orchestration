@@ -55,8 +55,12 @@ No program, listed only (plan row id):
     | E21  | a pure operand renames the effects beside it: not re-run, no program              |
     | E22  | local names are part of the program digest: a property the cut decides            |
 
-Rows D21, D22 and E27 are the roadmap's tenth batch; the plan's Defect Table does not hold them yet. Rows
+Rows D21, D21-continue, D22 and E27 are the roadmap's tenth batch; the plan's Defect Table does not hold them yet. Rows
 B7-*, D23, D24 and D25 (the eleventh batch, found by the call-site fix) are in the Defect Table.
+Rows D5-binder-hidden, D5-binder-hidden-match, D5-if-whole and D5-if-whole-return, found by the review of
+TD2, D5-if-match and D20-map-argument, found by its re-review, D4-subject-match and D4-subject-loop, found by the
+differential corpus of TD1, and D4-subject-argument and D20-let-proc-subject, found by its second re-review, are
+not in it either.
 """
 
 from __future__ import annotations
@@ -100,9 +104,10 @@ def crash(error: str, where: str) -> tuple:
 # The known defects. Signatures were read from runs on `main`, never typed from the plan.
 
 ELABORATE = "workflow_lisp/wcc/elaborate.py"
-OPERAND = crash("TypeError", f"{ELABORATE}:_body_to_prefix_and_value")
 NO_ELABORATION = crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value")
+OPERAND = crash("TypeError", f"{ELABORATE}:_body_to_prefix_and_value")
 BINDER_OUT_OF_SCOPE = crash("KeyError", f"{ELABORATE}:_infer_expr_type")
+NO_NARROWING = crash("TypeError", f"{ELABORATE}:_infer_expr_type")
 CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind")
 CAPTURED_PROVIDER_INPUT = crash("TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind")
 LAUNCHED_WITH_OUTSIDE_TEXT = ("ran", 0, 1, 1)
@@ -117,9 +122,11 @@ KNOWN: dict[str, tuple] = {
     "B7-int": value(404),
     "B7-same-written": refused("procedure_lowering_unresolved"),
     "C1": value(7, "libw"),
-    "D20": OPERAND,
-    "D4-loop": NO_ELABORATION, "D4-map-value": NO_ELABORATION, "D4-map-bound": NO_ELABORATION,
-    "D5": crash("TypeError", f"{ELABORATE}:_infer_expr_type"),
+    "D5-binder-hidden": NO_NARROWING, "D5-binder-hidden-match": NO_NARROWING,
+    "D5-if-whole": NO_NARROWING, "D5-if-whole-return": NO_NARROWING, "D5-if-match": NO_NARROWING,
+    "D20-map-argument": NO_NARROWING,
+    "D4-subject-match": NO_ELABORATION, "D4-subject-loop": NO_ELABORATION,
+    "D4-subject-argument": OPERAND, "D20-let-proc-subject": OPERAND,
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
     "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
@@ -129,8 +136,6 @@ KNOWN: dict[str, tuple] = {
     "D12-literal": NO_ELABORATION,
     "D12-name": BINDER_OUT_OF_SCOPE,
     "D13": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
-    "D19": crash("SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
-    "D21": crash("TypeError", f"{ELABORATE}:_replace_halts_with_jump"),
     "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
@@ -183,6 +188,16 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D4-map-bound": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
     "D4-map-value": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
     "D5": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D5-binder-hidden": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D5-binder-hidden-match": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D5-if-whole": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D5-if-whole-return": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D5-if-match": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D20-map-argument": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D4-subject-match": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
+    "D4-subject-loop": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
+    "D4-subject-argument": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
+    "D20-let-proc-subject": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D6": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D7-hoisted": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
@@ -204,6 +219,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D19": ("crash", "SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
     "D20": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D21": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"),
+    "D21-continue": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"),
     "D22": ("traceback", "AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D23": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
     "D23-macro": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
@@ -279,6 +295,16 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D5": ("value", 3),
     "D5-arm-binder": ("value", 3),
     "D5-if": ("value", 3),
+    "D5-binder-hidden": ("value", 8),
+    "D5-binder-hidden-match": ("value", 33),
+    "D5-if-whole": ("value", 3),
+    "D5-if-whole-return": ("builds",),
+    "D5-if-match": ("value", 3),
+    "D20-map-argument": ("value", 2),
+    "D4-subject-match": ("value", 3),
+    "D4-subject-loop": ("value", 0),
+    "D4-subject-argument": ("value", 3),
+    "D20-let-proc-subject": ("value", 2),
     "D5-other-variant": ("refused", "variant_ref_wrong_variant"),
     "D6": ("value", 4),
     "D7": ("value", 2, "step", "step", "check"),
@@ -313,6 +339,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D20": None,
     "D20-bound": ("value", 1, "e1"),
     "D21": None,
+    "D21-continue": None,
     "D22": None,
     "D23": ("value", 34),
     "D23-macro": ("value", 705),
@@ -605,6 +632,36 @@ ROWS: dict[str, Row] = {
                             '((u U)) -> String (match u ((A a) u.why) ((B b) "x"))', U),
     "D5-arm-binder": row(value(3), "((u U)) -> Int (match u ((A u) u.n) ((B b) 0))", U, inputs=U_IS_A_3),
     "D5-if": row(value(3), "((u U)) -> Int (if (= u.variant A) u.n 0)", U, inputs=U_IS_A_3),
+    # Found by the review of TD2: a read of the subject where a binding in the arm hides the arm's binder, and a
+    # name a discriminant test proves used whole. The E1 placement test of a defect inside a `continue` value uses
+    # D5-binder-hidden's shape as its vehicle: a fix of this row needs another one there.
+    "D5-binder-hidden": row(value(8), "((u U)) -> Int (match u ((A a) (let* ((a 5)) (+ a u.n))) ((B b) 0))",
+                            U, inputs=U_IS_A_3),
+    "D5-binder-hidden-match": row(value(33), "((u U) (v U)) -> Int (match u ((A a) (match v ((A a) "
+                                  "(+ u.n (* 10 a.n))) ((B b) 0))) ((B b) 0))", U, inputs=(*U_IS_A_3, 'v={"variant":"A","n":3}')),
+    "D5-if-whole": row(value(3), "((u U)) -> Int (if (= u.variant A) (f u) 0)", U,
+                       "(defproc f ((x U)) -> Int (match x ((A a) a.n) ((B b) 0)))", inputs=U_IS_A_3),
+    "D5-if-whole-return": row(BUILDS, "((u U)) -> U (if (= u.variant A) u u)", U),
+    # Found by the re-review of TD1, beside the rows above and with their key, but other defects: a `match` on a
+    # name a discriminant test proves; a map in a `match` subject's argument, whose result element type the
+    # subject carried as written lacks.
+    "D5-if-match": row(value(3), "((u U)) -> Int (if (= u.variant A) (match u ((A a) a.n) ((B b) 0)) 0)", U,
+                       inputs=U_IS_A_3),
+    "D20-map-argument": row(value(2), "((n Int)) -> Int (match (mkshape (list/length (list/map ((x (list 1 2))) x))) "
+                            f"{D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
+    # Found while widening the differential corpus of TD1: a pure `match` or a loop as a `match` subject, with
+    # D12-literal's key. An `if` there builds.
+    "D4-subject-match": row(value(3), "((u U)) -> Int (match (match u ((A a) (variant Shape CIRCLE :r a.n)) "
+                            f"((B b) (variant Shape SQUARE :side 1))) {D20_ARMS})", U, SHAPE, inputs=U_IS_A_3),
+    "D4-subject-loop": row(value(0), "() -> Int (match (loop/recur ((s 0)) :max 2 :on-exhausted (variant Shape SQUARE "
+                           f":side 1) (done (variant Shape CIRCLE :r s))) {D20_ARMS})", SHAPE),
+    # Found by the second re-review of TD1, crashing on `main` before the branch: a pure `match` in a call argument
+    # of a `match` subject (not D4-subject-match, the `match` as the whole subject), and a `let-proc` subject whose
+    # body is a call with an `if` argument calling the local.
+    "D4-subject-argument": row(value(3), f"((u U)) -> Int (match (mkshape (match u ((A a) a.n) ((B b) 3))) {D20_ARMS})",
+                               U, SHAPE, D20_MK, inputs=U_IS_A_3),
+    "D20-let-proc-subject": row(value(2), "((n Int)) -> Int (match (let-proc ((f ((k Int)) -> Int (+ k 1))) "
+                                f"(mkshape (if (> n 0) (f n) 2))) {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
     # 4: the inner `u` is `A 1`, the workflow's is `A 3`. A fix of the crash alone returns a wrong value.
     "D6": row(value(4), "((u U)) -> Int (+ (let* ((u (variant U A :n 1))) (if (= u.variant A) u.n 0)) "
               "(if (= u.variant A) u.n 0))", U, inputs=U_IS_A_3),
@@ -649,14 +706,16 @@ ROWS: dict[str, Row] = {
                "(proc-ref increment) (proc-ref increment)))) (g 1))", INC),
     "D17-effect": row(value(2, "m", "m"), D17_RUN, D17_EFFECT),
     "D17-pure": row(value(2), D17_RUN, D17_PURE),
-    "D19": row(None, D19.replace("EXIT", "continue").replace("VALUE", D19_VALUE), inputs=("n=1",)),
+    "D19": row(refused("effect_not_permitted"), D19.replace("EXIT", "continue").replace("VALUE", D19_VALUE), inputs=("n=1",)),
     "D19-done": row(value(1, "e"), D19.replace("EXIT", "done").replace("VALUE", D19_VALUE), inputs=("n=1",)),
-    "D20": row(None, f"((n Int)) -> Int (match {D20_SUBJECT} {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
+    "D20": row(value(1, "e1"), f"((n Int)) -> Int (match {D20_SUBJECT} {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
     "D20-bound": row(value(1, "e1"), f"((n Int)) -> Int (let* ((shape {D20_SUBJECT})) (match shape {D20_ARMS}))",
                      SHAPE, D20_MK, inputs=("n=1",)),
-    # Tenth batch: `done` where the loop body's value is not the control form itself. Specification 13.1
-    # wants a refusal; its code is not chosen.
-    "D21": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (let* ((x (done 1))) x))"),
+    # Tenth batch: `done` where the loop body's value is not the control form itself; specification 13.1
+    # refuses it.
+    "D21": row(refused("loop_recur_contract_invalid"), "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (let* ((x (done 1))) x))"),
+    # The `continue` spelling, which a mutant of the seed set reached (mutant generator Task T5).
+    "D21-continue": row(refused("loop_recur_contract_invalid"), "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted s (let* ((x (continue (+ s 1)))) (done 1)))"),
     "D22": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (list (done 1)))"),
     # Eleventh batch: an inlined pure procedure gave every node of its body the site of its call, so two calls in
     # that body to different lifted locals shared one site and one target, chosen in hash-seed order.

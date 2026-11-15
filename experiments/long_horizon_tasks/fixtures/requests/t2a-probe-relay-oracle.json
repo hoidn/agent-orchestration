@@ -1,0 +1,43 @@
+{
+ "source": "local recording t2a-probe-relay-oracle: stub_api.py request log (see recordings.json for its scenario and harness arguments)",
+ "shapes": [
+  {
+   "method": "GET",
+   "path": "/allowlist-probe",
+   "subagent": null,
+   "headers": {
+    "accept-encoding": null,
+    "connection": null,
+    "host": null,
+    "user-agent": "Python-urllib/3.12"
+   },
+   "model": null,
+   "effort": null,
+   "max_tokens": null,
+   "stream": null,
+   "other_params": [],
+   "body_keys": [],
+   "tools": null,
+   "server_tools": [],
+   "tool_chars": null,
+   "tool_cache": null,
+   "tool_keys": [],
+   "input_schema_keys": [],
+   "system": []
+  }
+ ],
+ "requests": [
+  [
+   0,
+   null,
+   null,
+   null,
+   null,
+   []
+  ]
+ ],
+ "first_request": {},
+ "bearer_matches": [],
+ "message_block_keys": {},
+ "message_block_keys_unrecorded": {}
+}
