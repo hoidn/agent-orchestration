@@ -110,7 +110,11 @@ def cell_label(k, n, rule):
         return "incomplete"
     if k == rule["floor_k"]:
         return "floor"
-    return "screened in" if k in rule["screened_in_k"] else "above"
+    if k in rule["screened_in_k"]:
+        return "screened in"
+    if k >= rule["above_k_at_least"]:
+        return "above"
+    raise ReadoutError(f"readout.cell gives no label to {k} of {n}")
 
 
 def pooled_label(K, n, rule):
@@ -235,7 +239,7 @@ def _fields(obj, spec, where):
             raise ReadoutError(f"{where}: {key} is {obj[key]!r}, not {' or '.join(k.__name__ for k in kinds)}")
 
 
-def _sha256(value, where):
+def _hex_label(value, where):
     if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
         raise ReadoutError(f"{where}: label {value!r} is not a SHA-256 (64 lowercase hex digits)")
     return value
@@ -245,8 +249,8 @@ def _labels(export):
     earlier = []
     for entry in export["earlier_labels"]:
         _fields(entry, {"label": str, "ended_by": str}, "an earlier label")
-        earlier.append(_sha256(entry["label"], "an earlier label"))
-    labels = [_sha256(export["label"], "the export")] + earlier
+        earlier.append(_hex_label(entry["label"], "an earlier label"))
+    labels = [_hex_label(export["label"], "the export")] + earlier
     if len(set(labels)) != len(labels):
         raise ReadoutError(f"a configuration label is given twice: {labels}")
     return set(labels)
@@ -275,13 +279,14 @@ def _slot(slot, ladder):
 
 
 def _slots(slots, ladder):
-    joined = {}
+    joined, cells = {}, set()
     for slot in slots:
         _slot(slot, ladder)
-        key = (slot["task"], slot["effort"], slot["round"])
-        if slot["slot"] in joined or key in {(s["task"], s["effort"], s["round"]) for s in joined.values()}:
+        cell = (slot["task"], slot["effort"], slot["round"])
+        if slot["slot"] in joined or cell in cells:
             raise ReadoutError(f"slot {slot['slot']!r}: a slot id or a (task, effort, round) is given twice")
         joined[slot["slot"]] = slot
+        cells.add(cell)
     return joined
 
 
