@@ -6,8 +6,8 @@ Every record is constructed here; nothing runs an agent, a container or a provid
 
 import pytest
 
-from tests.experiments.long_horizon_record_support import (EFFORTS, LADDER, STANDINS, TASKS, TERM_SHA256, export,
-                                                           load_kit, same, with_values)
+from tests.experiments.long_horizon_record_support import (CANARY_SHA256, EFFORTS, LADDER, STANDINS, TASKS, TERM_SHA256,
+                                                           export, load_kit, same, with_values)
 
 slot_record = load_kit("slot_record")
 CRITERION = with_values(LADDER, STANDINS)
@@ -200,8 +200,7 @@ def test_a_contamination_hit_on_a_start_of_another_class_loads_and_keeps_its_cla
 
 
 def test_the_canary_s_sha256_is_a_frozen_term():
-    canary = STANDINS.get("readout.contamination_scan.canary_sha256", "c" * 64)
-    assert _load(_one({"reward": 0, "contamination": [canary]}))[0]["counted"] is False
+    assert _load(_one({"reward": 0, "contamination": [CANARY_SHA256]}))[0]["counted"] is False
 
 
 @pytest.mark.parametrize("fields, message", [

@@ -17,7 +17,12 @@ repetition, the repetition counts, the load average seen and `scoring_path` (`sc
 harness's modules the run scored with). An entry holds only for the scoring path it was measured under (coordinator
 ruling, 2026-11-15): `tiers.verify` and the freeze require a stable entry, at the current package hash and the current
 scoring path, for every package the study can draw, probe or smoke on, and name each package that lacks one as
-"not measured", "other scoring path" or "unstable".
+"not measured", "other scoring path" or "unstable"; `tiers reject-unstable` rejects a task only on an entry unstable
+at the current hash and scoring path, and skips (does not reject on) an entry measured under another.
+
+Limit of the record: it shows stability only under the scoring path it was measured under. An entry written before
+that code changed is refused as "other scoring path", and the default run measures it again. The freeze runs the
+anchors on the frozen code, so its record carries the frozen code's scoring path.
 """
 
 import argparse

@@ -1,10 +1,12 @@
 # Workflow Lisp Frontend Specification and Design
 
 Status: accepted baseline / umbrella frontend contract
-Target substrate: checked closed-program execution at 2.35/2.36 and bounded
-2.37/2.38 extensions, target-2.39 procedure authoring/phased delivery and
-target-2.40 serial typed host input; source/import/tooling
-admission starts at 2.35; the flat emitter is retired
+Target substrate: checked closed-program execution. One source target, 2.40,
+is admitted for source, imports and tooling; source at 2.35–2.39 refuses, and
+the release tagged `v0.2.1` still compiles it. Labels below such as 2.35/2.36,
+2.37/2.38, target 2.39 and target 2.40 name the release that introduced a
+rule, and passages on definition origins 2.35–2.38 describe `v0.2.1`; the flat
+emitter is retired
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
 
@@ -12,8 +14,8 @@ Execution scope: [executor retirement](workflow_lisp_executor_retirement.md)
 and [CLI](../../specs/cli.md) govern executable admission. Historical lowering,
 IR/source-map emissions and effect descriptions below remain design/type
 history, not available flat builds. Source spans, catalogs and read traces
-remain part of typed diagnostics and LSP for admitted source at 2.35 or newer.
-Every imported module must meet that floor. Pre-2.35 analysis compatibility is
+remain part of typed diagnostics and LSP for admitted source, which declares
+2.40. Every imported module must declare it too. Pre-2.35 analysis compatibility is
 retired under the [source-floor contract](workflow_lisp_executor_retirement.md#source-floor-235),
 not selected by an old imported header.
 
