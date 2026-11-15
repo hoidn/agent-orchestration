@@ -1,0 +1,303 @@
+{
+ "b3-b3-max-record-read": [
+  3
+ ],
+ "extra-d20-let-if-effect-unused": [
+  7,
+  "e1"
+ ],
+ "extra-d20-let-match-effect-in-subject": [
+  4,
+  "u"
+ ],
+ "m5-cond-pure-direct": [
+  4
+ ],
+ "m5-map-cond-beside": [
+  2
+ ],
+ "m5-map-cond-body-literal": [
+  2
+ ],
+ "m5-map-effect-beside-cond": [
+  3,
+  "e"
+ ],
+ "r1-b2-cond-condition-n1": [
+  1,
+  "c"
+ ],
+ "r1-b2-if-condition-and-branch-n1": [
+  1,
+  "c",
+  "e1"
+ ],
+ "r1-b2-let-subject-loop-max": [
+  2,
+  "k"
+ ],
+ "r1-b2-loop-state-n1": [
+  2,
+  "k"
+ ],
+ "r1-b2-pure-cond-arg": [
+  1
+ ],
+ "r1-b2-pure-cond-in-variant": [
+  1
+ ],
+ "r1-m2-call-if-both-n1": [
+  1,
+  "e1"
+ ],
+ "r1-m2-call-if-then-n1": [
+  1,
+  "e1"
+ ],
+ "r1-m2-call-match-arm-n1": [
+  1,
+  "e1"
+ ],
+ "r1-m2-call-match-subject-n1": [
+  4,
+  "u"
+ ],
+ "r1-m2-cond-subject-cond-n1": [
+  2,
+  "e2"
+ ],
+ "r1-m2-cond-subject-let-if-n1": [
+  1,
+  "e1"
+ ],
+ "r1-m2-cond-subject-loop-continue-n1": [
+  2,
+  "e1",
+  "e1"
+ ],
+ "r1-m2-cond-subject-match-arm-n1": [
+  1,
+  "e1"
+ ],
+ "r1-m2-cond-subject-match-subject-n1": [
+  4,
+  "u"
+ ],
+ "r1-m2-let-cond-n1": [
+  2,
+  "e2"
+ ],
+ "r1-m2-let-if-both-n1": [
+  1,
+  "e1"
+ ],
+ "r1-m2-let-match-arm-n1": [
+  1,
+  "e1"
+ ],
+ "r1-m2-let-match-subject-n1": [
+  4,
+  "u"
+ ],
+ "r1-m2-nested-let-if-both-n1": [
+  1,
+  "e1"
+ ],
+ "r1-m2-nested-let-if-then-n1": [
+  1,
+  "e1"
+ ],
+ "r1-m2-nested-let-match-subject-n1": [
+  4,
+  "u"
+ ],
+ "r1-m2b-max-let-match": [
+  4
+ ],
+ "r1-m2b-max-pure-call-match": [
+  4
+ ],
+ "r1-m2b-state-pure-call-match": [
+  4
+ ],
+ "td1-d20-call-cond-n1": [
+  2,
+  "e2"
+ ],
+ "td1-d20-call-if-n1": [
+  1,
+  "e1"
+ ],
+ "td1-d20-call-plus-match-n1": [
+  2,
+  "e1"
+ ],
+ "td1-d20-call-wf-if-n1": [
+  1,
+  "w"
+ ],
+ "td1-d20-let-if-n1": [
+  1,
+  "e1"
+ ],
+ "td1-d20-let-nested-let-n1": [
+  1,
+  "e1"
+ ],
+ "td1-d4-max-A": [
+  3
+ ],
+ "td1-d4-max-if-holding-match": [
+  3
+ ],
+ "td1-d4-max-match-if-arm": [
+  2
+ ],
+ "td1-d4-max-match-let-arm": [
+  4
+ ],
+ "td1-d4-state-A": [
+  3
+ ],
+ "td2-loop-state-subject": null,
+ "x-cond-subject-and-operand-pure": [
+  0
+ ],
+ "x-cond-subject-call-argument-pure": [
+  2
+ ],
+ "x-cond-subject-direct-pure": [
+  0
+ ],
+ "x-cond-subject-if-branch-pure": [
+  2
+ ],
+ "x-cond-subject-if-condition-effect": [
+  0
+ ],
+ "x-cond-subject-map-body-pure": [
+  2
+ ],
+ "x-d20-call-cond": [
+  2,
+  "e2"
+ ],
+ "x-d20-call-if-both": [
+  1,
+  "e1"
+ ],
+ "x-d20-call-plus-match": [
+  2,
+  "e1"
+ ],
+ "x-d20-direct-cond-cond": [
+  0
+ ],
+ "x-d20-direct-cond-cond-pure": [
+  0
+ ],
+ "x-d20-direct-cond-cond3-pure": [
+  0
+ ],
+ "x-d20-direct-cond-if-pure": [
+  0
+ ],
+ "x-d20-direct-cond-if-then": [
+  0
+ ],
+ "x-d20-direct-cond-plus-match": [
+  0
+ ],
+ "x-d20-effect-call-cond": [
+  3,
+  "e2",
+  "pe"
+ ],
+ "x-d20-effect-call-cond-pure": [
+  3,
+  "pe"
+ ],
+ "x-d20-effect-call-cond3-pure": [
+  3,
+  "pe"
+ ],
+ "x-d20-let-cond": [
+  2,
+  "e2"
+ ],
+ "x-d20-let-cond-pure": [
+  2
+ ],
+ "x-d20-let-if-then": [
+  1,
+  "e1"
+ ],
+ "x-d20-let-let-if": [
+  1,
+  "e1"
+ ],
+ "x-d20-let-plus-match": [
+  2,
+  "e1"
+ ],
+ "x-d4-fn-max-let-if-match": [
+  3
+ ],
+ "x-d4-fn-max-match-subject-read": null,
+ "x-d4-fn-state-if-match": [
+  3
+ ],
+ "x-d4-fn-state-let-if-match": [
+  3
+ ],
+ "x-d4-fn-state-let-match": [
+  4
+ ],
+ "x-d4-fn-state-match": [
+  3
+ ],
+ "x-d4-loop-max-let-if-match": [
+  3
+ ],
+ "x-d4-loop-max-let-match": [
+  4
+ ],
+ "x-d4-loop-max-match-subject-read": null,
+ "x-d4-loop-state-if-match": [
+  3
+ ],
+ "x-d4-loop-state-match": [
+  3
+ ],
+ "x-d4-map-max-bound-if-match": [
+  2,
+  "m",
+  "m"
+ ],
+ "x-d4-map-max-bound-let-if-match": [
+  2,
+  "m",
+  "m"
+ ],
+ "x-d4-map-max-bound-match": [
+  2,
+  "m",
+  "m"
+ ],
+ "x-d4-map-max-match-subject-read": null,
+ "x-op-fn-max-record-match-pure": [
+  1
+ ],
+ "x-op-fn-state-match-pure": [
+  1
+ ],
+ "x-op-max-if-records-match-pure": [
+  1
+ ],
+ "x-op-max-match-pure": [
+  1
+ ],
+ "x-op-state-match-pure": [
+  1
+ ]
+}
