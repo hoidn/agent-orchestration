@@ -7,7 +7,8 @@ Every provider is the scripted `claude` of tests/experiments/seed_set_offline_su
 harness's real shims, sandbox and model guard; no model is called. The criterion pins that stand-in as the CLI
 (path and version) and sets the rehearsal's priced ceilings (`TERMS`). The ladder probe meets one injected usage
 limit: the stand-in answers the first probe task's Haiku call as the vendor does at a limit, starts close, the
-limit is lifted, `resume-after-limit` reopens them and the probe runs the cut slot again (rulings R1 and R2). After
+limit is lifted, `resume-after-limit` reopens them and the probe runs the cut slot again (rulings R1 and R2), every
+call that succeeds then printing a limit warning on stderr, which must close nothing (re-review N1). After
 the probe one start that would pass the redraw tranche's priced ceiling is tried on the rehearsal's ledger (R4).
 With `--cut-in smoke` the limit cuts the smoke's Haiku `direct` run instead: the other programs run after the
 resume, the smoke check must fail, and the rehearsal ends after showing that neither the probe nor the calibration
@@ -41,7 +42,7 @@ import time
 from pathlib import Path
 
 from experiments.compare.repos import dump, load
-from experiments.seed_set import ladder, layout, probing, rules, spend, study
+from experiments.seed_set import ladder, layout, probing, rules, spend, study, units
 from tests.agent_session_shims import closed_path
 from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, open_up, write_test_sandbox_config
 from tests.experiments.seed_set_offline_support import STUB, stand_in_terms
@@ -170,9 +171,12 @@ def calibration(s, count):
 
 def usage_limit(plan_file, limit):
     """Set (or lift, with {}) the stand-in's usage limit in its plan, in place: the sandbox binds the same file."""
-    plan = load(plan_file)
-    plan["usage_limit"] = limit
-    Path(plan_file).write_text(json.dumps(plan))
+    stand_in(plan_file, usage_limit=limit)
+
+
+def stand_in(plan_file, **values):
+    """Set keys of the stand-in's plan, in place."""
+    Path(plan_file).write_text(json.dumps(load(plan_file) | values))
 
 
 def refusal(start):
@@ -211,8 +215,12 @@ def smoke_with_a_cut(s):
             "runs": {f["arm"]: ("cut" if "cut" in f else f.get("incident") or f.get("outcome")) for f in runs}}
 
 
+WARNING = "Approaching usage limit · resets 5pm"  # a CLI warning on stderr beside a call that succeeds
+
+
 def probe_with_a_cut(s):
-    """The ladder probe meeting one usage limit on its first task: cut, starts closed, lifted, reopened, re-run."""
+    """The ladder probe meeting one usage limit on its first task: cut, starts closed, lifted, reopened, re-run.
+    After the resume every call that succeeds prints a limit warning on stderr: no pause may follow (re-review N1)."""
     plan_file, reset = Path(os.environ["SEED_SET_STUB_PLAN"]), int(time.time())
     first = ladder.probe_tasks(layout.task_rows(s), probing.answer(s)["probe"][0])[0]
     usage_limit(plan_file, {"task": first, "model": H, "reset": reset})
@@ -223,11 +231,21 @@ def probe_with_a_cut(s):
         closed = str(error)
     usage_limit(plan_file, {})
     resumed = spend.resume_after_limit(s.ledger, reset, 0.0, 0.0, time.time())
+    stand_in(plan_file, stderr_warning=WARNING)
     probing.probe(s)
+    stand_in(plan_file, stderr_warning=None)
     runs = [load(path) for path in layout.study_runs(s) if load(path)["task"] == first]
     return {"task": first, "closed": closed, "resume_seq": resumed["seq"],
             "runs": [("cut" if "cut" in f else "incident" if "incident" in f else f.get("outcome")) for f in runs],
-            "incidents_in_tranche": sum("incident" in load(p) for p in layout.study_runs(s))}
+            "incidents_in_tranche": sum("incident" in load(p) for p in layout.study_runs(s))} | warned(s, resumed)
+
+
+def warned(s, resumed):
+    """The probe's calls that printed the limit warning, and the pauses after the resume (none is due)."""
+    calls = [c for path in layout.study_runs(s) for c in units.calls(path.parent)
+             if WARNING in (c / "stderr.txt").read_text(errors="replace")]
+    return {"calls_with_a_limit_warning": len(calls), "pauses_after_the_resume": [
+        r["seq"] for r in spend.rows(s.ledger) if r.get("event") == "pause" and r["seq"] > resumed["seq"]]}
 
 
 def beyond_the_ceiling(s):
