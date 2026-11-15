@@ -144,11 +144,12 @@ def refuse_retired_run_target(run_root: Path, run_files: WorkspaceFiles | None =
 
     Every command that continues or rewrites a run calls this first (`resume` with or without `--accept-changes`,
     `invalidate`, `input answer` and `cancel`, REPL attach). A missing or unreadable program is left to the
-    caller's own checks, which already refuse it with their codes.
+    caller's own checks, which already refuse it with their codes (a nesting too deep to decode stops at the
+    interpreter's recursion limit and is left to them the same way).
     """
     try:
         tree = json.loads(_read_file(Path(run_root) / PROGRAM_FILENAME, run_files))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return
     target = tree.get("target") if isinstance(tree, dict) else None
     if target_dsl_is_retired_label(target):
