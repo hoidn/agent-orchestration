@@ -583,7 +583,7 @@ Reuse existing compiler/type, source-materialization, input-drift, memo-consiste
 
 | Code | Refusal point / meaning |
 | --- | --- |
-| `run_ref_child_target_unavailable` | Compile: unselected/older target or unsupported representation. |
+| `run_ref_child_target_unavailable` | Runtime: the checked child artifact is missing from the parent program or its digest differs. The compile-time target refusal under this code went with the older targets. |
 | `run_ref_child_transport_unsupported` | Compile/admission: authority value as input or child result at the run-ref transport boundary (ordinary signature/type rejection may occur earlier), `provider-bundle-path`, or a result path descriptor that cannot be exported (`:must-exist false`, reserved root). |
 | `run_ref_environment_effect_unsupported` | Compile/admission: forbidden nested effect (transitive), `:network :none` with a provider effect, configuration, package origin or runtime-path access; dispatch before `started`: a command closure resolving into the clone, `FAILED` after release with no attempt record. |
 | `run_ref_environment_unavailable` | Pre-release, at every holder launch: `bwrap`, delegated scope (user manager, `Delegate=yes`, controllers, limits and `OOMPolicy` read-back), Yama scope, quota, network unshare, key-syscall filter architecture or image import prerequisite unavailable; stops the run or resume. |

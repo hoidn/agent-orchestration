@@ -300,7 +300,7 @@ def test_module_metrics_cover_private_types_too(tmp_path):
 ])
 def test_module_compiled_callable_renames_preserve_metrics(
         tmp_path, declarations, entry, renamed_declarations, renamed_entry):
-    header = '(workflow-lisp (:language "0.1") (:target-dsl "2.39") (defmodule direct) (export run)'
+    header = '(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule direct) (export run)'
     parent, child = pair(tmp_path, header + renamed_declarations + renamed_entry + ')')
     (parent / "direct.orc").write_text(header + declarations + entry + ')')
     for root in (parent, child):
@@ -312,7 +312,7 @@ def test_module_compiled_callable_renames_preserve_metrics(
 @pytest.mark.parametrize("container", ["({binding})", "{binding}"], ids=["multiple", "single"])
 def test_module_compiled_local_proc_type_renames_preserve_metrics(tmp_path, container):
     binding = container.format(binding='(identity ((item Review)) -> Review item)')
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39") (defmodule direct) (export run)
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule direct) (export run)
       (defrecord Review (text String))
       (defproc use ((hook ProcRef[Review->Review]) (item Review)) -> Review (hook item))
       (defworkflow run ((x String)) -> String

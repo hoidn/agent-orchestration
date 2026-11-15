@@ -6,14 +6,13 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field, replace
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectAtom, EffectSummary, parse_effect_clause, render_effect_set
 from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
-from .syntax import ExpansionStack, PROVIDER_STEERING_DIRECTIVE_TYPE_NAME, SyntaxKeyword, SyntaxList, SyntaxNode, WorkflowLispSyntaxModule, syntax_head, syntax_identifier, syntax_node_datum, syntax_resolved_name, target_dsl_supports_effect_ceilings
+from .syntax import ExpansionStack, PROVIDER_STEERING_DIRECTIVE_TYPE_NAME, SyntaxKeyword, SyntaxList, SyntaxNode, WorkflowLispSyntaxModule, syntax_head, syntax_identifier, syntax_node_datum, syntax_resolved_name
 from .type_env import FrontendTypeEnvironment, TypeRef
 
 if TYPE_CHECKING:
@@ -105,10 +104,9 @@ class ProcedureConstraintSyntax:
 
 
 class ProcedureLoweringMode(StrEnum):
-    """Allowed lowering strategies for reusable workflow procedures."""
+    """How a procedure lowers: always inline. `AUTO` marks a typed procedure whose lowering is not yet resolved."""
 
     INLINE = "inline"
-    PRIVATE_WORKFLOW = "private-workflow"
     AUTO = "auto"
 
 
@@ -220,12 +218,6 @@ class TypedProcedureDef:
     resolved_lowering_mode: ProcedureLoweringMode = ProcedureLoweringMode.AUTO
     generated_workflow_name: str | None = None
     specialization: object | None = None
-
-
-def effective_private_workflow_name(procedure: TypedProcedureDef) -> str:
-    return procedure.generated_workflow_name or (
-        f"%{Path(procedure.definition.span.start.path).stem}.{procedure.signature.name}.v1"
-    )
 
 
 def _procedure_signature_local_type_bindings(
@@ -567,66 +559,48 @@ def validate_procedure_effects(
     unresolved_workflow_subjects=(),
     pending_workflow_boundary=False,
 ) -> None:
-    """Check the authored contract in the definition's version regime."""
+    """Check an authored `:effects` restriction, an upper bound of the inferred effects."""
 
-    if target_dsl_supports_effect_ceilings(procedure_def.effect_contract_target or ""):
-        if declared_effects is None:
-            return
-        from .effects import CallsWorkflowEffect, substitute_workflow_effects
-        from .type_env import WorkflowRefTypeRef
-
-        selected = getattr(specialization, "workflow_ref_bindings", {})
-        declared_effects = substitute_workflow_effects(declared_effects, selected)
-        uncovered = inferred_effects - declared_effects
-        unresolved = {name for name, ref in parameter_types
-            if isinstance(ref, WorkflowRefTypeRef) and name not in selected}
-        unresolved.update(unresolved_workflow_subjects)
-        permits_workflow = any(isinstance(effect, CallsWorkflowEffect) for effect in declared_effects)
-        if permits_workflow:
-            uncovered = frozenset(effect for effect in uncovered
-                if not (isinstance(effect, CallsWorkflowEffect) and ".".join(effect.subject) in unresolved))
-        if not uncovered and not (pending_workflow_boundary and not permits_workflow):
-            return
-        restriction_span = procedure_def.effects_clause_span or procedure_def.span
-        span = getattr(specialization, "origin_span", None) or restriction_span
-        edges = sorted(procedure_edges, key=lambda edge: (edge.callee_name,
-            edge.span.start.offset if edge.span is not None else -1))
-        raise LispFrontendCompileError((LispFrontendDiagnostic(
-            code="procedure_effect_ceiling_exceeded", phase="typecheck",
-            message=(f"procedure `{procedure_def.name}` restriction {render_effect_set(declared_effects)} "
-                f"does not cover {render_effect_set(uncovered) if uncovered else 'an unresolved workflow boundary'}; "
-                f"resolved definition `{procedure_def.name}`"),
-            span=span,
-            form_path=getattr(specialization, "origin_form_path", procedure_def.form_path),
-            expansion_stack=procedure_def.expansion_stack,
-            notes=(f"authored restriction: {restriction_span.start.path}:{restriction_span.start.line}",
-                *(f"contributing call `{edge.callee_name}` at {edge.span.start.path}:{edge.span.start.line}"
-                    for edge in edges if edge.span is not None)),
-        ),))
-
-    if declared_effects == inferred_effects:
+    if declared_effects is None:
         return
-    raise LispFrontendCompileError(
-        (
-            LispFrontendDiagnostic(
-                code="procedure_effect_mismatch",
-                message=(
-                    f"procedure `{procedure_def.name}` declared effects {render_effect_set(declared_effects)} "
-                    f"but inferred {render_effect_set(inferred_effects)}"
-                ),
-                span=procedure_def.span,
-                form_path=procedure_def.form_path,
-                expansion_stack=procedure_def.expansion_stack,
-            ),
-        )
-    )
+    from .effects import CallsWorkflowEffect, substitute_workflow_effects
+    from .type_env import WorkflowRefTypeRef
+
+    selected = getattr(specialization, "workflow_ref_bindings", {})
+    declared_effects = substitute_workflow_effects(declared_effects, selected)
+    uncovered = inferred_effects - declared_effects
+    unresolved = {name for name, ref in parameter_types
+        if isinstance(ref, WorkflowRefTypeRef) and name not in selected}
+    unresolved.update(unresolved_workflow_subjects)
+    permits_workflow = any(isinstance(effect, CallsWorkflowEffect) for effect in declared_effects)
+    if permits_workflow:
+        uncovered = frozenset(effect for effect in uncovered
+            if not (isinstance(effect, CallsWorkflowEffect) and ".".join(effect.subject) in unresolved))
+    if not uncovered and not (pending_workflow_boundary and not permits_workflow):
+        return
+    restriction_span = procedure_def.effects_clause_span or procedure_def.span
+    span = getattr(specialization, "origin_span", None) or restriction_span
+    edges = sorted(procedure_edges, key=lambda edge: (edge.callee_name,
+        edge.span.start.offset if edge.span is not None else -1))
+    raise LispFrontendCompileError((LispFrontendDiagnostic(
+        code="procedure_effect_ceiling_exceeded", phase="typecheck",
+        message=(f"procedure `{procedure_def.name}` restriction {render_effect_set(declared_effects)} "
+            f"does not cover {render_effect_set(uncovered) if uncovered else 'an unresolved workflow boundary'}; "
+            f"resolved definition `{procedure_def.name}`"),
+        span=span,
+        form_path=getattr(specialization, "origin_form_path", procedure_def.form_path),
+        expansion_stack=procedure_def.expansion_stack,
+        notes=(f"authored restriction: {restriction_span.start.path}:{restriction_span.start.line}",
+            *(f"contributing call `{edge.callee_name}` at {edge.span.start.path}:{edge.span.start.line}"
+                for edge in edges if edge.span is not None)),
+    ),))
 
 
 def resolve_procedure_effect_restrictions(
     procedure_defs, *, procedure_catalog, workflow_catalog, workflow_effects_by_name,
     extern_environment, workflow_name_resolver,
 ):
-    """Canonicalize concrete workflow effects and validate target-2.39 restrictions."""
+    """Canonicalize concrete workflow effects and validate the procedure restrictions."""
     from .effects import CallsWorkflowEffect, UsesProviderEffect
     from .type_env import WorkflowRefTypeRef
     from .workflows import ProviderExtern
@@ -639,9 +613,6 @@ def resolve_procedure_effect_restrictions(
         if isinstance(definition, TypedProcedureDef) or definition.declared_effects is None:
             definitions.append(definition)
             continue
-        enforce_ceiling = target_dsl_supports_effect_ceilings(
-            definition.effect_contract_target or ""
-        )
         signature = signatures[definition.name]
         formals = {name for name, ref in signature.params if isinstance(ref, WorkflowRefTypeRef)}
         effects = set()
@@ -654,9 +625,9 @@ def resolve_procedure_effect_restrictions(
                 if resolved in known_workflows:
                     canonical = workflow_catalog.signatures_by_name.get(resolved)
                     effect = CallsWorkflowEffect(subject=(canonical.name if canonical is not None else resolved,))
-                elif enforce_ceiling:
+                else:
                     _raise_invalid_restriction_subject(definition, "workflow", name)
-            elif enforce_ceiling and isinstance(effect, UsesProviderEffect) and not isinstance(
+            elif isinstance(effect, UsesProviderEffect) and not isinstance(
                 extern_environment.bindings_by_name.get(name), ProviderExtern
             ):
                 _raise_invalid_restriction_subject(definition, "provider", name)
@@ -703,8 +674,7 @@ def _elaborate_procedure_definition(
     target_dsl_version: str,
 ) -> ProcedureDef:
     datum = syntax_node_datum(form)
-    inferred_contract = target_dsl_supports_effect_ceilings(target_dsl_version)
-    if not isinstance(datum, SyntaxList) or len(datum.items) < (6 if inferred_contract else 7):
+    if not isinstance(datum, SyntaxList) or len(datum.items) < 6:
         _raise_parse_error(
             "`defproc` requires a name, params, return arrow, return type, `:effects`, and one body",
             span=form.span,
@@ -806,7 +776,6 @@ def _elaborate_procedure_definition(
     sections = list(datum.items[index + 2 :])
     if not sections:
         _raise_missing_effects(form)
-    lowering_mode = ProcedureLoweringMode.INLINE if inferred_contract else ProcedureLoweringMode.AUTO
     raw_effects: SyntaxList | None = None
     body_node: object | None = None
     index = 0
@@ -823,50 +792,26 @@ def _elaborate_procedure_definition(
             index += 2
             continue
         if current.value == ":lowering":
-            if inferred_contract:
-                raise LispFrontendCompileError(
-                    (
-                        LispFrontendDiagnostic(
-                            code="proc_lowering_annotation_invalid",
-                            message=(
-                                "target-2.39 `defproc` definitions do not accept an authored "
-                                "`:lowering` clause"
-                            ),
-                            span=current.span,
-                            form_path=form.form_path,
-                            expansion_stack=current.expansion_stack,
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="proc_lowering_annotation_invalid",
+                        message=(
+                            "`defproc` definitions do not accept an authored `:lowering` clause; "
+                            "every procedure is inlined"
                         ),
-                    )
+                        span=current.span,
+                        form_path=form.form_path,
+                        expansion_stack=current.expansion_stack,
+                    ),
                 )
-            if index + 1 >= len(sections):
-                _raise_invalid_lowering(form)
-            lowering_identifier = syntax_identifier(sections[index + 1])
-            if lowering_identifier is None:
-                _raise_invalid_lowering(form)
-            try:
-                lowering_mode = ProcedureLoweringMode(lowering_identifier.resolved_name)
-            except ValueError as error:
-                raise LispFrontendCompileError(
-                    (
-                        LispFrontendDiagnostic(
-                            code="proc_lowering_annotation_invalid",
-                            message=f"unsupported procedure lowering mode `{lowering_identifier.display_name}`",
-                            span=lowering_identifier.span,
-                            form_path=form.form_path,
-                            expansion_stack=lowering_identifier.expansion_stack,
-                        ),
-                    )
-                ) from error
-            index += 2
-            continue
+            )
         _raise_parse_error(
             f"unsupported procedure clause `{current.value}`",
             span=current.span,
             form_path=form.form_path,
             expansion_stack=current.expansion_stack,
         )
-    if raw_effects is None and not inferred_contract:
-        _raise_missing_effects(form)
     if body_node is None or index != len(sections):
         _raise_parse_error(
             "`defproc` requires exactly one body expression",
@@ -892,7 +837,7 @@ def _elaborate_procedure_definition(
         ) if raw_effects is not None else None,
         effect_contract_target=target_dsl_version,
         effects_clause_span=raw_effects.span if raw_effects is not None else None,
-        requested_lowering_mode=lowering_mode,
+        requested_lowering_mode=ProcedureLoweringMode.INLINE,
         body=body,
         span=form.span,
         form_path=form.form_path,
@@ -1173,20 +1118,6 @@ def _raise_invalid_effects_shape(form: SyntaxNode) -> None:
             LispFrontendDiagnostic(
                 code="procedure_effect_invalid",
                 message="`defproc` `:effects` must be followed by a list",
-                span=form.span,
-                form_path=form.form_path,
-                expansion_stack=form.expansion_stack,
-            ),
-        )
-    )
-
-
-def _raise_invalid_lowering(form: SyntaxNode) -> None:
-    raise LispFrontendCompileError(
-        (
-            LispFrontendDiagnostic(
-                code="proc_lowering_annotation_invalid",
-                message="`defproc` `:lowering` must be followed by `inline`, `private-workflow`, or `auto`",
                 span=form.span,
                 form_path=form.form_path,
                 expansion_stack=form.expansion_stack,

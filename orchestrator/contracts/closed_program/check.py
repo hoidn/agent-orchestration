@@ -54,7 +54,7 @@ from orchestrator.workflow.view_renderer import (
 )
 
 from orchestrator.workflow.type_descriptor import _named_type_basename
-from .targets import SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution, target_dsl_supports_parallel_map
+from .targets import READABLE_PROGRAM_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution, target_dsl_supports_parallel_map
 
 from .targets import PATH_MODE_RUN_REF_TARGET_DSL_VERSION
 from . import check_agents
@@ -304,7 +304,7 @@ class _Checker:
         if self.tree.get("representation") != "table/1":
             self.fail("program_representation", "unsupported closed-program representation")
         target = self.tree.get("target")
-        if (not isinstance(target, str) or target not in SUPPORTED_TARGET_DSL_VERSIONS
+        if (not isinstance(target, str) or target not in READABLE_PROGRAM_TARGET_DSL_VERSIONS
                 or not target_dsl_uses_evaluated_execution(target)):
             self.fail("program_target", "closed program target must be a registered evaluated target")
         if not isinstance(self.tree.get("entry"), str) or not self.tree["entry"]:

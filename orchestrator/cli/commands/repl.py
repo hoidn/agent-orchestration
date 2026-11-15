@@ -18,6 +18,7 @@ from orchestrator.workflow.evaluated.capture import (
     load_run_for_capture,
     visible_bindings,
 )
+from orchestrator.workflow.evaluated.authority import RunTargetRetiredError, refuse_retired_run_target
 from orchestrator.workflow.evaluated.views import has_evaluated_authority
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
 from orchestrator.workflow_lisp.closed.build import _strip_provenance
@@ -36,7 +37,6 @@ from orchestrator.workflow_lisp.reader import (
     read_sexpr_text,
 )
 from orchestrator.workflow_lisp.effects import render_effect_set, unresolved_effect_calls
-from orchestrator.workflow_lisp.syntax import target_dsl_supports_effect_ceilings
 from orchestrator.workflow_lisp.repl_inspect import (
     COVERAGE, EXCLUSIONS, browse_module, inspect_name, source_name,
 )
@@ -204,6 +204,10 @@ def _attach_root(session: ReplSession, run_root: Path) -> None:
         raise ReplRefusal(
             "repl_profile_unsupported", "run does not use evaluated execution"
         )
+    try:
+        refuse_retired_run_target(run_root)
+    except RunTargetRetiredError as exc:
+        raise ReplRefusal(exc.code, str(exc)) from exc
     authority, snapshot = load_run_for_capture(run_root)
     module = _module_for_attachment(session, authority.header)
     if authority.program.digest != module.build.program.digest:     # the run's current program (C10)
@@ -346,7 +350,7 @@ def _dispatch(session: ReplSession, line: str) -> bool:
             typed, _, _ = typecheck_repl_expression(remainder, session.module, session.captured)
             print(f"type: {render_type_ref(typed.type_ref)}")
             pending = unresolved_effect_calls(typed.effect_summary, session.module.typed_program.procedures)
-            if target_dsl_supports_effect_ceilings(session.module.typed_program.target) and pending:
+            if pending:
                 print(f"effects: incomplete ({', '.join(pending)}); known {render_effect_set(typed.effect_summary.transitive_effects)}")
             else:
                 print(f"effects: {render_effect_set(typed.effect_summary.transitive_effects)}")

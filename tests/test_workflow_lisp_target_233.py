@@ -36,14 +36,6 @@ def _compile_minimal_module(tmp_path: Path, target_dsl_version: str):
     )
 
 
-
-
-def test_module_targeting_235_compiles_with_no_new_forms(tmp_path: Path) -> None:
-    result = _compile_minimal_module(tmp_path, "2.35")
-
-    assert result.typed_program.target == "2.35"
-
-
 def test_module_targeting_future_241_is_rejected_as_unsupported(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile_minimal_module(tmp_path, "2.41")

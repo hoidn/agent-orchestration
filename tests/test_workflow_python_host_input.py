@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.py import build, run
+from orchestrator.py import run
 from orchestrator.py.diagnostics import PythonFrontendError
 from orchestrator.py.emit import generate_graph
 from orchestrator.host_input import answer, pending
@@ -34,17 +34,6 @@ def requests(program):
             and node.get("class") == "request_input"]
 
 
-def test_default_target_star_import_keeps_239_without_host_dependency(tmp_path):
-    graph, built = compile_source(tmp_path, '''
-    @proc
-    def identity(value: int) -> int: return value
-    @workflow
-    def run() -> int: return identity(7)
-    ''')
-    assert built.program.tree["result"]["name"] == "Int"
-    assert not any(path.name == "host.orc" for path in graph.source_reads)
-
-
 def test_body_only_ask_is_retained_even_when_result_is_ignored(tmp_path):
     graph, built = compile_source(tmp_path, '''
     TARGET = "2.40"
@@ -57,31 +46,6 @@ def test_body_only_ask_is_retained_even_when_result_is_ignored(tmp_path):
     assert requests(built.program)[0]["result"]["name"] == "std/host::HostReply[String]"
     assert any(path.name == "host.orc" for path in graph.source_reads)
     assert any(entry.kind == "call" and entry.python.line == 7 for entry in graph.source_map.entries)
-
-
-@pytest.mark.parametrize("target", ["2.35", "2.39"])
-def test_body_only_ask_refuses_old_target_before_run_publication(tmp_path, target):
-    source = module_source(tmp_path, f'''
-    TARGET = "{target}"
-    @workflow
-    def run() -> int:
-        ask("Review?", returns=str)
-        return 7
-    ''')
-    with pytest.raises(PythonFrontendError) as error:
-        build(source.__file__, workspace_root=tmp_path)
-    assert error.value.code == "python_host_input_target"
-    assert error.value.site.path == source.__file__
-    assert error.value.site.line == 7
-    assert not (tmp_path / ".orchestrate/runs").exists()
-
-
-def test_explicit_host_reply_annotation_refuses_old_target(tmp_path):
-    with pytest.raises(PythonFrontendError, match="python_host_input_target"):
-        compile_source(tmp_path, '''
-        @workflow
-        def run(reply: HostReply[str]) -> HostReply[str]: return reply
-        ''')
 
 
 @pytest.mark.parametrize("effect", ["", "effects=(host_input,)"])

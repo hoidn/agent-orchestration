@@ -31,7 +31,7 @@ if Path("fail-" + sys.argv[1]).exists():
     sys.exit(1)
 Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(int(sys.argv[2]) + 1))
 '''
-TARGET = '(:target-dsl "2.40")'          # every source here; the refusal case "target" edits this one literal
+TARGET = '(:target-dsl "2.40")'          # every source here
 HEAD = f'(workflow-lisp (:language "0.1") {TARGET}\n  (defmodule pipe) IMPORTS (export run)\n'
 COMMANDS = {"step": {"stable_command": ["python", "t.py"], "closure": ["t.py"]},
             "shell": {"stable_command": ["sh", "s.sh"], "closure": ["s.sh"]}}
@@ -571,7 +571,6 @@ def no_plan(stderr: str) -> str:
 REFUSALS = {
     "entry workflow": ("resume_program_changed", [(S, "(export run)", "(export main)"),
                                                   (S, "(defworkflow run ", "(defworkflow main ")]),
-    "target": ("resume_program_changed", [(S, TARGET, '(:target-dsl "2.39")')]),
     "an added entry input": ("resume_inputs_changed", [(S, "((n Int :default 0))", "((n Int :default 0) (m Int :default 1))")]),
     "an unpinned bare interpreter": ("resume_program_changed", [(S, "      s4))", f"      {cmd('x', 's4', 'shell')}))")]),
     "a pure fault under the edited program": ("pure_expr_division_by_zero", [(S, "      s4))", "      (int/div s4 (- n n))))")]),

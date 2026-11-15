@@ -24,7 +24,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .compiler_session import TypecheckSessionState
 from .result_guidance import ResultGuidance
 from .spans import SourcePosition, SourceSpan
-from .syntax import HUMAN_REPLY_TYPE_NAME, PROVIDER_STEERING_DIRECTIVE_TYPE_NAME, ProcedureExpansionFrame, target_dsl_supports_agent_sessions
+from .syntax import HUMAN_REPLY_TYPE_NAME, PROVIDER_STEERING_DIRECTIVE_TYPE_NAME, ProcedureExpansionFrame
 from .type_expressions import (
     AppliedTypeExpr,
     ContextualTypeExpr,
@@ -143,10 +143,7 @@ def prelude_type_names_for_target(target_dsl_version: str) -> frozenset[str]:
     from .context_types import CONTEXT_TYPE_NAMES
 
     names = names | CONTEXT_TYPE_NAMES
-    names = names | frozenset({HUMAN_REPLY_TYPE_NAME})
-    if target_dsl_supports_agent_sessions(target_dsl_version):
-        names = names | frozenset({"Agent"})
-    return names
+    return names | frozenset({HUMAN_REPLY_TYPE_NAME, "Agent"})
 
 
 def _local_type_definition_form_path(
@@ -458,9 +455,7 @@ class FrontendTypeEnvironment:
                     )
 
         primitive_type_names = PRELUDE_PRIMITIVE_TYPE_NAMES
-        primitive_type_names = primitive_type_names | frozenset({"Value"})
-        if target_dsl_supports_agent_sessions(module.target_dsl_version):
-            primitive_type_names = primitive_type_names | frozenset({"Agent"})
+        primitive_type_names = primitive_type_names | frozenset({"Value", "Agent"})
         type_refs: dict[str, TypeRef] = {
             name: PrimitiveTypeRef(name=name) for name in primitive_type_names
         }

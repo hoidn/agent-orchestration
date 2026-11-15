@@ -4,8 +4,8 @@
 
 - **Kind:** frontend architecture and authoring contract
 - **Status:** accepted; serial subset implemented
-- **Implementation target:** Python 3.11+, generated Workflow Lisp targets
-  2.35–2.40; default 2.39
+- **Implementation target:** Python 3.11+, generated Workflow Lisp target
+  2.40 (the default and only admitted `TARGET`)
 - **Authority:** this document owns Python authoring and generation only. The
   contracts below continue to own compilation, execution and recovery.
 
@@ -48,10 +48,9 @@ Read [the documentation hub](../index.md) and
 
 The new frontend cannot widen evaluated admission. In particular it cannot
 restore retired effects, make unqualified provider/parallel features qualified,
-or admit imported source below 2.35. A Python module's `TARGET` constant selects
-its admitted target, defaulting to `"2.39"`; imported modules retain their own
-target and effect rules. The existing compiler validates import direction and
-target-specific syntax. Selecting 2.35 does not acquire 2.39 inference.
+or admit imported source at another target. A Python module's `TARGET` constant
+defaults to `"2.40"`, the one admitted target; any other value reaches the
+compiler in the generated header and refuses there (`target_dsl_unsupported`).
 
 ## Public Authoring Surface
 
@@ -212,11 +211,9 @@ An effect reused twice is one bound result, not two invocations.
 
 ### Durable Host Decisions At Target 2.40
 
-Set the defining module's `TARGET = "2.40"` to use
-`ask(question, *, returns, timeout_sec=None, show=())`. It emits ordinary
+Use `ask(question, *, returns, timeout_sec=None, show=())`. It emits ordinary
 `request-input` and binds a symbolic `HostReply[returns]` result in source
-order. The default target remains 2.39. Importing the public names, including a
-star import, does not import `std/host` into an older-target module.
+order.
 `HostReply[A]` applies the existing generic `std/host` type through the ordinary
 `.orc` bridge; it does not declare another nominal union or value codec.
 At 2.40 the compiler skeleton prepares this standard type even when only the
@@ -233,8 +230,8 @@ evidence under the host-input contract. Omitted/None timeout has no deadline;
 a supplied timeout must be an exact positive integer when reached.
 
 `host_input` is the subject-free effect descriptor for an explicit procedure
-restriction, such as `@proc(effects=(host_input,))`. Omitted effects infer at
-2.39 and later; explicit empty restrictions still refuse reachable asks.
+restriction, such as `@proc(effects=(host_input,))`. Omitted effects infer;
+explicit empty restrictions still refuse reachable asks.
 Descriptors take declaration objects for subject-bearing effects, for example
 `uses_provider(author)` and `uses_command(checks)`.
 
@@ -291,15 +288,13 @@ Cycles are diagnosed by the existing compiler. Reachable ignored effectful
 calls still make their definitions reachable.
 
 `@workflow` emits `defworkflow`; nested calls emit ordinary workflow `call`.
-At 2.39 and later, `@proc` emits `defproc` with omitted `:effects`, using inference.
+`@proc` emits `defproc` with omitted `:effects`, using inference.
 `@pure` emits `defun`; its body must be pure according to the compiler. Do not
-emit `:lowering` at 2.39 or later. `@proc(effects=())` deliberately imposes the existing
+emit `:lowering`. `@proc(effects=())` deliberately imposes the existing
 empty restriction. Explicit `uses_command(command)` and
 `uses_provider(provider)` and `calls_workflow(workflow)` descriptors map to
-existing effect clauses with compiler-resolved subjects; at
-2.35–2.38 these declarations remain mandatory and exact under their source
-target. Emit explicit `:lowering inline` for Python procedures at those older
-targets; the compiler's ordinary default is `auto`, not inline. Imported `.orc`
+existing effect clauses with compiler-resolved subjects, as checked upper
+bounds. Imported `.orc`
 procedures retain their own lowering declaration.
 
 Supported operator overloads map only to existing operators: numeric arithmetic

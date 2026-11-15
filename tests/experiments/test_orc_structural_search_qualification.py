@@ -1,5 +1,6 @@
 """Fail-closed qualification of external raw evidence, with no provider spend."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -481,3 +482,46 @@ def test_v1_rejects_named_calibration_rules_without_reinterpreting_legacy(tmp_pa
     refresh(q)
     with pytest.raises(ValueError, match='rule'):
         validate(q)
+
+
+def _v1_rubric_dispatch(tmp_path, criterion_text, runtime_text):
+    """`dispatch` with one judge: the criterion names a score workflow file, the runtime holds another."""
+    from experiments.orc_structural_search.qualification_io import digest
+    from experiments.orc_structural_search.qualification_measure import dispatch
+
+    (tmp_path / "score.orc").write_text(criterion_text)
+    (tmp_path / "providers.json").write_text("{}")
+    runtime = tmp_path / "runtime"
+    (runtime / "experiments/compare").mkdir(parents=True)
+    (runtime / "experiments/compare/score.orc").write_text(runtime_text)
+    criterion = {"judges": {"judge": {}}, "measurement": {"evaluator": {
+        "score_workflow": {"file": "score.orc", "sha256": digest(tmp_path / "score.orc")},
+        "judges": {"judge": {"providers": {"file": "providers.json", "sha256": digest(tmp_path / "providers.json")}}}}}}
+    dispatch(criterion, tmp_path / "criterion.json", runtime, [f"judge={tmp_path / 'providers.json'}"])
+
+
+def _v1_rubric_texts():
+    """The v1 rubric at 2.40 (the checkout) and its calibrated 2.35 bytes (the same file before its header moved)."""
+    from experiments.orc_structural_search.qualification_measure import V1_RUBRICS
+
+    new = (Path(__file__).resolve().parents[2] / "experiments/compare/score.orc").read_text()
+    old = new.replace('(:target-dsl "2.40")', '(:target-dsl "2.35")', 1)
+    assert {hashlib.sha256(text.encode()).hexdigest() for text in (old, new)} == V1_RUBRICS
+    return {"old": old, "new": new, "other": new + " "}
+
+
+@pytest.mark.parametrize("named", ["old", "new"])
+@pytest.mark.parametrize("held", ["old", "new"])
+def test_v1_rubric_check_accepts_the_calibrated_and_the_migrated_score_workflow(tmp_path, named, held):
+    texts = _v1_rubric_texts()
+    _v1_rubric_dispatch(tmp_path, texts[named], texts[held])
+
+
+@pytest.mark.parametrize(("named", "held", "message"), [
+    ("other", "new", "unsupported v1 rubric workflow"),
+    ("new", "other", "actual runtime score workflow differs from measurement"),
+])
+def test_v1_rubric_check_refuses_any_other_score_workflow(tmp_path, named, held, message):
+    texts = _v1_rubric_texts()
+    with pytest.raises(ValueError, match=message):
+        _v1_rubric_dispatch(tmp_path, texts[named], texts[held])

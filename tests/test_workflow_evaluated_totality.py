@@ -53,7 +53,7 @@ def test_public_projected_source_refusal_has_no_dispatch(tmp_path, form, positio
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
-@pytest.mark.parametrize("route", ["direct", "same_module", "imported_old_source"])
+@pytest.mark.parametrize("route", ["direct", "same_module", "imported_source"])
 @pytest.mark.parametrize("case", CONTROL_EXPECTED)
 def test_public_control_keeps_selected_order_and_native_value(tmp_path, monkeypatch, case, route):
     files, probe = prepare_control(tmp_path, case, route)
@@ -61,7 +61,7 @@ def test_public_control_keeps_selected_order_and_native_value(tmp_path, monkeypa
     exercise(tmp_path, files, probe, value, calls, monkeypatch)
 
 
-@pytest.mark.parametrize("route", ["direct", "same_module", "imported_old_source"])
+@pytest.mark.parametrize("route", ["direct", "same_module", "imported_source"])
 @pytest.mark.parametrize(("case", "before", "after", "value", "calls"), [
     ("effectful_if_branches", "(if true", "(if false", 22, ["arm-prefix 22", "arm-value 22"]),
     ("join_body_and_continuation", "(check 1) (check 2) (check 3)",
@@ -73,7 +73,7 @@ def test_public_control_alternative_does_not_evaluate_unselected_work(tmp_path, 
     exercise(tmp_path, files, probe, value, calls, monkeypatch)
 
 
-@pytest.mark.parametrize("route", ["direct", "same_module", "imported_old_source"])
+@pytest.mark.parametrize("route", ["direct", "same_module", "imported_source"])
 @pytest.mark.parametrize(("case", "code"), [
     ("effectful_loop_exhaustion", "loop_recur_contract_invalid"),
     ("effectful_list_map_body", "list_map_body_effect_forbidden"),

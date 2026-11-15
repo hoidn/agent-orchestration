@@ -147,12 +147,6 @@ def test_source_free_checker_refuses_tampered_requests(tmp_path, mutation):
         ClosedProgram.from_artifact(json.dumps(tree))
 
 
-def test_target_239_typed_request_has_located_gap(tmp_path):
-    with pytest.raises(LispFrontendCompileError) as caught:
-        _compile(tmp_path, target='2.39')
-    assert caught.value.diagnostics[0].code == 'closed_program_gap'
-
-
 def test_target_240_inherits_phased_delivery(tmp_path):
     from tests.test_workflow_lisp_phased_239 import _compile as compile_phased, _source, _provider_effect
     program = compile_phased(tmp_path / 'phased239.orc', _source('2.40'))
@@ -366,13 +360,6 @@ def test_declared_invalid_prompt_return_is_not_inferred_as_host_answer(tmp_path)
     assert caught.value.diagnostics[0].code == 'request_input_answer_type_invalid'
 
 
-def test_target_239_does_not_infer_prompt_host_answer(tmp_path):
-    with pytest.raises(LispFrontendCompileError):
-        _compile(tmp_path, target='2.39', question='(question-prompt :summary question)',
-            include_returns=False,
-            declarations='(defprompt question-prompt (:fills (summary :text)) -> Approval "{summary}")')
-
-
 def test_imported_aliased_prompt_infers_its_canonical_answer_type(tmp_path):
     install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule host/prompts) (export approval Approval)
@@ -462,17 +449,6 @@ def test_imported_prompt_private_answer_cannot_rebind_to_caller_type(tmp_path, a
         (request-input (p.approval :summary "Decide"))))'''
     with pytest.raises(LispFrontendCompileError):
         _build_source(tmp_path, source)
-
-
-def test_specialization_result_analysis_keeps_typed_reply(tmp_path):
-    from orchestrator.workflow_lisp.procedure_specialization import _private_workflow_result_type_for_expr
-    _, path = _compile(tmp_path)
-    typed = compile_typed_program(path, entry_workflow='run', command_boundaries={}, source_roots=(tmp_path,), workspace_root=tmp_path)
-    ask = typed.procedures['host/entry::ask']
-    actual = _private_workflow_result_type_for_expr(ask.typed_body.expr,
-        local_type_bindings=dict(ask.signature.params), typed_procedures_by_name=typed.procedures,
-        type_env=typed.procedure_type_env(ask))
-    assert actual == ask.signature.return_type_ref
 
 
 def test_retained_generic_reply_hint_cannot_fall_back_to_another_nominal_type(tmp_path):

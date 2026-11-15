@@ -209,7 +209,7 @@ def _subjects() -> list[tuple[str, dict]]:
 def test_declaration_digest_is_the_whole_node_without_any_position() -> None:
     subjects = _subjects()
 
-    assert {subject["class"] for _origin, subject in subjects} == {"provider", "provider_phased"} and len(subjects) >= 40
+    assert {subject["class"] for _origin, subject in subjects} == {"provider", "provider_phased"} and len(subjects) >= 37
     assert [origin for origin, subject in subjects
             if declaration_digest(subject) != canonical_sha256(_without_any_position(subject))] == []
 

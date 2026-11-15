@@ -13,14 +13,13 @@ from ..expressions import (
     LoopStateUpdateExpr, MatchExpr, NameExpr, PhaseTargetExpr, ProcRefLiteralExpr,
     ProviderBundlePathExpr, PureOpExpr, RecordExpr, RecordUpdateExpr, UnionVariantExpr,
 )
-from ..procedures import ProcedureLoweringMode, _procedure_signature_local_type_bindings, procedure_type_env_for
+from ..procedures import _procedure_signature_local_type_bindings, procedure_type_env_for
 
 from ..procedure_specialization import (
     RUNTIME_REFERENCE, RetainedExpressionFact,
     _build_output_step_local_value, _flatten_boundary_leaf_paths,
     _resolve_inline_expr_value, inline_expr_field_value, inline_let_field_value,
     inline_procedure_bindings, resolved_surface_proc_ref, select_surface_procedure_call,
-    schema1_iteration_private_override_applies,
 )
 from ..type_env import RecordTypeRef, TypeRef, UnionTypeRef, VariantCaseTypeRef
 from ..wcc.anf import normalize_wcc_body_to_anf
@@ -326,12 +325,6 @@ def _procedure_control_fact(expr: Any, *, facts: ControlFacts, local_values: Map
     )
     _check_procedure_cycle(procedure, call=call, facts=facts)
     env = procedure_type_env_for(procedure, procedure_type_envs=facts.procedure_type_envs, default=facts.type_env)
-    if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW or schema1_iteration_private_override_applies(
-        procedure, iteration_scope=facts.iteration_scope, workflow_name=facts.workflow_name,
-        default_type_env=facts.type_env, typed_procedures=facts.typed_procedures,
-        procedure_type_envs=facts.procedure_type_envs, workflow_signatures=facts.workflow_catalog.signatures_by_name,
-    ):
-        return False, _leaf_output_names(expr, result_type=procedure.typed_body.type_ref, type_env=env)
     values = inline_procedure_bindings(procedure, caller_values=local_values, actual_values=tuple(
         _resolve_inline_expr_value(arg, local_values=local_values, retain_expression_facts=True) for arg in args
     ))

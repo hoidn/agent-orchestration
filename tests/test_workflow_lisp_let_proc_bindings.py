@@ -22,7 +22,6 @@ from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bund
 
 
 W3_TARGET = "2.40"
-PRE_W3_TARGET = "2.35"
 MODULE = "w3/local_hooks"
 DECLARATIONS = """\
 (defrecord HookContext (left Int) (right Int))
@@ -35,19 +34,6 @@ DECLARATIONS = """\
 (defproc increment ((value Int)) -> Int
   (+ value 1))
 """
-# The same declarations with exact effects, for a source below 2.39 (the V1 `let-proc` cases at PRE_W3_TARGET).
-OLD_DECLARATIONS = """\
-(defrecord HookContext (left Int) (right Int))
-(defproc apply-int
-  ((hook ProcRef[Int -> Int]) (value Int)) -> Int
-  :effects () :lowering inline (hook value))
-(defproc apply-pair
-  ((left ProcRef[Int -> Int]) (right ProcRef[Int -> Int]) (value Int)) -> Int
-  :effects () :lowering inline (+ (left value) (right value)))
-(defproc increment ((value Int)) -> Int
-  :effects () :lowering inline (+ value 1))
-"""
-
 
 def _write_case(
     root,
@@ -58,7 +44,7 @@ def _write_case(
     declarations=None,
 ):
     if declarations is None:
-        declarations = DECLARATIONS if target == W3_TARGET else OLD_DECLARATIONS
+        declarations = DECLARATIONS
     source = f'''(workflow-lisp
   (:language "0.1")
   (:target-dsl "{target}")
@@ -151,7 +137,7 @@ def test_multiple_fully_typed_hooks_use_existing_generated_procedures(tmp_path):
     ]
 
 
-@pytest.mark.parametrize("target", [PRE_W3_TARGET, W3_TARGET])
+@pytest.mark.parametrize("target", [W3_TARGET])
 def test_original_single_binding_spelling_remains_valid(tmp_path, target):
     result = _compile_evaluated(
         tmp_path,
@@ -194,16 +180,8 @@ def test_original_single_binding_spelling_remains_valid(tmp_path, target):
             "bad ((x Int)",
             "let_proc_syntax_invalid",
         ),
-        (
-            PRE_W3_TARGET,
-            "(let-proc ((left ((x Int)) -> Int :captures () x) "
-            "(right ((x Int)) -> Int :captures () x)) "
-            "(apply-pair (proc-ref left) (proc-ref right) n))",
-            "let-proc",
-            "let_proc_multiple_bindings_unsupported",
-        ),
     ],
-    ids=["empty", "duplicate-local", "malformed-clauses", "duplicate-parameter", "old-target-list-spelling"],
+    ids=["empty", "duplicate-local", "malformed-clauses", "duplicate-parameter"],
 )
 def test_invalid_binding_lists_are_located(tmp_path, target, body, marker, expected_code):
     path = _write_case(tmp_path, body, target=target)
@@ -270,7 +248,6 @@ def test_local_binding_cannot_escape_through_its_consumer(tmp_path):
         "(proc-ref hook)",
         expected_code="let_proc_scope_escape",
     )
-
 
 
 @pytest.mark.parametrize(
@@ -482,18 +459,6 @@ def test_same_named_captures_from_two_creator_scopes_keep_distinct_bindings(tmp_
     assert len(identities) == 2
     assert len(set(identities)) == 2
     assert set(identities) == {outer_identity, shadow_identity}
-
-
-def test_pre_w3_capture_list_keeps_authored_order(tmp_path):
-    typed = _compile_evaluated(
-        tmp_path,
-        _capture_body(":captures (runner ctx)"),
-        target=PRE_W3_TARGET,
-        params="((ctx HookContext) (unused Int) (n Int))",
-    )
-    local, = _local_bases(typed)
-
-    assert local.definition.generated_local_procedure.capture_names == ("runner", "ctx")
 
 
 @pytest.mark.parametrize("capture_clause", ["", ":captures ()"])

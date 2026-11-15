@@ -28,7 +28,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 CALLABLE_ROOT = FIXTURES / "modules" / "valid" / "callables"
 # The same modules at 2.35, for the completion details that depend on the target (Task 4b).
-CALLABLE_235_ROOT = FIXTURES / "modules" / "valid" / "callables_235"
 IMPORTED_SELECTOR_SOURCE = FIXTURES / "cli" / "imported_selector.orc"
 STDLIB_CALLER_SOURCE = (
     FIXTURES / "valid" / "lsp_stdlib_improve_caller.orc"
@@ -1652,8 +1651,7 @@ def test_import_time_ordinary_stdout_cannot_precede_protocol_frames(
 def test_real_stdio_recovery_to_full_transition_and_cleanup_write_nothing(
     tmp_path: Path,
 ) -> None:
-    # Below 2.39 a procedure's completion detail names its declared effects (Task 4b).
-    workspace, entry_path, options = _fixture_workspace(tmp_path, CALLABLE_235_ROOT)
+    workspace, entry_path, options = _fixture_workspace(tmp_path, CALLABLE_ROOT)
     original_text = entry_path.read_text(encoding="utf-8")
     before = _tree_snapshot(workspace)
     process = _LspProcess(workspace)
@@ -1727,7 +1725,7 @@ def test_real_stdio_recovery_to_full_transition_and_cleanup_write_nothing(
                 "procedure "
                 "(report_path: neurips/types::WorkReport) "
                 "-> neurips/types::ChecksResult "
-                "effects (uses-command(run_checks))",
+                "restriction: omitted; inferred effects: (uses-command(run_checks)); effect status: complete",
             ),
             (
                 "helper.provider-attempt",
@@ -1762,7 +1760,7 @@ def test_real_stdio_recovery_to_full_transition_and_cleanup_write_nothing(
                 "procedure "
                 "(report_path: neurips/types::WorkReport) "
                 "-> neurips/types::ChecksResult "
-                "effects (uses-command(run_checks))",
+                "restriction: omitted; inferred effects: (uses-command(run_checks)); effect status: complete",
             ),
             (
                 "orchestrate",
@@ -1774,7 +1772,7 @@ def test_real_stdio_recovery_to_full_transition_and_cleanup_write_nothing(
                 "procedure "
                 "(report_path: neurips/types::WorkReport) "
                 "-> neurips/types::ChecksResult "
-                "effects (uses-command(run_checks))",
+                "restriction: omitted; inferred effects: (uses-command(run_checks)); effect status: complete",
             ),
             (
                 "provider-attempt",

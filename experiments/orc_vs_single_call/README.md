@@ -1,5 +1,9 @@
 # `.orc` Workflows Versus A Single Agent Call
 
+Status: the best-of-N workflow of this kit, `best_of_n.orc`, is frozen at target
+2.35. The current release refuses that target; run its commands below on the
+release tagged `v0.2.1`. `reviewed_change.orc` is at target 2.40.
+
 The canonical `reviewed_change.orc` also targets evaluated execution 2.35. Its
 independent review loop preserves READY, ESCALATED and UNRESOLVED outcomes,
 provider models, revision ordering and the three-round limit. Current public tests compile it unchanged and check interrupted and completed

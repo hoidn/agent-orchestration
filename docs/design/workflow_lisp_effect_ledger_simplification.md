@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted target-2.39 contract; implementation and consumer evidence are tracked by the linked plan and capability matrix
+- **Status:** accepted contract, delivered at target 2.39 and the only procedure regime of the one admitted target, 2.40; passages below on definition origins 2.35–2.38 and on imports between targets describe the release tagged `v0.2.1`; implementation and consumer evidence are tracked by the linked plan and capability matrix
 - **Kind:** language contract and subtractive architecture decision
 - **Owner:** Workflow Lisp frontend
 - **Created:** 2026-08-15

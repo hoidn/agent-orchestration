@@ -127,7 +127,7 @@ from .procedure_specialization import (
 from .reader import SourceReadTrace, _read_source_file_views, read_sexpr_file
 from .result_guidance import validate_module_result_guidance
 from .spans import SourcePosition, SourceSpan
-from .syntax import WorkflowLispSyntaxModule, SyntaxKeyword, SyntaxList, SyntaxNode, build_syntax_module, syntax_head_name, syntax_identifier, syntax_node_datum, target_dsl_supports_parallel_map
+from .syntax import WorkflowLispSyntaxModule, SyntaxKeyword, SyntaxList, SyntaxNode, build_syntax_module, syntax_head_name, syntax_identifier, syntax_node_datum
 from .stdlib_contracts import (
     STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME,
     STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES,
@@ -1178,41 +1178,6 @@ def _resolve_stage3_procedure_lowering(
     )
 
 
-def _target_import_direction_invalid(source_target: str, imported_target: str) -> bool:
-    from .syntax import target_dsl_supports_effect_ceilings
-    return (target_dsl_supports_effect_ceilings(imported_target)
-        and not target_dsl_supports_effect_ceilings(source_target)) or (not target_dsl_supports_parallel_map(source_target)
-        and target_dsl_supports_parallel_map(imported_target))
-
-
-def _reject_legacy_to_evaluated_imports(graph: LinkedModuleGraph) -> None:
-    for source_name, source in graph.modules_by_name.items():
-        source_target = source.syntax_module.target_dsl_version
-        for directive in source.syntax_module.imports:
-            imported = graph.modules_by_name.get(directive.module_name)
-            if imported is None:
-                continue
-            imported_target = imported.syntax_module.target_dsl_version
-            if not _target_import_direction_invalid(source_target, imported_target):
-                continue
-            raise LispFrontendCompileError(
-                (
-                    LispFrontendDiagnostic(
-                        code="evaluated_execution_target_direction_invalid",
-                        message=(
-                            f"module `{source_name}` at target {source_target} "
-                            f"cannot import module `{directive.module_name}` "
-                            f"at target {imported_target}; the import exceeds "
-                            "the applied target direction limit"
-                        ),
-                        span=directive.span,
-                        form_path=directive.form_path,
-                        phase="typecheck",
-                    ),
-                )
-            )
-
-
 def compile_stage1_module(path: Path) -> WorkflowLispModule:
     """Compile one `.orc` file through the definition-only frontend pipeline."""
 
@@ -1290,7 +1255,6 @@ def _compile_stage3_graph(
     )
 
 
-    _reject_legacy_to_evaluated_imports(graph)
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
@@ -1519,7 +1483,6 @@ def _compile_stage3_graph(
         referenced_programs = set()
         if explicit_imported_programs:
             from .expressions import elaborate_expression
-            from .syntax import target_dsl_supports_local_hook_inference
 
             # Discover actual consumers with the existing lexical elaborator in isolated state.
             collect_function_resolver = _function_name_resolver(module_name, import_scope,
@@ -1537,17 +1500,14 @@ def _compile_stage3_graph(
                 return resolved
 
             extern_names = frozenset(extern_environment.bindings_by_name)
-            w3 = target_dsl_supports_local_hook_inference(type_env.target_dsl_version)
             for definition in (*function_defs, *procedure_defs, *workflow_defs):
                 names = frozenset(param.name for param in definition.params)
                 if isinstance(definition, ProcedureDef):
                     names |= frozenset(param.name for param in definition.type_params)
                 if isinstance(definition, FunctionDef):
                     lexical_names, expression_externs = names, frozenset()
-                elif w3:
-                    lexical_names, expression_externs = names - extern_names, extern_names
                 else:
-                    lexical_names, expression_externs = names | extern_names, frozenset()
+                    lexical_names, expression_externs = names - extern_names, extern_names
                 elaborate_expression(definition.body, bound_names=lexical_names, extern_names=expression_externs,
                     procedure_names=frozenset(procedure_catalog.signatures_by_name),
                     function_names=frozenset(function_catalog.signatures_by_name),
@@ -1934,17 +1894,6 @@ def _compile_stage3_graph(
             typed_workflows,
             typed_procedures=typed_procedures,
             workflow_catalog=workflow_catalog,
-        )
-        _reject_legacy_to_evaluated_snapshot_calls(
-            target=definition_module.target_dsl_version,
-            module_name=module_name,
-            typed_workflows=typed_workflows,
-            typed_procedures=resolved_combined_procedures,
-            imported_programs=dict(explicit_imported_programs),
-            procedure_type_envs=combined_procedure_type_envs,
-            workflow_type_envs=workflow_type_envs_by_name,
-            module_type_envs=module_type_envs,
-            base_procedures_by_name=resolved_procedures_by_name,
         )
         diagnostics = _collect_stage3_required_lint_diagnostics(
             typed_workflows,
@@ -3154,143 +3103,6 @@ def _reject_compiled_workflow_snapshot_conflicts(
                 )
 
 
-def _reject_legacy_to_evaluated_snapshot_calls(
-    *,
-    target: str,
-    module_name: str,
-    typed_workflows: tuple[TypedWorkflowDef, ...],
-    typed_procedures: tuple[TypedProcedureDef, ...],
-    imported_programs: Mapping[str, object],
-    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-    workflow_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-    module_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-    base_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
-) -> None:
-    evaluated_aliases = imported_programs
-    if not evaluated_aliases:
-        return
-    def procedure_target(procedure: TypedProcedureDef) -> str:
-        procedure_env = (procedure_type_envs or {}).get(
-            procedure.definition.name
-        )
-        if procedure_env is not None:
-            return procedure_env.target_dsl_version
-        specialization = procedure.specialization
-        owner_name = (
-            specialization.base_name
-            if specialization is not None
-            else procedure.definition.name
-        )
-        owner_module = owner_name.split("::", 1)[0]
-        module_env = (module_type_envs or {}).get(owner_module)
-        return module_env.target_dsl_version if module_env is not None else target
-
-    def reject_edge(
-        *,
-        source_module: str,
-        source_target: str,
-        alias: str,
-        program,
-        span: SourceSpan,
-        form_path: tuple[str, ...],
-        expansion_stack=(),
-    ) -> None:
-        producer_module = getattr(program, "entry_module", "<compiled-workflow>")
-        raise LispFrontendCompileError(
-            (
-                LispFrontendDiagnostic(
-                    code="evaluated_execution_target_direction_invalid",
-                    message=(
-                        f"module `{source_module}` target {source_target} cannot call typed workflow "
-                        f"from module `{producer_module}` target {program.target}; "
-                        "the call exceeds the applied target direction limit"
-                    ),
-                    span=span,
-                    form_path=form_path,
-                    expansion_stack=expansion_stack,
-                ),
-            )
-        )
-
-    for workflow in typed_workflows:
-        workflow_name = workflow.definition.name
-        source_target = (
-            (workflow_type_envs or {}).get(workflow_name).target_dsl_version
-            if workflow_name in (workflow_type_envs or {})
-            else target
-        )
-        source_module = workflow_name.split("::", 1)[0]
-        for node in walk_expr(workflow.typed_body.expr):
-            if not isinstance(node, CallExpr):
-                continue
-            program = evaluated_aliases.get(node.callee_name)
-            if program is not None and _target_import_direction_invalid(source_target, program.target):
-                reject_edge(
-                    source_module=source_module,
-                    source_target=source_target,
-                    alias=node.callee_name,
-                    program=program,
-                    span=node.authored_callee_span or node.span,
-                    form_path=node.form_path,
-                    expansion_stack=node.expansion_stack,
-                )
-
-    procedures_by_name = dict(base_procedures_by_name or {})
-    procedures_by_name.update(
-        (procedure.definition.name, procedure) for procedure in typed_procedures
-    )
-    for procedure in typed_procedures:
-        source_target = procedure_target(procedure)
-        specialization = procedure.specialization
-        source_owner_name = (
-            specialization.base_name
-            if specialization is not None
-            else procedure.definition.name
-        )
-        source_module = source_owner_name.split("::", 1)[0]
-        body = procedure.typed_body.expr
-        for node in walk_expr(body):
-            if not isinstance(node, CallExpr):
-                continue
-            program = evaluated_aliases.get(node.callee_name)
-            if program is not None and _target_import_direction_invalid(source_target, program.target):
-                reject_edge(
-                    source_module=source_module,
-                    source_target=source_target,
-                    alias=node.callee_name,
-                    program=program,
-                    span=node.authored_callee_span or node.span,
-                    form_path=node.form_path,
-                    expansion_stack=node.expansion_stack,
-                )
-        if specialization is None:
-            continue
-        for role_name, resolved_workflow_ref in specialization.workflow_ref_bindings.items():
-            program = evaluated_aliases.get(resolved_workflow_ref.workflow_name)
-            if program is None or not _target_import_direction_invalid(source_target, program.target):
-                continue
-            base_procedure = procedures_by_name.get(specialization.base_name)
-            call_span = specialization.origin_span
-            form_path = specialization.origin_form_path
-            expansion_stack = ()
-            if base_procedure is not None:
-                for node in walk_expr(base_procedure.typed_body.expr):
-                    if isinstance(node, CallExpr) and node.callee_name == role_name:
-                        call_span = node.authored_callee_span or node.span
-                        form_path = node.form_path
-                        expansion_stack = node.expansion_stack
-                        break
-            reject_edge(
-                source_module=source_module,
-                source_target=source_target,
-                alias=resolved_workflow_ref.workflow_name,
-                program=program,
-                span=call_span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-
-
 def _expanded_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
     """Read, wrap, and macro-expand one Workflow Lisp source file."""
 
@@ -4087,13 +3899,11 @@ def _infer_stage3_effect_summaries(
 
     compiler_session = compiler_session or CompilerSession()
     from .procedures import resolve_procedure_effect_restrictions
-    from .syntax import target_dsl_supports_effect_ceilings
     procedure_defs, procedure_catalog = resolve_procedure_effect_restrictions(
         procedure_defs, procedure_catalog=procedure_catalog, workflow_catalog=workflow_catalog,
         workflow_effects_by_name=workflow_effects_by_name or {},
         extern_environment=extern_environment, workflow_name_resolver=workflow_name_resolver,
     )
-    inferred_contract = target_dsl_supports_effect_ceilings(type_env.target_dsl_version)
     from .procedure_typecheck import (
         consume_parametric_specialization_requests,
         reset_parametric_specialization_requests,
@@ -4131,7 +3941,7 @@ def _infer_stage3_effect_summaries(
         typed_procedures: tuple[TypedProcedureDef, ...] = ()
         typed_workflows: tuple[object, ...] = ()
 
-        reference_calls = {} if inferred_contract else None
+        reference_calls = {}
 
         def retain_reference_call(owner, node, target):
             reference_calls.setdefault(owner, {})[(type(node), node.span, node.form_path, node.expansion_stack)] = (
@@ -4253,7 +4063,7 @@ def _infer_stage3_effect_summaries(
                 type_env=type_env,
                 visible_typed_procedures_by_name=visible_typed_procedures_by_name,
                 procedure_type_envs=procedure_type_envs_by_name,
-                on_reference_call=retain_reference_call if inferred_contract else None,
+                on_reference_call=retain_reference_call,
             )
             for specialized in discovered_workflow_refs_from_procedures:
                 if specialized.definition.name in procedure_targets:
@@ -4377,7 +4187,7 @@ def _infer_stage3_effect_summaries(
                 type_env=type_env,
                 visible_typed_procedures_by_name=visible_typed_procedures_by_name,
                 procedure_type_envs=procedure_type_envs_by_name,
-                on_reference_call=retain_reference_call if inferred_contract else None,
+                on_reference_call=retain_reference_call,
             )
             for specialized in discovered_workflow_refs_from_workflows:
                 if specialized.definition.name in procedure_targets:
@@ -4391,17 +4201,16 @@ def _infer_stage3_effect_summaries(
                 added_specialization = True
             if added_specialization:
                 continue
-            if inferred_contract:
-                typed_procedures, procedure_catalog = resolved_procedures(
-                    typed_procedures, validate_declared=False)
-                next_procedure_effects.update({row.definition.name: row.transitive_effect_summary
-                    for row in typed_procedures})
-                typed_workflows = _refresh_reference_workflow_effects(
-                    typed_workflows, reference_calls=reference_calls,
-                    workflow_effects_by_name=workflow_effects_by_name,
-                    procedures={**visible_typed_procedures_by_name,
-                        **{row.definition.name: row for row in typed_procedures}},
-                )
+            typed_procedures, procedure_catalog = resolved_procedures(
+                typed_procedures, validate_declared=False)
+            next_procedure_effects.update({row.definition.name: row.transitive_effect_summary
+                for row in typed_procedures})
+            typed_workflows = _refresh_reference_workflow_effects(
+                typed_workflows, reference_calls=reference_calls,
+                workflow_effects_by_name=workflow_effects_by_name,
+                procedures={**visible_typed_procedures_by_name,
+                    **{row.definition.name: row for row in typed_procedures}},
+            )
             next_workflow_effects = {
                 workflow.definition.name: workflow.effect_summary for workflow in typed_workflows
             }
@@ -4418,7 +4227,7 @@ def _infer_stage3_effect_summaries(
             raise RuntimeError("workflow Lisp effect summary fixpoint did not converge")
 
         typed_procedures, procedure_catalog = resolved_procedures(
-            typed_procedures, validate_declared=not inferred_contract,
+            typed_procedures, validate_declared=False,
         )
         typed_workflows = typecheck_workflow_definitions(
             workflow_defs,
@@ -4458,15 +4267,14 @@ def _infer_stage3_effect_summaries(
                 if name not in {typed.definition.name for typed in typed_procedures}
             )
             procedure_catalog = _procedure_catalog_with_specializations(procedure_catalog, typed_procedures)
-        if inferred_contract:
-            typed_procedures, procedure_catalog = resolved_procedures(
-                typed_procedures, validate_declared=True)
-            typed_workflows = _refresh_reference_workflow_effects(
-                typed_workflows, reference_calls=reference_calls,
-                workflow_effects_by_name=workflow_effects_by_name,
-                procedures={**visible_typed_procedures_by_name,
-                    **{row.definition.name: row for row in typed_procedures}},
-            )
+        typed_procedures, procedure_catalog = resolved_procedures(
+            typed_procedures, validate_declared=True)
+        typed_workflows = _refresh_reference_workflow_effects(
+            typed_workflows, reference_calls=reference_calls,
+            workflow_effects_by_name=workflow_effects_by_name,
+            procedures={**visible_typed_procedures_by_name,
+                **{row.definition.name: row for row in typed_procedures}},
+        )
         return typed_procedures, typed_workflows, procedure_catalog
     finally:
         reset_generated_local_procedure_state(typecheck_session)
@@ -4686,11 +4494,7 @@ def _validate_procedure_effects_and_cycles(
     updated: list[TypedProcedureDef] = []
     for procedure in typed_procedures:
         summary = visit(procedure.definition.name)
-        from .syntax import target_dsl_supports_effect_ceilings
-        inferred_contract = target_dsl_supports_effect_ceilings(procedure.definition.effect_contract_target or "")
-        if validate_declared and (inferred_contract or (
-            procedure.specialization is None and not procedure.definition.name.startswith("%")
-        )):
+        if validate_declared:
             validate_procedure_effects(
                 procedure_def=procedure.definition,
                 declared_effects=procedure.signature.declared_effects,

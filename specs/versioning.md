@@ -5,12 +5,17 @@
 Package releases are tagged `vMAJOR.MINOR.PATCH`. A release that retires an
 executable target increments the minor version, and the last release that
 executes that target stays tagged (`v0.1.0` executes targets 2.14 through 2.37,
-including the flat runtime through 2.34).
+including the flat runtime through 2.34; `v0.2.1` compiles 2.35 through 2.40 and
+continues runs recorded at them).
 
-Language versions govern syntax/types. The selected package source floor is
-**2.35**: lower headers are no longer admitted for source compilation, imports,
-REPL or LSP analysis. Language feature versions and executable qualification
-remain distinct above that floor. The owner-selected
+Since `0.3.0` one target is admitted: **2.40**, in every module of a source
+graph, for compilation, `run`, dry-run, imports and typed imports, `run-ref`
+children, the Python frontend, REPL and LSP analysis. A 2.35-2.39 header refuses
+with the existing codes (`workflow_execution_target_retired` for an executable
+entry, `target_dsl_unsupported` elsewhere) and a message naming the guide's
+migration section and `v0.2.1`; [Targets and identity](#targets-and-identity)
+states the rule. Lower headers refuse as before. The paragraphs below that name
+2.35-2.39 admission describe what `v0.2.1` admitted. The owner-selected
 2026-10-13 retirement cutoff follows the CLI support boundary; the
 [closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
 records implementation and delivery status.
@@ -618,10 +623,11 @@ own delivery status and captured evidence.
     type.
   - The inferred effects of a procedure include the effects of the imported
     procedures it calls, and of hooks declared in another module and passed
-    with `proc-ref`. A declared `:effects` clause must match that inference:
+    with `proc-ref`. A declared `:effects` clause had to match that inference:
     a local wrapper that calls an imported command-backed procedure and
-    declares `:effects ()` is rejected with `procedure_effect_mismatch`, which
-    names the missing effect. Older targets keep their earlier inference, which
+    declares `:effects ()` was rejected with `procedure_effect_mismatch`, which
+    named the missing effect (since the one-target cut the clause is an upper
+    bound and such a wrapper refuses `procedure_effect_ceiling_exceeded`). Older targets keep their earlier inference, which
     omits imported effects, so such a wrapper compiles there and the same
     module retargeted to 2.33 is rejected.
   - A procedure with no effects may construct an applied generic union over
@@ -1002,8 +1008,8 @@ own delivery status and captured evidence.
     2.40 (lane D stage 4, Task 4a, which removed the five-argument module and the
     entry-target selection of a second root), with
     `improve(initial, review, revise, limit)`, `review(S) -> Decision[F B]` and
-    `revise(S F) -> S`. An importer below 2.39 refuses with
-    `evaluated_execution_target_direction_invalid`; a five-argument call refuses
+    `revise(S F) -> S`. An importer at an older target refuses at its own
+    header (`target_dsl_unsupported`); a five-argument call refuses
     with `procedure_arity_mismatch`. Defining-module syntax admission,
     other roots and ambiguity checks remain unchanged.
   - Complete imported snapshots retain producer authority without reopening
@@ -1167,7 +1173,51 @@ Planned acceptance:
   - Incompatible with `allow_parse_error: true`.
   - Version-gating target will be finalized when implemented.
 
+## Targets and identity
+
+1. One target is admitted. `:target-dsl` names the source language, nothing
+   else. Every build compiles source at that target, including the rebuild of an
+   existing run and an accepted edit of one.
+2. A change to what source that compiles means, or one that makes it stop
+   compiling, adds a target; the same change migrates all tracked source and
+   removes the previous target. Two source dialects never coexist in the
+   compiler. A change that only admits source refused before, and moves no
+   identity of source that compiles, adds no target; it gets an entry in this
+   document's change list. The one-target cut (`0.3.0`) is the one release that
+   removes source forms without adding a target: it removes the older targets.
+3. A change that moves an identity without changing what source means (a
+   program digest, an effect identity, a memo row, the checked representation)
+   adds no target. It either keeps recorded runs resumable, and proves it with a
+   run root recorded before the change by the build that preceded it and never
+   regenerated at test time, or it breaks them: resume refuses through the
+   digest check, the package minor version increments, the last release that
+   resumes them is tagged, and the change gets a row in the compatibility table.
+4. A removed target stays a **read-only label**: `report`, the dashboard and the
+   monitor read a run recorded at it; nothing continues or rewrites it.
+   `resume` (with or without `--accept-changes`), `invalidate`, `input answer`
+   and `input cancel`, and REPL attach refuse such a run with
+   `run_target_retired` before any lock, compile or write. A run in flight at a
+   removed target can be continued only with the tagged release that last
+   admitted it.
+
+| Label | Read by | Continued by | Removal condition |
+| --- | --- | --- | --- |
+| 2.35-2.39 | `report`, dashboard, monitor | `v0.2.1` only | A release whose checker no longer reads the stored representation of these runs, or a ledger entry. The wire value `"2.35"` of path-mode run-reference configs is not this label and does not go with it |
+
+The checker's readable labels (`READABLE_PROGRAM_TARGET_DSL_VERSIONS`) and the
+source admission set (`SUPPORTED_TARGET_DSL_VERSIONS`) are both in
+`orchestrator/contracts/closed_program/targets.py`.
+
 ## Version Gating Summary
+
+Since the one-target cut every capability below is part of target 2.40: parallel
+map, confined `run-ref` children, Agent Sessions, the procedure contract
+(optional `:effects` as a checked upper bound, no `:lowering`, every procedure
+inline), multi-binding `let-proc` with inferred captures, phased provider
+delivery and typed host input. Where a paragraph says a target "adds" or
+"registers" a capability, it records when it arrived; no source selects it by
+target any more, and the checker keeps the older targets' gates only to read
+stored programs at their labels.
 
 The rows through 2.34 below retain historical feature gates; they do not
 admit old executable entries after the [support cutoff](#executable-support-and-historical-version-gates).

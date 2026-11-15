@@ -1,13 +1,13 @@
 # Workflow Lisp Library Reference
 
-Status: informative reference for admitted compositions at evaluated targets 2.35–2.40.
+Status: informative reference for admitted compositions at the evaluated target 2.40.
 Use this page to choose a reusable API, an example workflow, or a composition
 pattern for generating, evaluating, selecting and improving candidates. The
 [drafting guide](lisp_workflow_drafting_guide.md) owns general authoring judgment;
 [capability status](capability_status_matrix.md), the linked designs and
 [normative CLI contract](../specs/cli.md) own availability and execution.
 
-Every imported source module must meet the [2.35 source floor](design/workflow_lisp_executor_retirement.md#source-floor-235).
+Every imported source module must declare target 2.40 ([migration](lisp_workflow_drafting_guide.md#migrating-from-an-older-target)).
 The packaged libraries use admitted source; frozen earlier specimens remain
 historical data and cannot be imported or analyzed by the current frontend.
 
@@ -16,9 +16,9 @@ historical data and cannot be imported or analyzed by the current frontend.
 | Task | Entry | Kind | Current availability |
 | --- | --- | --- | --- |
 | Ask for a durable typed decision | [Host replies with `std/host`](#host-replies-with-stdhost) | Generic union plus evaluated effect | Target 2.40 serial requests; external settlement and ordinary resume |
-| Generate independent code changes, then choose one | [Generate candidates and select](#generate-candidates-and-select) | Example workflow | Canonical 2.35 source; serial, bounded, manually prepared clones |
+| Generate independent code changes, then choose one | [Generate candidates and select](#generate-candidates-and-select) | Example workflow | Frozen 2.35 source, which this release refuses (see the section); serial, bounded, manually prepared clones |
 | Review and revise one typed candidate | [Review and revise with `std/improve`](#review-and-revise-with-stdimprove) | Library API | local-hook API at 2.40, with a maintained 2.40 caller |
-| Score a candidate with a deterministic executable | [Evaluate with an external command](#evaluate-with-an-external-command) | Composition pattern | Typed `command-result` with a declared command boundary at 2.35 |
+| Score a candidate with a deterministic executable | [Evaluate with an external command](#evaluate-with-an-external-command) | Composition pattern | Typed `command-result` with a declared command boundary |
 | Search across candidates under an evaluation budget | [Iterative search](#iterative-search) | Example workflow | Maintained compact controller at 2.40; application-defined policy |
 | Keep one conversation across review and revise | [`design_review_execute_agents.orc`](../workflows/examples/design_review_execute_agents.orc); [Agent sessions](lisp_workflow_drafting_guide.md#agent-sessions-target-238) | Example workflow | Implemented at 2.38; [deterministic and bounded adapter-smoke evidence](reports/2026-10-14-agent-sessions-pq1a-qualification.md) recorded; acceptance comparison pending |
 
@@ -40,7 +40,11 @@ bytes. Execution pins reached command implementations under the
 **Kind:** example workflow, not a stdlib best-of-N API.
 **Availability:** the canonical
 [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc)
-targets evaluated execution 2.35. It implements candidates serially using
+is frozen at target 2.35, the text its recorded results name. This release
+refuses it with `workflow_execution_target_retired`; the commands of this
+section run on the release tagged `v0.2.1`. The test suite keeps the same text
+with the 2.40 header at `tests/fixtures/workflow_lisp/current_examples/best_of_n.orc`.
+It implements candidates serially using
 `list/map-effect` with a maximum of eight, then asks a judge to select one.
 
 | Surface | Inputs | Output and behavior |
@@ -191,8 +195,8 @@ runtime failure behavior; they do not become `EXHAUSTED`.
 
 The call is `(improve initial review revise limit)`, with hooks
 `review(S) -> Decision[F B]` and `revise(S F) -> S`. The packaged module
-(`stdlib_modules/std/improve.orc`) declares target 2.40; an importer below 2.39
-refuses with `evaluated_execution_target_direction_invalid`. Complete imported snapshots retain producer
+(`stdlib_modules/std/improve.orc`) declares target 2.40, as every importer
+does. Complete imported snapshots retain producer
 authority. See the v2.36 entry of [versioning](../specs/versioning.md)
 for snapshot conflicts and resume guards.
 
@@ -384,8 +388,7 @@ Migrating a caller does not promise compatible resume of an older run.
 ## Evaluate with an external command
 
 **Kind:** composition pattern using `command-result`, not a built-in evaluator.
-**Availability:** typed certified adapters are admitted at evaluated target
-2.35. The existing
+**Availability:** typed certified adapters are admitted. The existing
 [`commands_compact.json`](../experiments/mlevolve_pair/commands_compact.json)
 and [`leaves.py`](../experiments/mlevolve_pair/leaves.py) supply this evaluator.
 No provider or prompt is involved.

@@ -772,15 +772,6 @@ def test_each_selected_effect_outside_the_release_is_a_located_gap(
     cases.extend(
         (
             (
-                "request-input",
-                "request-input",
-                "ask",
-                '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-                  (defmodule cp/request_gap) (export ask)
-                  (defworkflow ask ((question String)) -> HumanReply
-                    (request-input question)))''',
-            ),
-            (
                 "provider-result",
                 "capture-context",
                 "capture",

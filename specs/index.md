@@ -1,11 +1,13 @@
-# Multi-Agent Orchestration — Master Spec (current targets 2.35–2.40)
+# Multi-Agent Orchestration — Master Spec (current target 2.40)
 
 Status: Normative master. This index defines scope, versioning, conformance, and the module map with stable links to sub-specs. The DSL version and the state schema version are distinct by design.
 
 Current admission: source compilation, transitive source imports, retained
-typed-program capsules, REPL loading and LSP analysis accept only registered
-targets 2.35–2.40 throughout the dependency graph. All use evaluated execution;
+typed-program capsules, REPL loading and LSP analysis accept only the current
+target 2.40 throughout the dependency graph, on evaluated execution;
 individual effects retain their own admission and qualification gates.
+Source at 2.35–2.39 refuses, and a run recorded at one of those targets is
+read-only ([targets and identity](versioning.md#targets-and-identity)).
 Pre-2.35 source and old-profile resume/invalidation are retired. `report` and the
 dashboard read evaluated runs only and refuse historical ones. See
 [versioning](versioning.md#executable-support-and-historical-version-gates) and
@@ -75,8 +77,7 @@ dashboard read evaluated runs only and refuse historical ones. See
     and [PQ-1a evidence](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md).
     The real-provider acceptance comparison (PQ-1c) priced the agent variant at 1.4 to 1.7 times the plain handoff on one four-turn pattern and made no quality claim ([result](../experiments/pq1c/README.md#result)).
   - Target 2.39 adds inference-default procedure contracts, optional checked
-    restrictions, caller-owned composition and finite source admission.
-    Imported 2.35–2.38 definitions retain their original contracts; see the
+    restrictions, caller-owned composition and finite source admission; see the
     [procedure contract](../docs/design/workflow_lisp_effect_ledger_simplification.md).
   - Target 2.40 adds typed serial durable host input and ordinary `std/host::HostReply[A]`; external answer/cancel settles the exact request and ordinary resume consumes it or expires it. The bounded [Python frontend](../docs/design/python_workflow_frontend.md) emits retained `.orc` and supplied manifests into the same checked compiler/runtime. See [DSL](dsl.md#evaluated-durable-host-input-target-240), [state](state.md#evaluated-durable-host-input-target-240) and [CLI](cli.md#python-authoring).
   - State schema: historical runs through 2.34 used `schema_version: "2.1"`;

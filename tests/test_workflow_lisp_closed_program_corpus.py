@@ -22,19 +22,6 @@ from tests.workflow_lisp_closed_program_corpus import Built, Gap, Refused, corpu
 TARGET = CURRENT_TARGET_DSL_VERSION
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36"])
-def test_corpus_preserves_authored_evaluated_target(tmp_path, target):
-    # Each supported older target is kept as authored (Task 4b).
-    from tests.workflow_lisp_closed_program_corpus import Workflow, prepare
-    root = tmp_path / "src"
-    root.mkdir()
-    source = root / "consumer.orc"
-    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
-      (defmodule consumer) (export run) (defworkflow run () -> Int 7))''')
-    prepared = prepare(Workflow(source, root, "consumer", "run"), tmp_path / "prepared")
-    assert target_dsl_version(prepared.entry) == target
-
-
 def test_corpus_materializes_declared_workspace_launcher_without_changing_closure(tmp_path):
     from tests.workflow_lisp_closed_program_corpus import prepare
     from tests.workflow_lisp_improve_example_sources import LAUNCH_PROBE
@@ -69,8 +56,9 @@ EXPECTED = {
     'experiments/mlevolve_pair/search.orc::run-search': Refused("workflow_execution_target_retired"),
     "experiments/mlevolve_pair/search_compact.orc::run-search": Built(6),
     'experiments/orc_vs_single_call/task/bug_report/reviewed_change.orc::reviewed-change': Refused("workflow_execution_target_retired"),
-    "experiments/orc_vs_single_call/workflows/best_of_n.orc::best-of-n": Built(2),
-    "experiments/orc_vs_single_call/workflows/best_of_n.orc::select-only": Built(1),
+    # The frozen P2 smoke source stays at 2.35: closed at the one-target cut.
+    "experiments/orc_vs_single_call/workflows/best_of_n.orc::best-of-n": Refused("workflow_execution_target_retired"),
+    "experiments/orc_vs_single_call/workflows/best_of_n.orc::select-only": Refused("workflow_execution_target_retired"),
     "experiments/orc_vs_single_call/workflows/reviewed_change.orc::reviewed-change": Built(4),
     'tests/fixtures/workflow_lisp/retired_examples/cycle_guard_demo.orc::cycle-guard-demo': Refused("workflow_execution_target_retired"),
     'tests/fixtures/workflow_lisp/retired_examples/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack': Refused("workflow_execution_target_retired"),
@@ -121,10 +109,10 @@ EXPECTED = {
     "workflows/library/verified_iteration_drain/drain.orc::drain": Built(9),
 }
 
-EXPECTED_PARTITION = {'Refused': 44, 'Built': 11}
+EXPECTED_PARTITION = {'Refused': 46, 'Built': 9}
 
 
-_CONTROL_ROUTES = ("direct", "same_module", "imported_old_source")
+_CONTROL_ROUTES = ("direct", "same_module", "imported_source")
 _CONTROL_CASES = {
     "effectful_if_branches": (
         "Int",
@@ -232,11 +220,10 @@ _CONTROL_COMMANDS = (
 )
 
 
-def _control_procedures(exact: bool = False) -> str:
-    """The control commands as procedures; `exact` writes the clauses a source below 2.39 needs."""
-    clauses = "\n          :effects ((uses-command {name})) :lowering inline" if exact else ""
+def _control_procedures() -> str:
+    """The control commands as procedures."""
     return "\n".join(
-        f'''(defproc {name} ((n Int)) -> {"Bool" if name == "check" else "Int"}{clauses.format(name=name)}
+        f'''(defproc {name} ((n Int)) -> {"Bool" if name == "check" else "Int"}
           (command-result {name} :argv ("python" "probe.py" n) :returns {"Bool" if name == "check" else "Int"}))'''
         for name in _CONTROL_COMMANDS
     )
@@ -246,8 +233,6 @@ def _control_sources(case: str, route: str) -> tuple[dict[str, str], str]:
     specification = _CONTROL_CASES.get(case) or _CONTROL_REFUSALS[case]
     result_type, body, extra = specification[:3]
     entry_header = f'(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}") (defmodule cp/probe)'
-    # A helper owned by a source at an older target (Task 4b).
-    old_header = '(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule cp/old)'
     if route == "direct":
         text = f'''{entry_header} (export run)
 {_control_procedures()}
@@ -261,14 +246,14 @@ def _control_sources(case: str, route: str) -> tuple[dict[str, str], str]:
 (defworkflow helper () -> {result_type} {body})
 (defworkflow run () -> {result_type} (call helper)))'''
         return {"cp/probe.orc": text}, "cp/probe::run"
-    if route == "imported_old_source":
-        entry = f'''{entry_header} (import cp/old :as old) (export run)
-(defworkflow run () -> {result_type} (call old.helper)))'''
-        helper = f'''{old_header} (export helper)
-{_control_procedures(exact=True)}
+    if route == "imported_source":  # the helper's source owner is a second module
+        entry = f'''{entry_header} (import cp/other :as other) (export run)
+(defworkflow run () -> {result_type} (call other.helper)))'''
+        helper = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}") (defmodule cp/other) (export helper)
+{_control_procedures()}
 {extra}
 (defworkflow helper () -> {result_type} {body}))'''
-        return {"cp/probe.orc": entry, "cp/old.orc": helper}, "cp/probe::run"
+        return {"cp/probe.orc": entry, "cp/other.orc": helper}, "cp/probe::run"
     raise AssertionError(f"unknown control route {route}")
 
 
@@ -502,9 +487,6 @@ def _assert_control_edge(
         assert not _control_calls(block["body"])
     else:
         raise AssertionError(f"no assertions declared for control case {case}")
-
-
-
 
 
 def _certified_adapter_source(target: str, invocation: str) -> str:
@@ -772,8 +754,6 @@ def test_every_shipped_workflow_has_a_pinned_closed_outcome(
     )
 
 
-
-
 def _phase_reference_targets(row):
     references = dict(row['key'][4])
     return tuple(references[formal]['target'][2] for formal in ('review', 'fix'))
@@ -793,8 +773,6 @@ def test_phase_reference_variants_keep_their_exact_call_owners(tmp_path):
     for row in definitions:
         _assert_phase_reference_call_owners(tree, row, expected)
     assert ClosedProgram.from_artifact(result.program.artifact()).tree == tree
-
-
 
 
 def test_corpus_keys_and_pinned_partition_are_exact() -> None:
@@ -863,7 +841,7 @@ def test_admitted_control_edges_build_and_read_back_across_source_owners(
     )
 
     definitions = program.tree["definitions"]
-    helper_module = "cp/old" if route == "imported_old_source" else "cp/probe"
+    helper_module = "cp/other" if route == "imported_source" else "cp/probe"
     if route == "direct":
         body = program.tree["body"]
     else:
@@ -925,74 +903,6 @@ def test_unsupported_control_placements_remain_source_refusals(
             )
         )
     assert exc_info.value.diagnostics[0].code == expected_code
-
-
-@pytest.mark.parametrize("producer_target", ("2.35", "2.36"))
-def test_prepared_import_manifest_uses_shared_old_and_evaluated_producer_routing(
-    tmp_path: Path, producer_target: str
-) -> None:
-    # A compiled producer at an older target routed into a 2.35 consumer (Task 4b).
-    from tests.workflow_lisp_closed_program_corpus import Workflow, compile, prepare
-
-    source_root = tmp_path / "checked-source"
-    source_root.mkdir()
-    producer = source_root / "producer.orc"
-    producer.write_text(
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{producer_target}")
-          (defmodule producer) (export get)
-          (defworkflow get ((value Int)) -> Int (+ value 1)))''',
-        encoding="utf-8",
-    )
-    entry = source_root / "consumer.orc"
-    entry.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule consumer) (export run)
-      (defworkflow run ((value Int)) -> Int (call dep :value value)))''',
-        encoding="utf-8",
-    )
-    manifest_path = source_root / "imported_workflow_bundles.json"
-    manifest = {
-        "dep": {
-            "kind": "compiled",
-            "path": "producer.orc",
-            "entry_workflow": "producer::get",
-        }
-    }
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    workflow = Workflow(
-        source=entry,
-        source_root=source_root,
-        module="consumer",
-        name="run",
-    )
-
-    prepared = prepare(workflow, tmp_path / "prepared")
-    assert prepared.imported_workflow_manifest == (
-        prepared.workspace_root / "imported_workflow_bundles.json"
-    )
-    assert json.loads(prepared.imported_workflow_manifest.read_text()) == manifest
-    assert target_dsl_version(prepared.entry) == "2.35"
-    assert target_dsl_version(prepared.workspace_root / "producer.orc") == producer_target
-
-    typed = compile(prepared)
-    assert typed.target == "2.35"
-    producer_snapshot = typed.imported_programs["dep"]
-    assert producer_snapshot.target == producer_target
-    assert producer_snapshot.source_file_digests
-    closed = build_closed_program(typed)
-    restored = ClosedProgram.from_artifact(closed.artifact())
-    assert (restored.tree, restored.sites, restored.digest) == (
-        closed.tree,
-        closed.sites,
-        closed.digest,
-    )
-    imported = closed.tree["definitions"]["workflow:producer::get"]
-    body = imported["body"]
-    assert body["k"] == "let"
-    assert body["value"]["k"] == "op"
-    assert body["value"]["payload"]["expr"]["operator"] == "+"
-    assert body["body"]["k"] == "halt"
-    assert body["body"]["value"]["n"] == body["name"]
 
 
 def _assert_phase_reference_call_owners(tree, row, expected):

@@ -9,7 +9,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Mapping
 
-from orchestrator.workflow.evaluated.authority import PROFILE
+from orchestrator.workflow.evaluated.authority import PROFILE, RunTargetRetiredError, refuse_retired_run_target
 from orchestrator.workflow.evaluated.views import has_evaluated_authority, retired_run_refusal
 
 from .models import MonitorConfig, MonitorEvent, MonitorEventKind
@@ -78,15 +78,21 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
 
 
 def _command_lines(event: MonitorEvent) -> list[str]:
-    """`report` and `resume` for an evaluated run; a retired run gets the refusal line both would print."""
+    """`report` and `resume` for an evaluated run; a retired run gets the refusal line both would print, and a run
+    at a 2.35-2.39 label gets `report` and the refusal `resume` would print."""
     if not has_evaluated_authority(event.run.run_root):
         return ["", "Suggested commands: none.", retired_run_refusal(event.run.run_dir_id)]
+    try:
+        refuse_retired_run_target(event.run.run_root)
+        resume = f"- python -m orchestrator resume {event.run.run_dir_id}"
+    except RunTargetRetiredError as exc:
+        resume = f"resume: [{exc.code}] {exc}"
     return [
         "",
         "Suggested commands:",
         f"- cd {event.run.workspace.path}",
         f"- python -m orchestrator report --run-id {event.run.run_dir_id}",
-        f"- python -m orchestrator resume {event.run.run_dir_id}",
+        resume,
     ]
 
 

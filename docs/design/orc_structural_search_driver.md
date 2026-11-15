@@ -62,7 +62,7 @@
   design owns what acts on it: mutable scope, validation, transactions,
   snapshots and identities.
 - **Compatibility:** no runtime, spec, target or memo change; candidates are
-  ordinary admitted 2.39 programs run through public `compile`/`run`/`resume`
+  ordinary admitted 2.40 programs run through public `compile`/`run`/`resume`
   ([CLI boundary](../../specs/cli.md#executable-support-boundary)).
 - **Selection:** the [structural search roadmap](../plans/2026-10-18-orc-structural-search-roadmap.md).
 - **Inherited experiment rules:** exact Sonnet/Terra model cap in every new
@@ -596,8 +596,8 @@ Decision Points.
 
 Experiment O's catalog
 `workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc` is
-at a retired target and must be ported to 2.39 or replaced by an authored
-2.39 catalog before mode 1 can enumerate it. Selection rule: planning,
+at a retired target and must be ported to 2.40 or replaced by an authored
+2.40 catalog before mode 1 can enumerate it. Selection rule: planning,
 review and escalation choices must be able to matter; truth must be
 independent; the family is qualified on development cases before searching,
 and a family every seed solves or every seed fails is uninformative. Family
@@ -1331,6 +1331,6 @@ scores it. No prompt-text assertions.
 New: `experiments/orc_structural_search/` and `tests/experiments/` coverage.
 Reused: `experiments/compare/` shims, scan, pool and layout rules.
 Prerequisites outside this design: an OMP shim before OMP sessions; the
-harness extension above; the 2.39 catalog port; R2 qualification. Routing (`docs/index.md`,
+harness extension above; the 2.40 catalog port; R2 qualification. Routing (`docs/index.md`,
 `docs/design/README.md`, the capability matrix) belongs to the roadmap
 change. This design accepts no allocation and selects no study.

@@ -28,7 +28,7 @@ pytestmark = [pytest.mark.e2e, pytest.mark.skipif(os.environ.get("AGENT_SESSION_
 
 SECRET = "marmalade-7"
 CLAUDE_AGENT = '(agent providers.claude :model "haiku" :effort "low")'
-SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Word (word String))
   (defprompt first (:fills (seed :text)) -> Word "Remember the secret word {seed}. Reply with the word `ready` as `word`.")

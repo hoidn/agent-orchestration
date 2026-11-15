@@ -84,7 +84,7 @@ form determines urgency and enforcement severity.
 
 ### Static command argv
 
-At admitted targets 2.35–2.40, `command-result` may omit both `:argv` and
+`command-result` may omit both `:argv` and
 `:adapter` when its named binding is an `external_tool`. The typechecker
 materializes the binding's complete literal `stable_command` before typed
 export and checked-program construction. `:returns` remains required.
@@ -127,7 +127,7 @@ and never dispatched again.
 
 ### Command closure declaration
 
-At admitted targets 2.35–2.40, flat command maps require `closure`, an array
+Flat command maps require `closure`, an array
 of literal file or directory paths, on both `external_tool` and
 `certified_adapter` rows. Declare `"closure": ["tool.py", "lib/"]`, or
 `"closure": []` when no implementation files are declared. Flat maps remain a
@@ -204,7 +204,7 @@ as the normative owner of the resolved input and its evidence rows:
   ([§7.3](workflow_lisp_evaluated_execution.md#73-what-a-command-boundary-declares));
   commands run with `PYTHONDONTWRITEBYTECODE=1`.
 
-A typed external-tool input document (`:inputs`, targets 2.35–2.40) is
+A typed external-tool input document (`:inputs`) is
 written as `inputs.json` in the attempt directory and appended to argv as the
 last, workspace-relative token; a certified adapter keeps its inline JSON
 document in signature order. The document's digest and contract do not depend

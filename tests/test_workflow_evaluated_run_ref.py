@@ -165,16 +165,12 @@ def test_run_ref_request_refuses_workspace_overlap_before_started(tmp_path):
     assert not (authority.run_root / "run-ref-attempts.jsonl").exists()
 
 
-@pytest.mark.parametrize("edge", ["private", "native"])
+@pytest.mark.parametrize("edge", ["native"])
 def test_public_private_and_native_calls_keep_resolved_child_inputs(tmp_path, edge):
     def definitions(call):
-        header = '(defworkflow invoke ((flag Bool)) -> Bool' if edge == "native" else (
-            '(defproc invoke ((flag Bool)) -> Bool :effects ((runs-ref run)) :lowering private-workflow')
-        return f'{header} (let* ((child {call})) child.value))'
-    invoke = '(call invoke :flag true)' if edge == "native" else '(invoke true)'
-    target = "2.40" if edge == "native" else "2.35"  # the private edge is the old lowering (Task 4b)
-    parent, source, refs = _public_fixture(tmp_path, child_target=target, parent_target=target,
-        definitions=definitions, body=lambda call: invoke,
+        return f'(defworkflow invoke ((flag Bool)) -> Bool (let* ((child {call})) child.value))'
+    parent, source, refs = _public_fixture(tmp_path, child_target="2.40", parent_target="2.40",
+        definitions=definitions, body=lambda call: '(call invoke :flag true)',
         inputs="(flag-name Bool)", call_inputs=":flag-name flag", child_body="flag-name")
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
     assert result.returncode == 0, result.stderr

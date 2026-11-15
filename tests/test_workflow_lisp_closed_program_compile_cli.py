@@ -469,39 +469,6 @@ def test_moduleless_compile_preserves_explicit_entry_selection(
     assert json.loads(completed.stdout)["entry_workflow"] == "entry::run"
 
 
-@pytest.mark.parametrize(
-    "producer_target",
-    ["2.35", "2.36"],
-)
-def test_compiled_import_manifest_selects_old_and_evaluated_producers(
-    tmp_path: Path, producer_target: str
-) -> None:
-    files = _write_import_workspace(tmp_path, producer_target)
-
-    completed = _compile(files)
-
-    assert completed.returncode == 0, completed.stderr
-    summary = json.loads(completed.stdout)
-    program = ClosedProgram.from_artifact(
-        (Path(summary["build_root"]) / "closed_program.json").read_text()
-    )
-    assert program.tree["entry"] == "workflow:consumer/entry::run"
-    assert "workflow:producer/entry::selected-run" in program.tree["definitions"]
-
-    producer = files["source_root"] / "producer" / "entry.orc"
-    producer.write_text("; producer-only comment\n\n" + producer.read_text())
-    rebuilt = _compile(files)
-    assert rebuilt.returncode == 0, rebuilt.stderr
-    rebuilt_summary = json.loads(rebuilt.stdout)
-    rebuilt_program = ClosedProgram.from_artifact(
-        (Path(rebuilt_summary["build_root"]) / "closed_program.json").read_text()
-    )
-    assert rebuilt_summary["build_key"] != summary["build_key"]
-    assert rebuilt_program.digest == program.digest
-    assert rebuilt_program.sites == program.sites
-    assert tuple(rebuilt_program.tree["definitions"]) == tuple(program.tree["definitions"])
-
-
 def test_build_key_is_portable_and_raw_source_bytes_stay_out_of_program_digest(
     tmp_path: Path,
 ) -> None:

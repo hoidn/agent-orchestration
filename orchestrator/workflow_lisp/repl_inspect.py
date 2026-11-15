@@ -8,7 +8,6 @@ import hashlib
 from .diagnostics import LispFrontendCompileError
 from .effects import render_effect_set
 from .procedures import procedure_effect_inspection
-from .syntax import target_dsl_supports_effect_ceilings
 from .repl_expr import LoadedModule, ReplRefusal
 from .syntax import SyntaxList, syntax_resolved_name, syntax_node_datum
 from .type_env import (
@@ -186,9 +185,7 @@ def _contract_lines(row, known_procedures=()):
         effect = getattr(typed, "transitive_effect_summary", None) or getattr(typed, "effect_summary", None)
         if effect is None and row.kind == "function" and typed is not None:
             effect = typed.typed_body.effect_summary
-        if row.kind == "procedure" and typed is not None and target_dsl_supports_effect_ceilings(
-            typed.definition.effect_contract_target or ""
-        ):
+        if row.kind == "procedure" and typed is not None:
             lines.extend(procedure_effect_inspection(typed, known_procedures))
         else:
             lines.append(f"effects: {render_effect_set(effect.transitive_effects) if effect is not None else 'unavailable'}")

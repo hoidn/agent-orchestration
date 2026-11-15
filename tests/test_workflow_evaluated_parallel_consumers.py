@@ -28,7 +28,7 @@ from tests.workflow_evaluated_totality_helpers import checked_run
 
 
 NEWEST = max(SUPPORTED_TARGET_DSL_VERSIONS, key=lambda version: tuple(map(int, version.split("."))))
-TARGETS = ("2.37", NEWEST)
+TARGETS = (NEWEST,)
 PROGRAM = PROGRAMS["best_of_n"]
 SERIAL_MAP = "(list/map-effect ((repo repos)) :max 8\n"
 PARALLEL_MAP = "(list/map-effect ((repo repos)) :max 8 :parallel 2 :workspace repo\n"

@@ -211,26 +211,6 @@ def test_erased_local_proc_refs_remain_available_to_command_facts(tmp_path, monk
     assert _without_scopes(annotated) == _without_scopes(neutral)
 
 
-@pytest.mark.parametrize('alias', [False, True])
-def test_erased_local_proc_ref_arm_has_no_command_scope_under_the_private_helper_override(tmp_path, alias):
-    """Below 2.40 the actual loop owner selects the private helper override (Task 4b)."""
-    from tests.test_workflow_lisp_command_scopes import _compile, _walk
-    from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes
-    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
-    from orchestrator.workflow_lisp.wcc.model import WccCase
-
-    _callee, step, helper = _erased_ref_step(alias, reset_before=False)
-    program, inputs, facts = _compile(tmp_path, '(loop/recur :max 1 :state (loop-state (i Int 0)) '
-        f':on-exhausted (record Result :i 0 :s "stop") (fn (state) {step}))',
-        params='(choice Choice) (other Choice) (flag Bool)', target='2.35',
-        declarations='(defproc helper ((flag Bool)) -> Result :effects ((uses-command echo)) :lowering inline '
-        + helper)
-    annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
-        incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
-    case = next(node for node in _walk(annotated) if isinstance(node, WccCase))
-    assert case.arms[0].command_scope is None
-
-
 def _assert_erased_proc_ref_binders(body):
     from tests.test_workflow_lisp_command_scopes import _walk
     from orchestrator.workflow_lisp.wcc.model import WccLet
@@ -428,14 +408,6 @@ def _assert_retained_capture_aliases(seen, annotated):
         assert aliases[0].bound_value.metadata.type_ref == source_type
 
 
-def _assert_promoted_child_shape(helper, runtime, call):
-    assert runtime["key"][6] == []
-    assert len(runtime["params"]) == len(call["args"]) == 1
-    assert call["args"][0]["k"] == "lit"
-    assert call["args"][0]["v"] is True
-    assert helper["params"] == []
-
-
 def _assert_inline_homonym_keeps_caller_root(helper, closed):
     assert helper["key"][6][0][0] == "x"
     assert helper["key"][7][0]["routes"] == [["command-input", "x"]]
@@ -445,47 +417,17 @@ def _assert_inline_homonym_keeps_caller_root(helper, closed):
     assert closed.tree["command_params"] == [["x", 0]]
 
 
-def _assert_native_homonym_keeps_typed_parameter(helper, closed):
-    assert helper["key"][6] == helper["key"][7] == []
-    assert helper["params"][0][1]["name"] == "Bool"
-    assert helper["command_params"] == helper["key"][8]["command_params"] == [["x", 0]]
-    assert "command_params" not in closed.tree
-
-
-def test_promoted_parent_reuses_runtime_child_shape_with_final_residual_operands(tmp_path):
-    from orchestrator.workflow_lisp.closed.build import build_closed_program
-    from tests.test_workflow_lisp_closed_command_transport import _compile as _compile_closed, _command
-
-    declarations = '(defproc runtime ((flag Bool)) -> Int :effects () :lowering private-workflow (if flag 1 2))'
-    declarations += '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline '
-    declarations += '(let* ((result ' + _command('flag') + ')) (runtime flag)))'
-    program = _compile_closed(tmp_path, '(helper true)', declarations=declarations, target="2.35")
-    closed = build_closed_program(program)
-    helper = next(row for row in closed.tree["definitions"].values() if row["key"][2] == "helper")
-    runtime = next(row for row in closed.tree["definitions"].values() if row["key"][2] == "runtime")
-    from orchestrator.contracts.closed_program.sites import _ast_nodes
-    (call,) = [node for node in _ast_nodes(helper["body"]) if node.get("k") == "call"]
-    _assert_promoted_child_shape(helper, runtime, call)
-
-
-@pytest.mark.parametrize("mode", ["inline", "private-workflow"])
-def test_inline_literal_homonym_inherits_whole_root_while_native_keeps_its_runtime_parameter(tmp_path, mode):
+def test_inline_literal_homonym_inherits_whole_root_while_native_keeps_its_runtime_parameter(tmp_path):
     from orchestrator.workflow_lisp.closed.build import build_closed_program
     from tests.test_workflow_lisp_closed_command_transport import _compile as _compile_closed, _command, _commands
 
-    declarations = '(defproc helper ((x Bool)) -> Int '
-    if mode == "private-workflow":
-        declarations += ':effects ((uses-command echo)) :lowering private-workflow '
-    declarations += _command('"${inputs.x}"') + ')'
+    declarations = '(defproc helper ((x Bool)) -> Int ' + _command('"${inputs.x}"') + ')'
     closed = build_closed_program(_compile_closed(tmp_path, '(helper true)', params="(x Int)", declarations=declarations,
-        target="2.35" if mode == "private-workflow" else "TARGET"))
+        target="TARGET"))
     (helper,) = closed.tree["definitions"].values()
     (command,) = _commands(closed.tree)
     slot = command["argv_transport"][0]["parts"][0]
     assert slot["kind"] == "slot"
     assert slot["value"]["n"] == helper["params"][0][0]
     assert len(helper["key"]) == 10
-    if mode == "inline":
-        _assert_inline_homonym_keeps_caller_root(helper, closed)
-    else:
-        _assert_native_homonym_keeps_typed_parameter(helper, closed)
+    _assert_inline_homonym_keeps_caller_root(helper, closed)

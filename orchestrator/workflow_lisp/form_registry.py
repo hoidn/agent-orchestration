@@ -7,8 +7,6 @@ from enum import Enum
 
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 
-FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION = "2.39"
-
 
 _LIST_TRAVERSAL_SPECIAL_FORM_NAMES = frozenset(
     {"list", "list/map", "list/map-effect", "path/join-under"}
@@ -49,7 +47,6 @@ class FormSpec:
     stdlib_owner_module: str | None
     compatibility_route: str | None
     rationale: str
-    min_target_dsl_version: str | None = None
 
 
 def _spec(
@@ -66,7 +63,6 @@ def _spec(
     stdlib_owner_module: str | None = None,
     compatibility_route: str | None = None,
     rationale: str,
-    min_target_dsl_version: str | None = None,
 ) -> FormSpec:
     return FormSpec(
         name=name,
@@ -81,7 +77,6 @@ def _spec(
         stdlib_owner_module=stdlib_owner_module,
         compatibility_route=compatibility_route,
         rationale=rationale,
-        min_target_dsl_version=min_target_dsl_version,
     )
 
 
@@ -506,7 +501,6 @@ _FORM_SPECS = (
         elaboration_route="agent",
         feature_tags=("agent_sessions",),
         rationale="Run-local agent allocation elaborates through one fixed compiler path.",
-        min_target_dsl_version="2.38",
     ),
     _spec(
         "with-live-providers",
@@ -601,18 +595,6 @@ _FORM_SPECS = (
         rationale="Imported std/phase macros currently lower through one private compiler-owned phase wrapper.",
     ),
     _spec(
-        "with-phase",
-        kind=FormKind.TEMP_COMPILER_INTRINSIC,
-        owner_module="stdlib_modules/std/phase.orc",
-        introduced_in="workflow_lisp_frontend_mvp",
-        remove_by="ordinary stdlib/runtime phase composition",
-        macro_bindable=True,
-        admitted_top_level=False,
-        elaboration_route="with_phase",
-        feature_tags=("compatibility_route_only",),
-        rationale="The public std/phase wrapper remains directly elaborated until ordinary stdlib phase composition owns it.",
-    ),
-    _spec(
         "phase-target",
         kind=FormKind.TEMP_COMPILER_INTRINSIC,
         owner_module="expressions",
@@ -669,41 +651,11 @@ def _build_registry(specs: tuple[FormSpec, ...]) -> dict[str, FormSpec]:
 
 _FORM_REGISTRY = _build_registry(_FORM_SPECS)
 _RESERVED_MACRO_NAMES = frozenset(
-    spec.name
-    for spec in _FORM_REGISTRY.values()
-    if not spec.macro_bindable and spec.min_target_dsl_version is None
+    spec.name for spec in _FORM_REGISTRY.values() if not spec.macro_bindable
 )
 _ADMITTED_TOP_LEVEL_HEADS = frozenset(
-    spec.name
-    for spec in _FORM_REGISTRY.values()
-    if spec.admitted_top_level and spec.min_target_dsl_version is None
+    spec.name for spec in _FORM_REGISTRY.values() if spec.admitted_top_level
 )
-
-
-def _available_at_target(
-    spec: FormSpec,
-    target_dsl_version: str | None,
-) -> bool:
-    return spec.min_target_dsl_version is None or target_dsl_version_at_least(
-        target_dsl_version,
-        spec.min_target_dsl_version,
-    )
-
-
-def target_dsl_version_at_least(
-    target_dsl_version: str | None,
-    minimum: str,
-) -> bool:
-    """Compare supported numeric target-version components."""
-
-    if target_dsl_version is None:
-        return False
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum_version = tuple(int(part) for part in minimum.split("."))
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum_version
 
 
 # Forms removed from the language: head -> (what it was, the git tag of the last version with it).
@@ -738,6 +690,8 @@ def retired_form_message(name: str, display_name: str) -> str | None:
     return f"`{display_name}` was removed ({what}); the last version with it is git tag {tag}"
 
 
+# The accessors keep their `target_dsl_version` keyword for their callers; since the one-target cut (lane D
+# stage 4) no head depends on the target, so it selects nothing.
 def get_form_spec(
     name: str,
     *,
@@ -745,10 +699,7 @@ def get_form_spec(
 ) -> FormSpec | None:
     """Return one compiler-known form spec by authored head name."""
 
-    spec = _FORM_REGISTRY.get(name)
-    if spec is None or not _available_at_target(spec, target_dsl_version):
-        return None
-    return spec
+    return _FORM_REGISTRY.get(name)
 
 
 def registered_form_heads(
@@ -757,13 +708,7 @@ def registered_form_heads(
 ) -> tuple[str, ...]:
     """Return every compiler-known authored head in deterministic order."""
 
-    return tuple(
-        sorted(
-            head
-            for head, spec in _FORM_REGISTRY.items()
-            if _available_at_target(spec, target_dsl_version)
-        )
-    )
+    return tuple(sorted(_FORM_REGISTRY))
 
 
 def reserved_macro_names(
@@ -772,14 +717,7 @@ def reserved_macro_names(
 ) -> frozenset[str]:
     """Return the exact set of macro-reserved authored heads."""
 
-    if target_dsl_version is None:
-        return _RESERVED_MACRO_NAMES
-    return frozenset(
-        spec.name
-        for spec in _FORM_REGISTRY.values()
-        if not spec.macro_bindable
-        and _available_at_target(spec, target_dsl_version)
-    )
+    return _RESERVED_MACRO_NAMES
 
 
 def list_traversal_authored_heads() -> frozenset[str]:
@@ -794,11 +732,4 @@ def admitted_top_level_heads(
 ) -> frozenset[str]:
     """Return the exact set of compiler-admitted top-level definition heads."""
 
-    if target_dsl_version is None:
-        return _ADMITTED_TOP_LEVEL_HEADS
-    return frozenset(
-        spec.name
-        for spec in _FORM_REGISTRY.values()
-        if spec.admitted_top_level
-        and _available_at_target(spec, target_dsl_version)
-    )
+    return _ADMITTED_TOP_LEVEL_HEADS

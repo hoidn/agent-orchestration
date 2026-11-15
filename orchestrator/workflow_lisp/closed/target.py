@@ -11,7 +11,9 @@ from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
 )
-from orchestrator.contracts.closed_program.targets import SUPPORTED_TARGET_DSL_VERSIONS
+from orchestrator.contracts.closed_program.targets import (
+    SUPPORTED_TARGET_DSL_VERSIONS, retired_target_migration, target_dsl_is_retired_label,
+)
 from orchestrator.workflow_lisp.reader import SourceReadTrace, read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, StringAtom
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
@@ -53,7 +55,7 @@ def require_supported_typed_program_targets(
             if not isinstance(target, str) or target not in SUPPORTED_TARGET_DSL_VERSIONS:
                 raise LispFrontendCompileError((LispFrontendDiagnostic(
                     code="target_dsl_unsupported",
-                    message=f"unsupported target DSL `{target}`",
+                    message=syntax.unsupported_target_message(target),
                     span=span,
                     form_path=("workflow-lisp",),
                 ),))
@@ -90,11 +92,12 @@ def _raw_entry_target_header_from_tree(
 
 
 def _is_retired_entry_target(target: str) -> bool:
+    """An executable entry at a retired target: 2.14 to 2.34 (no evaluated execution) or a 2.35-2.39 label."""
     try:
         major, minor = (int(part) for part in target.split("."))
     except ValueError:
         return False
-    return target == f"{major}.{minor}" and major == 2 and 14 <= minor < 35
+    return (target == f"{major}.{minor}" and major == 2 and 14 <= minor < 35) or target_dsl_is_retired_label(target)
 
 
 def _entry_target_header_for_retirement(
@@ -167,16 +170,16 @@ def refuse_retired_entry_target_from_bytes(path: Path, source_bytes: bytes) -> N
 
 def _refuse_retired_entry_target(parse_tree: ListExpr) -> None:
     target, span = _entry_target_header_for_retirement(parse_tree)
-    if not syntax.target_dsl_uses_evaluated_execution(target):
+    if target not in SUPPORTED_TARGET_DSL_VERSIONS:
         _raise_retired_execution_target(target, span)
 
 
 def _raise_retired_execution_target(target: str, span: SourceSpan) -> None:
+    message = (retired_target_migration(target) if target_dsl_is_retired_label(target) else
+               f"target DSL {target} execution is retired; use a separately retained "
+               "complete release/environment qualified for this source or run")
     raise LispFrontendCompileError((LispFrontendDiagnostic(
-        code="workflow_execution_target_retired",
-        message=(f"target DSL {target} execution is retired; use a separately retained "
-                 "complete release/environment qualified for this source or run"),
-        span=span, phase="lowering",
+        code="workflow_execution_target_retired", message=message, span=span, phase="lowering",
     ),))
 
 
@@ -184,7 +187,7 @@ def refuse_compiled_retired_entry_target(
     path: Path, target: str, source_bytes_by_path: Mapping[Path, bytes],
 ) -> None:
     """Guard publication against the compiler's captured entry, not a fresh peek."""
-    if syntax.target_dsl_uses_evaluated_execution(target):
+    if target in SUPPORTED_TARGET_DSL_VERSIONS:
         return
     captured_target, span = _entry_target_header_from_bytes(path, source_bytes_by_path[path])
     if captured_target != target:

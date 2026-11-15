@@ -64,8 +64,6 @@ def test_expansion_alias_requires_an_existing_direct_reference(existing, expecte
     assert value is (existing if expected == "alias" else expr)
 
 
-
-
 def test_surface_binding_inline_and_projection_are_distinct_owners():
     from orchestrator.workflow_lisp.closed.command_templates import is_inline_let_binding_expr, surface_binding_materialization
 
@@ -74,8 +72,6 @@ def test_surface_binding_inline_and_projection_are_distinct_owners():
     assert is_inline_let_binding_expr(literal)
     assert not is_inline_let_binding_expr(selection)
     assert surface_binding_materialization(selection, resolved_binding=literal) == ("projection", literal)
-
-
 
 
 @pytest.mark.parametrize("resolved,run_ref,expected", [
@@ -109,12 +105,6 @@ def test_run_ref_resolver_override_alone_does_not_emit_a_projection():
     ) == ("alias", expr)
 
 
-
-
-
-
-
-
 def test_capture_order_preserves_sequential_shadowing_and_match_binders():
     from orchestrator.workflow_lisp.expressions import LetStarExpr, MatchArm, MatchExpr
     from orchestrator.workflow_lisp.closed.command_templates import helper_capture_names
@@ -139,54 +129,6 @@ def test_capture_order_preserves_sequential_shadowing_and_match_binders():
     assert helper_capture_names(
         expr, local_type_bindings=dict.fromkeys(("flag", "a", "c", "b", "choice", "holder")),
     ) == ("flag", "b", "choice", "holder")
-
-
-
-
-@pytest.mark.parametrize("workflow,iteration,boundary,body,expected", [
-    ("run", True, True, True, True), ("%composition.arm.v1", True, True, True, False),
-    ("run", False, True, True, False), ("run", True, False, True, False),
-    ("run", True, True, False, False),
-])
-def test_schema1_private_override_requires_both_private_checks(
-    monkeypatch, workflow, iteration, boundary, body, expected,
-):
-    from types import SimpleNamespace
-    from orchestrator.workflow_lisp.procedure_specialization import (
-        schema1_iteration_private_override_applies,
-    )
-    from orchestrator.workflow_lisp.procedures import ProcedureLoweringMode
-    import orchestrator.workflow_lisp.procedure_specialization as owner
-    import orchestrator.workflow_lisp.procedures as procedure_owner
-
-    monkeypatch.setattr(procedure_owner, "procedure_type_env_for", lambda *a, **k: k["default"])
-    checks = []
-    monkeypatch.setattr(
-        owner, "_procedure_private_boundary_valid",
-        lambda *a, **k: checks.append("boundary") or boundary,
-    )
-    monkeypatch.setattr(
-        owner, "_procedure_private_body_valid",
-        lambda *a, **k: checks.append("body") or body,
-    )
-    procedure = SimpleNamespace(
-        definition=SimpleNamespace(effect_contract_target="2.35"),
-        resolved_lowering_mode=ProcedureLoweringMode.INLINE,
-        typed_body=SimpleNamespace(expr=_literal(True)),
-    )
-    assert schema1_iteration_private_override_applies(
-        procedure, iteration_scope=object() if iteration else None,
-        workflow_name=workflow, default_type_env=object(), typed_procedures={},
-        procedure_type_envs={}, workflow_signatures={},
-    ) is expected
-    expected_checks = []
-    if iteration and not workflow.startswith("%composition."):
-        expected_checks.append("boundary")
-        if boundary:
-            expected_checks.append("body")
-    assert checks == expected_checks
-
-
 
 
 def test_inline_binding_merge_keeps_caller_specialization_actual_precedence():

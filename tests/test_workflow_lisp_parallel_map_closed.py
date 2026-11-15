@@ -42,7 +42,7 @@ def checked(tmp_path, text, **kwargs):
     return ClosedProgram.from_artifact(program.artifact())
 
 
-@pytest.mark.parametrize('kind', ['workflow', 'inline', 'private-workflow', 'imported-workflow'])
+@pytest.mark.parametrize('kind', ['workflow', 'inline', 'imported-workflow'])
 def test_parallel_helper_bodies_roundtrip(tmp_path, kind):
     command = '(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)'
     declaration = f'(defworkflow worker ((repo String)) -> Box {command})'
@@ -50,12 +50,7 @@ def test_parallel_helper_bodies_roundtrip(tmp_path, kind):
     if kind == 'inline':
         declaration = f'(defproc worker ((repo String)) -> Box {command})'
         call = '(worker repo)'
-    if kind == 'private-workflow':  # a lowering mode of a target below 2.39 (Task 4b)
-        declaration = f'(defproc worker ((repo String)) -> Box :effects ((uses-command fetch)) :lowering {kind} {command})'
-        call = '(worker repo)'
     text = source(replace_exact(MAP, command, call), declarations=declaration)
-    if kind == 'private-workflow':
-        text = replace_exact(text, '(:target-dsl "2.40")', '(:target-dsl "2.37")')
     kwargs = {}
     if kind == 'imported-workflow':
         text = {'parallel.orc': source(replace_exact(MAP, command, '(call h.worker :repo repo)'),

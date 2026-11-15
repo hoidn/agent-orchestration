@@ -87,61 +87,6 @@ def test_provider_reads_follow_alias_and_bound_reference_routes(tmp_path, wrappe
     assert reads[1][0] == reads[3][0]
 
 
-def test_provider_read_uses_transitive_private_proc_reader(tmp_path):
-    sources = {
-        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-          (defmodule lib/helper) (export R ask) (defrecord R (n Int))
-          (defproc ask () -> R :effects ((uses-provider provider)) :lowering private-workflow
-            (provider-result provider :prompt prompt :inputs () :returns R)))''',
-        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-          (defmodule app/parent) (import lib/helper :as helper) (export run)
-          (defproc invoke ((hook ProcRef[ -> helper.R])) -> helper.R
-            :effects () :lowering inline (hook))
-          (defworkflow run () -> helper.R (invoke (proc-ref helper.ask))))''',
-        "lib/prompt.md": "PRIVATE LEFT\n",
-        "app/prompt.md": "PARENT\n",
-    }
-    _, imports = _stages(
-        tmp_path, sources, "app/parent.orc", "app/parent::run"
-    )
-    helper_path = _reader_path(imports["right"], "lib/helper")
-    helper_path.with_name("prompt.md").write_text(
-        "PRIVATE RIGHT\n", encoding="utf-8"
-    )
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule main) (export run) (defrecord R (n Int))
-      (defworkflow run () -> R
-        (let* ((left-result (call left)) (right-result (call right))) right-result)))'''
-    checked, provider_io = _checked(_typed(tmp_path, source, imports))
-    reads = []
-
-    def handle(node, operands, _identity, owner, reader):
-        from orchestrator.workflow.evaluated.providers import resolve_provider_io
-
-        captured = resolve_provider_io(
-            node, operands, workspace=tmp_path, reader=reader
-        )
-        reads.append((owner, reader.workflow_path, captured))
-        return coerce_evaluated_value(
-            {"n": len(reads)}, node["result"], context="controlled provider result"
-        )
-
-    evaluate_closed_program(
-        checked, {}, effect_handler=handle, provider_io=provider_io
-    )
-
-    assert [read.source_text for _owner, _path, read in reads] == [
-        "PRIVATE LEFT\n",
-        "PRIVATE RIGHT\n",
-    ]
-    assert [read.source_sha256 for _owner, _path, read in reads] == [
-        "sha256:" + sha256(content.encode()).hexdigest()
-        for content in ("PRIVATE LEFT\n", "PRIVATE RIGHT\n")
-    ]
-    assert all(path.name == "helper.orc" for _owner, path, _read in reads)
-    assert reads[0][1] != reads[1][1]
-
-
 def test_supplied_staged_provider_selection_reaches_real_performer(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from tests.test_workflow_evaluated_provider_io import WREF, _checked, _stages, _typed

@@ -32,7 +32,7 @@ from .expressions import (
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
 )
-from .syntax import HUMAN_REPLY_TYPE_NAME, MAX_STATIC_LIVE_PROVIDER_PEERS, PROVIDER_STEERING_DIRECTIVE_TYPE_NAME
+from .syntax import MAX_STATIC_LIVE_PROVIDER_PEERS, PROVIDER_STEERING_DIRECTIVE_TYPE_NAME
 from .phase import is_implementation_attempt_result_type
 from .prompts import (
     PromptApplicationExpr,
@@ -75,12 +75,9 @@ def typecheck_request_input_expr(
 ):
     """Type one host question and retain any prefix effects before it."""
 
-    typed_new = expr.answer_type_name is not None
     def invalid(message, code, node=expr):
         raise_error(message, code=code, span=node.span, form_path=node.form_path,
             expansion_stack=node.expansion_stack)
-    if typed_new and context.type_env.target_dsl_version != "2.40":
-        invalid("typed request-input requires target 2.40", "request_input_target_invalid")
     if isinstance(expr.question, PromptApplicationExpr):
         question, summaries = typecheck_prompt_application(expr.question, recurse=recurse, type_env=context.type_env)
     else:
@@ -88,18 +85,16 @@ def typecheck_request_input_expr(
         if typed_question.type_ref != PrimitiveTypeRef(name="String"):
             invalid("`request-input` question must have type `String`", "request_input_question_type_invalid", expr.question)
         question, summaries = typed_question.expr, (typed_question.effect_summary,)
-    result_name = HUMAN_REPLY_TYPE_NAME
-    if typed_new:
-        from .contracts import derive_prompt_guided_structured_result_contract
-        answer = context.type_env.resolve_type(expr.answer_type_name, span=expr.span, form_path=expr.form_path)
-        if not (answer == PrimitiveTypeRef(name="String") or isinstance(answer, UnionTypeRef) or isinstance(answer, PrimitiveTypeRef) and bool(answer.allowed_values)):
-            invalid("host answers require String, enum or closed transportable union", "request_input_answer_type_invalid")
-        derive_prompt_guided_structured_result_contract(answer, workflow_name="host-input", step_id="answer",
-            span=expr.span, form_path=expr.form_path, type_env=context.type_env)
-        if (isinstance(question, PromptApplicationExpr) and question.prompt.declaration.return_contract_declared
-                and not type_refs_compatible(answer, question.prompt.return_type_ref)):
-            invalid("question prompt return contract must match :returns", "request_input_prompt_return_invalid")
-        result_name = f"std/host::HostReply[{expr.answer_type_name}]"
+    from .contracts import derive_prompt_guided_structured_result_contract
+    answer = context.type_env.resolve_type(expr.answer_type_name, span=expr.span, form_path=expr.form_path)
+    if not (answer == PrimitiveTypeRef(name="String") or isinstance(answer, UnionTypeRef) or isinstance(answer, PrimitiveTypeRef) and bool(answer.allowed_values)):
+        invalid("host answers require String, enum or closed transportable union", "request_input_answer_type_invalid")
+    derive_prompt_guided_structured_result_contract(answer, workflow_name="host-input", step_id="answer",
+        span=expr.span, form_path=expr.form_path, type_env=context.type_env)
+    if (isinstance(question, PromptApplicationExpr) and question.prompt.declaration.return_contract_declared
+            and not type_refs_compatible(answer, question.prompt.return_type_ref)):
+        invalid("question prompt return contract must match :returns", "request_input_prompt_return_invalid")
+    result_name = f"std/host::HostReply[{expr.answer_type_name}]"
     timeout = recurse(expr.timeout_sec) if expr.timeout_sec is not None else None
     if timeout is not None:
         if timeout.type_ref != PrimitiveTypeRef(name="Int") or (isinstance(timeout.expr, LiteralExpr) and (type(timeout.expr.value) is not int or timeout.expr.value <= 0)):
@@ -898,20 +893,6 @@ def typecheck_provider_result_expr(
                     ),
                 ),
             )
-    if phased and getattr(context.type_env, "target_dsl_version", None) not in {"2.39", "2.40"}:
-        raise_error(
-            "provider-result phased delivery requires its defining source to target DSL 2.39",
-            code="provider_phased_delivery_policy_invalid",
-            span=expr.delivery.span,
-            form_path=expr.delivery.form_path,
-            expansion_stack=expr.delivery.expansion_stack,
-            phased_delivery_diagnostic=phased_diagnostic(
-                "target_below_2_39",
-                canonical_value=getattr(context.type_env, "target_dsl_version", None),
-                primary_owner="delivery_keyword",
-                primary_span=expr.delivery.span,
-            ),
-        )
     if phased:
         typed_prompt_application = with_phased_prompt_attempt_identity(
             typed_prompt_application

@@ -18,7 +18,7 @@ from orchestrator.workflow_lisp.definitions import (
     UnionDef,
     UnionVariant,
 )
-from orchestrator.workflow_lisp.expressions import DoneExpr, RunRefBundleProgram, RunRefExpr, RunRefPathProgram, RunRefSource, ExprNode, FunctionCallExpr, IfExpr, LetStarExpr, LiveProviderBinding, LiveProviderPeerBinding, ListExpr, ListMapEffectExpr, LiteralExpr, LoopRecurExpr, MatchArm, MatchExpr, NameExpr, ProcedureCallExpr, WithLiveProviderPeersExpr, WithLiveProvidersExpr, elaborate_expression, parse_run_ref_expression
+from orchestrator.workflow_lisp.expressions import DoneExpr, RunRefBundleProgram, RunRefExpr, RunRefPathProgram, RunRefSource, ExprNode, FunctionCallExpr, IfExpr, LetStarExpr, LiveProviderBinding, LiveProviderPeerBinding, ListMapEffectExpr, LiteralExpr, LoopRecurExpr, MatchArm, MatchExpr, NameExpr, ProcedureCallExpr, WithLiveProviderPeersExpr, WithLiveProvidersExpr, parse_run_ref_expression
 from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs
 from orchestrator.workflow_lisp.form_registry import get_form_spec
 from orchestrator.workflow_lisp.reader import read_sexpr_text
@@ -92,8 +92,6 @@ def _type_env(*extra_types) -> FrontendTypeEnvironment:
     )
 
 
-
-
 def _catalog(expr: RunRefExpr, *, params=(), return_type=None, defaults=()):
     signature = WorkflowSignature(
         name="child",
@@ -135,8 +133,6 @@ def _mode_one_source() -> str:
             ":policy (:setup ()))",
         )
     )
-
-
 
 
 def test_run_ref_current_source_elaborates_frozen_mode_one_carriers() -> None:
@@ -635,15 +631,6 @@ def test_run_ref_structural_errors_use_closed_shape_diagnostic(source: str) -> N
     assert excinfo.value.diagnostics[0].code == "run_ref_shape_invalid"
 
 
-def test_run_ref_workflow_program_below_target_238_is_unavailable() -> None:
-    source = replace_exact(_mode_one_source(), "(:bundle child)", "(:workflow child)")
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        parse_run_ref_expression(_expression(source), target_dsl_version="2.35")
-
-    assert excinfo.value.diagnostics[0].code == "run_ref_child_target_unavailable"
-
-
 @pytest.mark.parametrize(
     "source",
     (
@@ -701,10 +688,6 @@ def test_run_ref_parser_is_registered_for_current_source() -> None:
     assert spec.kind.value == "core_effect"
     assert spec.elaboration_route == "run_ref"
     assert RunRefExpr in get_args(ExprNode)
-
-
-
-
 
 
 def _transportable_types(span):
@@ -1692,32 +1675,22 @@ def test_transitive_run_ref_in_list_map_effect_body_keeps_current_carrier(tmp_pa
     _assert_current_map_run_ref(tmp_path, locality="same")
 
 
-def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic() -> None:
-    from orchestrator.workflow_lisp.functions import (
-        FunctionDef,
-        _validate_pure_function_expr,
-    )
+def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic(tmp_path: Path) -> None:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
 
-    run_ref = _mode_one_expr()
-    procedure_catalog, _ = _run_ref_procedure_context(run_ref)
-    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
-    function_def = FunctionDef(
-        name="pure_helper",
-        params=(),
-        body=_expression('"unused"'),
-        span=run_ref.span,
-        form_path=FORM_PATH,
-        return_type_name="String",
-    )
-
+    source = tmp_path / "run_ref_purity.orc"
+    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defworkflow child () -> String "child")
+      (defproc wrapper () -> String (let* ((child {_mode_one_source()})) "done"))
+      (defun pure-helper () -> String (wrapper))
+      (defworkflow run () -> String (pure-helper)))''')
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _validate_pure_function_expr(
-            call,
-            function_def=function_def,
-            procedure_catalog=procedure_catalog,
-        )
-
-    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
+        compile_stage3_module(source, workspace_root=tmp_path)
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "run_ref_placement_invalid"
+    assert Path(diagnostic.span.start.path) == source
+    assert (diagnostic.span.start.line, diagnostic.span.start.column) == (5, 37)  # the expanded call, as below
+    assert diagnostic.expansion_stack
 
 
 def test_non_run_ref_procedure_keeps_public_pure_function_diagnostic(tmp_path: Path) -> None:
@@ -1739,7 +1712,6 @@ def test_non_run_ref_procedure_keeps_public_pure_function_diagnostic(tmp_path: P
     assert Path(diagnostic.span.start.path) == source
     assert (diagnostic.span.start.line, diagnostic.span.start.column) == (6, 35)
     assert diagnostic.expansion_stack
-
 
 
 @pytest.mark.parametrize(

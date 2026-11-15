@@ -398,7 +398,7 @@ def test_i2_refuses_an_edit_outside_the_selected_site_with_scope_exceeded(sandbo
 
 UNUSED_BINDING = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.39")
+  (:target-dsl "2.40")
   (defmodule unused_binding)
   (import common :only (Change Outcome))
   (export run)

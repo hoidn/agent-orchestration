@@ -27,7 +27,6 @@ from orchestrator.workflow_lisp.closed.artifact import _load_closed_imports
 from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, _sites_from_nodes
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
-from orchestrator.workflow_lisp.expressions import GeneratedRelpathSeedExpr
 from orchestrator.workflow_lisp.type_env import PathTypeRef
 
 
@@ -539,42 +538,6 @@ def test_typed_program_keeps_each_module_externs_and_unused_bindings(
     assert "unused" in typed.command_boundaries
 
 
-
-
-
-
-
-
-
-
-def test_typechecker_diagnostic_is_unchanged_at_the_new_target(tmp_path: Path) -> None:
-    entry = tmp_path / "cp" / "bad.orc"
-    entry.parent.mkdir(parents=True)
-
-    def compile_at(target: str):
-        entry.write_text(
-            f'''(workflow-lisp
-      (:language "0.1")
-      (:target-dsl "{target}")
-      (defmodule cp/bad)
-      (export run)
-      (defrecord Broken (value Missing))
-      (defworkflow run ((input Broken)) -> Broken input))
-''',
-            encoding="utf-8",
-        )
-        return _error(
-            entry,
-            lambda: compile_stage3_entrypoint(entry, source_roots=(tmp_path,), validate_shared=True),
-        )
-
-    old = compile_at("2.35")
-    new = compile_at(TARGET)
-
-    assert old[0] == new[0] == "type_unknown"
-    assert (old[2], old[3]) == (new[2], new[3])
-
-
 def test_typed_entry_rejects_pre_235_target_at_its_header(tmp_path: Path) -> None:
     entry = _install(tmp_path, "loop_in_branch", target="2.34")
 
@@ -848,7 +811,6 @@ def test_old_entry_keeps_compiling_when_imported_snapshots_conflict(
     assert caught.value.diagnostics[0].code == "compiled_workflow_snapshot_conflict"
 
 
-
 @pytest.mark.parametrize(
     "partial_workflow", ["missing_body", "missing_definition", "missing_env"]
 )
@@ -971,14 +933,14 @@ def test_incomplete_transitive_program_snapshot_is_locally_refused(
 
 
 @pytest.mark.parametrize(
-    "consumer_target", [TARGET, "2.36"], ids=["current-consumer", "2.36-consumer"]
+    "consumer_target", [TARGET], ids=["current-consumer"]
 )
 @pytest.mark.parametrize("edit_source", [False, True])
 def test_imported_snapshot_must_match_an_overlapping_source_graph(
     tmp_path: Path, edit_source: bool, consumer_target: str,
 ) -> None:
     # The 2.36 consumer keeps its 2.35 producer: a producer may not be newer than its consumer.
-    producer_target = TARGET if consumer_target == TARGET else "2.35"
+    producer_target = TARGET
     producer_path = tmp_path / "cp" / "shared.orc"
     producer_path.parent.mkdir(parents=True)
     producer_path.write_text(
@@ -1038,13 +1000,13 @@ def test_imported_snapshot_must_match_an_overlapping_source_graph(
 
 
 @pytest.mark.parametrize(
-    "consumer_target", [TARGET, "2.36"], ids=["current-consumer", "2.36-consumer"]
+    "consumer_target", [TARGET], ids=["current-consumer"]
 )
 def test_imported_snapshot_refuses_a_different_overlapping_definition(
     tmp_path: Path, consumer_target: str,
 ) -> None:
     # The 2.36 consumer keeps its 2.35 producer: a producer may not be newer than its consumer.
-    producer_target = TARGET if consumer_target == TARGET else "2.35"
+    producer_target = TARGET
     producer_path = tmp_path / "cp" / "shared.orc"
     producer_path.parent.mkdir(parents=True)
     producer_path.write_text(
@@ -1429,14 +1391,14 @@ def test_typed_program_can_import_an_explicit_source_snapshot(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize(
-    "consumer_target", [TARGET, "2.36"], ids=["current-consumer", "2.36-consumer"]
+    "consumer_target", [TARGET], ids=["current-consumer"]
 )
 def test_evaluated_consumer_keeps_the_selected_typed_producer_contract(
     tmp_path: Path, consumer_target: str,
 ) -> None:
     boundaries = {name: replace(binding, closure=()) for name, binding in BOUNDARIES.items()}
     # The 2.36 consumer keeps its 2.35 producer: a producer may not be newer than its consumer.
-    producer_target = TARGET if consumer_target == TARGET else "2.35"
+    producer_target = TARGET
     producer_path = tmp_path / "cp" / "producer.orc"
     producer_path.parent.mkdir(parents=True)
     producer_path.write_text(
@@ -1872,8 +1834,6 @@ def test_typed_product_groups_private_context_by_its_source_formal(
     )
 
 
-
-
 @pytest.mark.parametrize("supply_trace", (True, False))
 def test_standalone_old_source_producer_retains_snapshot_and_passes_trace(
     tmp_path: Path,
@@ -2072,8 +2032,6 @@ def test_graph_source_producer_reads_each_source_once(
     assert trace.revision_conflict_paths == ()
 
 
-
-
 def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -2123,7 +2081,6 @@ def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
             workspace_root=tmp_path,
         )
     assert caught.value.diagnostics[0].code == "compiled_workflow_snapshot_conflict"
-
 
 
 def test_imported_private_enum_owners_survive_evaluated_retyping(tmp_path: Path) -> None:
@@ -2271,56 +2228,6 @@ def test_old_imported_enum_snapshot_keeps_its_owner_after_source_deletion(
                 yield from enum_owners(child)
 
     assert set(enum_owners(program.tree)) == {"producer::Status"}
-
-
-def test_generic_retyped_argument_keeps_generated_path_seed_type(tmp_path: Path) -> None:
-    helper = tmp_path / "helper.orc"
-    helper.write_text(
-        '''(workflow-lisp
-  (:language "0.1") (:target-dsl "2.35") (defmodule helper) (export run)
-  (defpath OutputPath :kind relpath :under "artifacts" :must-exist false)
-  (defrecord Result (ok Bool))
-  (defproc keep :forall (T) ((value T)) -> T :effects () :lowering inline value)
-  (defworkflow run () -> Result
-    (let* ((path (keep (__generated-relpath-seed__ OutputPath "artifacts/probe.txt" "probe"))))
-      (record Result :ok true))))
-''',
-        encoding="utf-8",
-    )
-    old_product = compile_stage3_entrypoint(
-        helper,
-        entry_workflow="helper::run",
-        source_roots=(tmp_path,),
-        command_boundaries={},
-        workspace_root=tmp_path,
-        validate_shared=True,
-    )
-    assert "helper::run" in old_product.entry_result.typed_program.workflows
-    entry = tmp_path / "entry.orc"
-    entry.write_text(
-        '''(workflow-lisp
-  (:language "0.1") (:target-dsl "2.35") (defmodule entry)
-  (import helper :only (run)) (export start)
-  (defworkflow start () -> Bool (let* ((got (call run))) got.ok)))
-''',
-        encoding="utf-8",
-    )
-    typed = compile_typed_program(
-        entry,
-        entry_workflow="entry::start",
-        source_roots=(tmp_path,),
-        command_boundaries={},
-        workspace_root=tmp_path,
-    )
-    seeds = [
-        node
-        for workflow in typed.workflows.values()
-        for node in walk_expr(workflow.typed_body.expr)
-        if isinstance(node, GeneratedRelpathSeedExpr)
-    ]
-    assert seeds and all(isinstance(node.target_type_ref, PathTypeRef) for node in seeds)
-    program = build_closed_program(typed)
-    assert ClosedProgram.from_artifact(program.artifact()).digest == program.digest
 
 
 def test_operator_binding_object_order_is_not_argument_order(tmp_path: Path) -> None:
@@ -2640,10 +2547,6 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         "compiled_workflow_source_required",
     )
     assert source_readback.sites
-
-
-
-
 
 
 def _assert_consumer_mixed_schema_snapshots(consumer, child_snapshot):

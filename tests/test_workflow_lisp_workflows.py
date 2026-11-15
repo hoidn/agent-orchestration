@@ -497,12 +497,15 @@ def test_compile_stage3_module_exposes_procedure_catalog_without_changing_workfl
 
 
 def test_phase_translation_fixture_uses_extern_symbols_without_workflow_transport() -> None:
-    syntax_module = _build_syntax_module(PHASE_FIXTURE)
-    workflow_def = elaborate_workflow_definitions(syntax_module)[0]
-    body = elaborate_expression(
-        workflow_def.body,
-        bound_names=frozenset(param.name for param in workflow_def.params),
-    )
+    # The fixture imports `with-phase` from `std/phase`; compile through the module graph (the bare head is gone).
+    workflow_def = compile_stage3_module(
+        PHASE_FIXTURE,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=PHASE_FIXTURE.parent,
+    ).typed_workflows[0].definition
+    body = workflow_def.body
 
     assert [param.name for param in workflow_def.params] == ["phase-ctx", "inputs"]
     assert type(body).__name__ == "WithPhaseExpr"

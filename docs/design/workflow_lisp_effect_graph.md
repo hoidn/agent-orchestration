@@ -9,9 +9,11 @@ Versioned authoring rules are owned by
 (inference-default optional restrictions and consumer-led metadata cleanup) and
 [pure-call composition](workflow_lisp_pure_call_composition.md)
 (implemented resolved-inline semantic-effects versus expression-representation
-subset). At definition origins 2.35–2.38, retain exact ordinary declarations
-and specialization exceptions. At 2.39, inference-default restrictions and
-inspection use the same summaries as caller-owned inline composition. The
+subset). Inference-default restrictions and
+inspection use the same summaries as caller-owned inline composition; the
+rules below for definition origins 2.35–2.38 (exact ordinary declarations,
+specialization exceptions, private-workflow lowering) describe the release
+tagged `v0.2.1`, since one source target, 2.40, is admitted. The
 [frontend](workflow_lisp_frontend_specification.md#106-procedure-lowering-policy-resolved)
 owns source admission and lowering; the pure-call component owns its
 admitted expression positions independently of annotation relief.

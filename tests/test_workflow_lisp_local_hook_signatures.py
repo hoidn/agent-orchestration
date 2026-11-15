@@ -766,23 +766,6 @@ def test_disjoint_scopes_with_same_local_name_have_separate_sites(tmp_path):
     assert len(_local_bases(typed)) == 2
 
 
-def test_w3_bound_lexical_consumer_keeps_static_facts_from_older_module(tmp_path):
-    _write_module(tmp_path / "compat" / "consumer.orc", [
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35")',
-        ' (defmodule compat/consumer) (export consume)',
-        ' (defproc consume ((offset Int) (hook ProcRef[(Int) -> Int])) -> Int',
-        '  :effects () :lowering inline (+ offset (hook 1))))',
-    ])
-    declarations = DECLARATIONS
-    body = '(let* ((consumer (bind-proc (proc-ref old.consume) :offset 5))) (let-proc ((h (x) (+ x 1))) (consumer (proc-ref h))))'
-    typed = _compile_evaluated(tmp_path, body, declarations=declarations, imports="(import compat/consumer :as old)")
-    from orchestrator.workflow_lisp.closed.build import build_closed_program
-    from orchestrator.contracts.closed_program.program import ClosedProgram
-    from tests.test_workflow_evaluated_control import _machine_api
-    program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
-    assert _machine_api().evaluate_closed_program(program, {}).value == 7
-
-
 def test_generic_relay_without_concrete_constraint_stops_before_body(tmp_path, monkeypatch):
     import inspect
     from orchestrator.workflow_lisp import procedure_typecheck as owner

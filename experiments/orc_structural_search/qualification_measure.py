@@ -7,7 +7,10 @@ from experiments.compare.pool import DEFAULT_RUBRIC, rubric
 from experiments.orc_structural_search.qualification_io import (
     calibration, digest, names, normalized, read, reference, require)
 
-V1_RUBRIC = '72ede203ff5ac3b7552d033474db2d8e45fdba11b3cfb514bce643e70c284700'
+# The v1 rubric `experiments/compare/score.orc`: its calibrated bytes, and the same file with only its header moved
+# to target 2.40 at the one-target cut (lane D stage 4; equal program once the target label is removed).
+V1_RUBRICS = frozenset({'72ede203ff5ac3b7552d033474db2d8e45fdba11b3cfb514bce643e70c284700',
+                        '31750abe43c258b304d6c69ecc9db9274310ba40e885da42ec23362ec13330fc'})
 COMPONENTS = ('root_cause', 'scope', 'generality', 'layering')
 
 
@@ -43,8 +46,8 @@ def dispatch(criterion, containing, runtime, judges):
     evaluator = criterion['measurement']['evaluator']
     workflow = Path(runtime) / 'experiments/compare/score.orc'
     reference(evaluator['score_workflow'], containing)
-    require(evaluator['score_workflow']['sha256'] == V1_RUBRIC, 'unsupported v1 rubric workflow')
-    require(workflow.is_file() and digest(workflow) == evaluator['score_workflow']['sha256'],
+    require(evaluator['score_workflow']['sha256'] in V1_RUBRICS, 'unsupported v1 rubric workflow')
+    require(workflow.is_file() and digest(workflow) in V1_RUBRICS,
             'actual runtime score workflow differs from measurement')
     specs = judges if judges is not None else planned_judges(criterion, containing, runtime)
     selected = {}

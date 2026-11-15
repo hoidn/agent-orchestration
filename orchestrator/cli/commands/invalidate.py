@@ -17,6 +17,7 @@ from orchestrator.workflow.evaluated.authority import (
     RunAuthorityError,
     _read_header_json,
     load_run_authority,
+    refuse_retired_run_target,
     _require_retained_root,
 )
 from orchestrator.workflow.workspace_files import WorkspaceFiles
@@ -44,6 +45,7 @@ def invalidate_run(run_id: str, identity: str, state_dir: str | None = None) -> 
     if not run_root.exists():
         raise MemoError("memo_inconsistent", f"run directory not found: {run_root}")
     _refuse_without_authority(run_root)
+    refuse_retired_run_target(run_root)
 
     with memo_writer_lock(run_root) as fd:
         run_files = WorkspaceFiles(run_root, root_fd=fd)

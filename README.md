@@ -95,13 +95,13 @@ the same source runs against different agents.
 Branching and loops are typed the same way: a reviewer that may approve or
 request changes returns a tagged union, `match` must cover every variant, and
 a loop is bounded with a typed exhaustion outcome. The bundled `std/improve`
-helper packages that review-and-revise loop; see the maintained target-2.39
+helper packages that review-and-revise loop; see the maintained
 [`workflows/examples/improve_experiment_proposal.orc`](workflows/examples/improve_experiment_proposal.orc)
 and its [complete recipe](docs/lisp_library_reference.md#target-239-local-hooks).
-At 2.39 procedure effects are inferred by default; optional restrictions remain
+Procedure effects are inferred by default; optional restrictions remain
 checked, and reusable procedures compose inline without an authored lowering
 strategy. The [authoring guide](docs/lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239)
-explains the version boundary.
+explains the contract.
 
 ## What is checked, and where
 
@@ -145,13 +145,13 @@ typed Python source -> generated .orc source (optional authoring route)
 - **The compiled artifact is a closed program.** Loops are bounded, there are
   no runtime closures, and the effect vocabulary is fixed, so every effect site
   and its contract is known before a run starts.
-- **Evaluated execution** (targets 2.35 to 2.40): values are computed in a
+- **Evaluated execution** (target 2.40): values are computed in a
   lexical environment and have no stored copy. An effect is identified by its
   site and the path of activations that reached it, and nothing else. An
   effect runs only when the memo holds no committed result for that identity.
   Resume evaluates the program again from its entry and takes each committed
   result from the memo. What a reader sees as "steps" is a view derived from
-  the memo and the program. At 2.38 an agent keeps its native conversation
+  the memo and the program. An agent keeps its native conversation
   across turns, with a typed result and a memo commit per turn
   ([agent sessions](docs/lisp_workflow_drafting_guide.md#agent-sessions-target-238)).
 - **Identity is semantic and versioned.** It derives from the effect's site
@@ -281,24 +281,29 @@ contracts before changing prompts.
 ## Versions and compatibility
 
 Releases are tagged. A workflow names its target in its header
-(`(:target-dsl "2.35")`), and each release executes a fixed set of targets:
+(`(:target-dsl "2.40")`), and each release executes a fixed set of targets:
 
 | Release | Executes |
 | --- | --- |
+| `v0.2.1` | Targets 2.35 through 2.40; the last release that compiles 2.35 through 2.39 and continues runs recorded at them |
 | `v0.2.0` | Targets 2.35 and 2.36; 2.37 adds parallel `list/map-effect` and 2.38 adds agent sessions and command-only confined child workflows |
 | `v0.1.0` (2026-10-13) | Targets 2.14 through 2.34 on the earlier flat runtime, and 2.35 through 2.37 |
 
-The current checkout registers targets 2.35–2.40 and defaults Python generation
-to 2.39; the table above records release history.
+The current checkout (package version 0.3.0) compiles one target, 2.40, and
+Python generation defaults to it; the table above records release history.
 
 Compiling a workflow checks it against the installed release without running
 anything. A target the release no longer executes is refused at its header
-with `workflow_execution_target_retired`; check out the release that executes
-it (`git checkout v0.1.0`) and reinstall. Retiring a target bumps the minor
+with `workflow_execution_target_retired`; migrate the source
+([guide](docs/lisp_workflow_drafting_guide.md#migrating-from-an-older-target)),
+or check out the release that executes it (`git checkout v0.2.1` for 2.35
+through 2.39, `v0.1.0` below that) and reinstall. Retiring a target bumps the minor
 version, and the previous release stays tagged.
 Current source compilation, typed imports and REPL/LSP analysis also require
-every module to target 2.35 or newer. Old source and saved run data remain
-historical evidence; `report` and the dashboard refuse old runs (the old
+every module to target 2.40. A run recorded at 2.35 through 2.39 is still read
+by `report`, the dashboard and the monitor, and is continued only with
+`v0.2.1`. Older source and saved run data remain
+historical evidence; `report` and the dashboard refuse flat-profile runs (targets through 2.34; the old
 readers are kept at the git tag `archive/retired-run-readers-2026-11-11`).
 [`specs/versioning.md`](specs/versioning.md#version-gating-summary) records
 what each target admits.

@@ -24,10 +24,6 @@ from orchestrator.workflow.run_ref.source import (
     normalize_repository_locator,
     validate_commit_sha,
 )
-from orchestrator.contracts.closed_program.targets import (
-    RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION,
-    target_dsl_supports_run_ref_confined,
-)
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 from orchestrator.workflow.provider_phased_delivery.diagnostics import (
     PhasedDeliveryDiagnostic,
@@ -40,11 +36,9 @@ from .diagnostics import (
     build_authored_phased_delivery_diagnostic,
 )
 from .form_registry import (
-    FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION,
     FormKind,
     retired_form_message,
     get_form_spec,
-    target_dsl_version_at_least,
 )
 from .procedures import ProcedureParam
 from .prompts import (
@@ -1416,32 +1410,16 @@ def _elaborate_list(
         head.resolved_name,
         target_dsl_version=session_state.target_dsl_version,
     )
-    if target_dsl_version_at_least(
-        session_state.target_dsl_version,
-        FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION,
-    ):
-        if head.resolved_name in _PRIVATE_EXPANSION_FORM_OWNERS:
-            if not _has_packaged_private_form_origin(head):
-                _raise_error(
-                    f"private form `{head.display_name}` requires its packaged "
-                    "stdlib macro expansion",
-                    code="private_form_not_admitted",
-                    span=head.span,
-                    form_path=form_path,
-                    expansion_stack=head.expansion_stack,
-                )
-        if (
-            form_spec is not None
-            and "compatibility_route_only" in form_spec.feature_tags
-        ):
+    if head.resolved_name in _PRIVATE_EXPANSION_FORM_OWNERS:
+        if not _has_packaged_private_form_origin(head):
             _raise_error(
-                f"`{head.display_name}` requires its imported stdlib macro at target 2.39 or later",
-                code="stdlib_import_route_required",
+                f"private form `{head.display_name}` requires its packaged "
+                "stdlib macro expansion",
+                code="private_form_not_admitted",
                 span=head.span,
                 form_path=form_path,
                 expansion_stack=head.expansion_stack,
             )
-
 
     if (
         form_spec is None
@@ -2145,10 +2123,6 @@ def _parse_run_ref_workflow_mode(
     """Parse `run-ref :program (:workflow name)`; see the confined child design."""
 
     program_node = sections[":program"]
-    if not target_dsl_supports_run_ref_confined(target_dsl_version):
-        _run_ref_refuse(program_node, "`run-ref :program (:workflow ...)` requires target DSL "
-                        f"{RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION} or newer",
-                        "run_ref_child_target_unavailable", form_path)
     program_sections = _run_ref_sections(program_node.items, label="`run-ref :program`", form_path=form_path)
     if set(program_sections) != {":workflow"}:
         _run_ref_refuse(program_node, "`run-ref :program` must select exactly one of :path or :workflow",
@@ -4586,189 +4560,8 @@ def _elaborate_let_proc(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> LetProcExpr:
-
-    from .syntax import target_dsl_supports_local_hook_inference
-    if target_dsl_supports_local_hook_inference(session_state.target_dsl_version or ""):
-        return _elaborate_local_hooks(datum, form_path=form_path, bound_names=bound_names,
-            procedure_names=procedure_names, session_state=session_state)
-
-    if len(datum.items) != 3:
-        _raise_error(
-            "`let-proc` requires exactly one binding and one body",
-            code="let_proc_syntax_invalid",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    binding_node = datum.items[1]
-    if not isinstance(binding_node, SyntaxList):
-        _raise_error(
-            "`let-proc` binding must be a list",
-            code="let_proc_syntax_invalid",
-            span=binding_node.span,
-            form_path=form_path,
-            expansion_stack=binding_node.expansion_stack,
-        )
-    if binding_node.items and isinstance(binding_node.items[0], SyntaxList):
-        _raise_error(
-            "`let-proc` supports exactly one local binding in V1",
-            code="let_proc_multiple_bindings_unsupported",
-            span=binding_node.span,
-            form_path=form_path,
-            expansion_stack=binding_node.expansion_stack,
-        )
-    if len(binding_node.items) != 7:
-        _raise_error(
-            "`let-proc` binding must provide name, params, `->`, return type, `:captures`, and one body",
-            code="let_proc_syntax_invalid",
-            span=binding_node.span,
-            form_path=form_path,
-            expansion_stack=binding_node.expansion_stack,
-        )
-    name_identifier = syntax_identifier(binding_node.items[0])
-    if name_identifier is None:
-        _raise_error(
-            "`let-proc` local name must be a symbol",
-            code="let_proc_syntax_invalid",
-            span=binding_node.items[0].span,
-            form_path=form_path,
-            expansion_stack=binding_node.items[0].expansion_stack,
-        )
-    if (
-        name_identifier.resolved_name in bound_names
-        or name_identifier.resolved_name in procedure_names
-    ):
-        _raise_error(
-            (
-                f"`let-proc` local procedure `{name_identifier.resolved_name}` collides "
-                "with an existing value or procedure binding"
-            ),
-            code="let_proc_name_collision",
-            span=binding_node.items[0].span,
-            form_path=form_path,
-            expansion_stack=binding_node.items[0].expansion_stack,
-        )
-    params_node = binding_node.items[1]
-    if not isinstance(params_node, SyntaxList):
-        _raise_error(
-            "`let-proc` params must be a list",
-            code="let_proc_syntax_invalid",
-            span=params_node.span,
-            form_path=form_path,
-            expansion_stack=params_node.expansion_stack,
-        )
-    arrow_identifier = syntax_identifier(binding_node.items[2])
-    if arrow_identifier is None or arrow_identifier.resolved_name != "->":
-        _raise_error(
-            "`let-proc` requires `->` before the return type",
-            code="let_proc_syntax_invalid",
-            span=binding_node.items[2].span,
-            form_path=form_path,
-            expansion_stack=binding_node.items[2].expansion_stack,
-        )
-    return_type_identifier = syntax_identifier(binding_node.items[3])
-    if return_type_identifier is None:
-        _raise_error(
-            "`let-proc` return type must be a symbol",
-            code="let_proc_syntax_invalid",
-            span=binding_node.items[3].span,
-            form_path=form_path,
-            expansion_stack=binding_node.items[3].expansion_stack,
-        )
-    captures_keyword = binding_node.items[4]
-    if not isinstance(captures_keyword, SyntaxKeyword) or captures_keyword.value != ":captures":
-        _raise_error(
-            "`let-proc` requires a `:captures` clause",
-            code="let_proc_syntax_invalid",
-            span=getattr(captures_keyword, "span", binding_node.span),
-            form_path=form_path,
-            expansion_stack=getattr(captures_keyword, "expansion_stack", datum.expansion_stack),
-        )
-    captures_node = binding_node.items[5]
-    if not isinstance(captures_node, SyntaxList):
-        _raise_error(
-            "`let-proc` captures must be a list of identifiers",
-            code="let_proc_syntax_invalid",
-            span=captures_node.span,
-            form_path=form_path,
-            expansion_stack=captures_node.expansion_stack,
-        )
-
-    params = tuple(_elaborate_let_proc_param(param, form_path) for param in params_node.items)
-    capture_names: list[str] = []
-    seen_captures: set[str] = set()
-    for capture_node in captures_node.items:
-        capture_identifier = syntax_identifier(capture_node)
-        if capture_identifier is None or "." in capture_identifier.resolved_name:
-            _raise_error(
-                "`let-proc` captures must be plain identifiers",
-                code="let_proc_capture_not_identifier",
-                span=capture_node.span,
-                form_path=form_path,
-                expansion_stack=capture_node.expansion_stack,
-            )
-        capture_name = capture_identifier.resolved_name
-        if capture_name not in bound_names:
-            _raise_error(
-                f"unknown `let-proc` capture `{capture_name}`",
-                code="let_proc_capture_unknown",
-                span=capture_node.span,
-                form_path=form_path,
-                expansion_stack=capture_node.expansion_stack,
-            )
-        if capture_name in seen_captures:
-            _raise_error(
-                f"duplicate `let-proc` capture `{capture_name}`",
-                code="let_proc_capture_duplicate",
-                span=capture_node.span,
-                form_path=form_path,
-                expansion_stack=capture_node.expansion_stack,
-            )
-        seen_captures.add(capture_name)
-        capture_names.append(capture_name)
-
-    previous_local_proc_names = session_state.local_proc_names
-    previous_let_proc_depth = session_state.let_proc_depth
-    session_state.local_proc_names = session_state.local_proc_names | frozenset({name_identifier.resolved_name})
-    session_state.let_proc_depth += 1
-    try:
-        session_state.local_proc_body = name_identifier.resolved_name
-        local_body = _elaborate(
-            binding_node.items[6],
-            form_path=form_path,
-            bound_names=frozenset(capture_names) | frozenset(param.name for param in params),
-            procedure_names=procedure_names,
-            session_state=session_state,
-        )
-        session_state.local_proc_body = None
-        body = _elaborate(
-            datum.items[2],
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-            session_state=session_state,
-        )
-    finally:
-        session_state.local_proc_names = previous_local_proc_names
-        session_state.let_proc_depth = previous_let_proc_depth
-        session_state.local_proc_body = None
-
-    return LetProcExpr(
-        binding=LetProcBinding(
-            local_name=name_identifier.resolved_name,
-            params=params,
-            return_type_name=return_type_identifier.resolved_name,
-            capture_names=tuple(capture_names),
-            local_body=local_body,
-            span=binding_node.span,
-            form_path=form_path,
-            expansion_stack=binding_node.expansion_stack,
-        ),
-        body=body,
-        span=datum.span,
-        form_path=form_path,
-        expansion_stack=datum.expansion_stack,
-    )
+    return _elaborate_local_hooks(datum, form_path=form_path, bound_names=bound_names,
+        procedure_names=procedure_names, session_state=session_state)
 
 
 def _elaborate_local_hooks(datum, *, form_path, bound_names, procedure_names, session_state):
@@ -5542,7 +5335,8 @@ def _elaborate_prompt_dependencies(
                 form_path=form_path,
                 expansion_stack=value.expansion_stack,
             )
-        elaborated = tuple(
+        # A generated relpath seed cannot be an operand: only `std/phase`'s macros write one, inside a record or a call.
+        return tuple(
             _elaborate(
                 item,
                 form_path=form_path,
@@ -5552,19 +5346,6 @@ def _elaborate_prompt_dependencies(
             )
             for item in value.items
         )
-        generated = next(
-            (item for item in elaborated if isinstance(item, GeneratedRelpathSeedExpr)),
-            None,
-        )
-        if generated is not None:
-            _raise_error(
-                "compiler-generated relpath seeds are not prompt-dependency operands",
-                code="prompt_dependency_generated_relpath_invalid",
-                span=generated.span,
-                form_path=generated.form_path,
-                expansion_stack=generated.expansion_stack,
-            )
-        return elaborated
 
     required = operands(":required")
     optional = operands(":optional")
@@ -5682,24 +5463,19 @@ def _elaborate_request_input(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> RequestInputExpr:
-    typed = session_state.target_dsl_version == "2.40"
-    if not typed and len(datum.items) > 2:
-        _raise_error("typed `request-input` requires target 2.40", code="closed_program_gap",
-            span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
-    if len(datum.items) < 2 or (not typed and len(datum.items) != 2):
+    if len(datum.items) < 2:
         _raise_error("`request-input` requires one question", code="request_input_arity_invalid",
             span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
-    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`request-input`") if typed else {}
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`request-input`")
     question_node = datum.items[1]
     head = syntax_head(question_node) if isinstance(question_node, SyntaxList) else None
-    prompt = session_state.prompt_catalog.resolve(head.resolved_name) if typed and head is not None and session_state.prompt_catalog else None
+    prompt = session_state.prompt_catalog.resolve(head.resolved_name) if head is not None and session_state.prompt_catalog else None
     inferred_answer_type_name = (
         render_type_ref(prompt.return_type_ref)
         if prompt is not None and prompt.declaration.return_contract_declared
         else None
     )
-    if typed and ((":returns" not in sections and inferred_answer_type_name is None)
-            or set(sections) - {":returns", ":timeout-sec", ":show"}):
+    if (":returns" not in sections and inferred_answer_type_name is None) or set(sections) - {":returns", ":timeout-sec", ":show"}:
         _raise_error("`request-input` requires :returns unless its prompt declares a return contract; admits only :timeout-sec and :show",
             code="request_input_keyword_invalid", span=datum.span, form_path=form_path,
             expansion_stack=datum.expansion_stack)
@@ -5715,7 +5491,7 @@ def _elaborate_request_input(
     return RequestInputExpr(question=question, span=datum.span, form_path=form_path,
         expansion_stack=datum.expansion_stack,
         answer_type_name=(parse_return_spec(sections[":returns"], form_path=form_path,
-            label="`request-input :returns`").type_name if ":returns" in sections else inferred_answer_type_name) if typed else None,
+            label="`request-input :returns`").type_name if ":returns" in sections else inferred_answer_type_name),
         timeout_sec=operand(sections[":timeout-sec"]) if ":timeout-sec" in sections else None,
         show=tuple(operand(item) for item in shown.items) if shown is not None else ())
 

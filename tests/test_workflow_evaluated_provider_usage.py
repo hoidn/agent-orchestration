@@ -211,9 +211,9 @@ COMMITTED = {"attempt", "depends_on", "effect_class", "identity", "implementatio
 PARTS = {"declaration", "delivery", "dependency_rows", "params", "policy", "prompt", "source:asset_file:prompt.md",
          "values"}
 # Recorded with `orchestrator compile` before usage.json existed (B1 commit c238e5cf). `reviewed_change` and
-# `design_review_execute_agents` were recorded again when their sources moved to target 2.40: the target is a digest
-# input, the program is otherwise the same.
-DIGESTS = {"best_of_n": "sha256:991a8302be2705206e88f385fc4c82f3b43480b81a0770da0727255b7b0271a7",
+# `design_review_execute_agents` were recorded again when their sources moved to target 2.40, and `best_of_n` when the
+# tests moved to its 2.40 copy at the one-target cut: the target is a digest input, the program is otherwise the same.
+DIGESTS = {"best_of_n": "sha256:c5b1ae6a3a8a8ccdb0e809bb1ba235359dc811dcd74de683a8f3abcd2089a7b0",
            "reviewed_change": "sha256:5596cc62c132c1975d48be065d602d2f5b3094e682d863fa834eb891a92d47ef",
            "design_review_execute_agents":
                "sha256:7eb6378f21b3c533a382c2947dfe66b930e2357f66093a4244d8a2649cd62291"}

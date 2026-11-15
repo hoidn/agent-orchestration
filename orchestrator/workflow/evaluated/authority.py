@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import stat
@@ -19,6 +20,7 @@ from orchestrator.workflow.run_ref.contracts import (
     canonical_sha256,
 )
 from orchestrator.contracts.closed_program.program import ClosedProgram, REPRESENTATION
+from orchestrator.contracts.closed_program.targets import RETIRED_TARGETS_RELEASE, target_dsl_is_retired_label
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow.evaluated.interpreters import (
     image_resolvable,
@@ -124,6 +126,34 @@ def _read_file(path: Path, run_files: WorkspaceFiles | None = None) -> bytes:
         return b"".join(chunks)
     finally:
         os.close(descriptor)
+
+
+class RunTargetRetiredError(ValueError):
+    """A run recorded at a 2.35-2.39 label: readable, never continued or rewritten (stage 4, ruling R3)."""
+
+    code = "run_target_retired"
+
+    def __init__(self, run_id: str, target: str) -> None:
+        super().__init__(f"run {run_id} was recorded at target DSL {target}, which this release reads but no longer "
+                         f"continues; finish it with the release tagged {RETIRED_TARGETS_RELEASE}, "
+                         "or start a new run from migrated source; `report` still reads it")
+
+
+def refuse_retired_run_target(run_root: Path, run_files: WorkspaceFiles | None = None) -> None:
+    """Refuse a run whose stored program is at a retired target, before any lock, compile or write.
+
+    Every command that continues or rewrites a run calls this first (`resume` with or without `--accept-changes`,
+    `invalidate`, `input answer` and `cancel`, REPL attach). A missing or unreadable program is left to the
+    caller's own checks, which already refuse it with their codes (a nesting too deep to decode stops at the
+    interpreter's recursion limit and is left to them the same way).
+    """
+    try:
+        tree = json.loads(_read_file(Path(run_root) / PROGRAM_FILENAME, run_files))
+    except (OSError, ValueError, RecursionError):
+        return
+    target = tree.get("target") if isinstance(tree, dict) else None
+    if target_dsl_is_retired_label(target):
+        raise RunTargetRetiredError(Path(run_root).name, target)
 
 
 def _read_header_json(path: Path, run_files: WorkspaceFiles | None = None) -> Any:

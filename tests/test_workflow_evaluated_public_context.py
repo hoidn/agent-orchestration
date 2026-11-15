@@ -25,18 +25,10 @@ from tests.workflow_evaluated_context_helpers import (
 )
 from tests.test_workflow_lisp_closed_program_elaboration import _BIND_PROC_CAPTURE_SOURCE
 from tests.test_workflow_evaluated_cli import _run_cli
-from tests import workflow_evaluated_context_helpers as context_helpers
-from tests import workflow_evaluated_totality_helpers as totality_helpers
-from tests.workflow_inprocess_cli_helpers import compile_public_inprocess
 from tests.agent_session_shims import closed_path
 from tests.source_edits import replace_exact
 
 
-@pytest.fixture(autouse=True)
-def _fast_compile(monkeypatch):
-    for module in (totality_helpers, context_helpers):
-        monkeypatch.setattr(module, "compile_public", compile_public_inprocess)
-    monkeypatch.setitem(globals(), "compile_public", compile_public_inprocess)
 
 
 PROVIDER_PATH_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
@@ -238,26 +230,6 @@ def test_public_run_and_phase_context_match_existing_route(tmp_path, monkeypatch
         assert _orchestrate_snapshot(tmp_path) == before
 
 
-def test_public_generic_private_calls_keep_distinct_native_types(tmp_path, monkeypatch):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule local_generic) (export run)
-      (defrecord Payload (count Int) (flag Bool))
-      (defrecord Result (number Int) (payload Payload))
-      (defproc identity :forall (T) ((value T)) -> T
-        :effects () :lowering private-workflow value)
-      (defworkflow run ((number Int) (payload Payload)) -> Result
-        (let* ((kept-number (identity number)) (kept-payload (identity payload)))
-          (record Result :number kept-number :payload kept-payload))))'''
-    expected = {"number": 6, "payload": {"count": 4, "flag": True}}
-    files, inputs = pure_files(tmp_path, source, expected)
-    program, result = assert_pure_public(files, inputs, expected, monkeypatch)
-    identities = [definition for definition in program.tree["definitions"].values()
-                  if definition["key"][:3] == ["local_generic", "procedure", "identity"]]
-    assert len(identities) == 2
-    assert {row["key"][8]["params"][0]["name"] for row in identities} == {"Int", "local_generic::Payload"}
-    assert result.descriptor["name"] == "local_generic::Result"
-
-
 @pytest.mark.parametrize("explicit", (False, True))
 def test_public_item_carried_run_and_explicit_phase_keep_all_fields(tmp_path, explicit):
     override = (''' :phase-ctx (record PhaseCtx :run item-ctx.run :phase-name payload.phase
@@ -401,7 +373,6 @@ def test_public_named_phase_targets_reach_real_provider_in_named_order(tmp_path,
     for value in inputs["inputs"].values():
         assert value in request["prompt"]
     assert output == {"implementation_state": "COMPLETED", "implementation_state_bundle_path": context["implementation_state_bundle_path"]}
-
 
 
 @pytest.mark.parametrize("phase", ("work", "implementation"))

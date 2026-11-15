@@ -57,7 +57,7 @@ from .expressions import (
 from .result_guidance import ReturnSpec, parse_return_spec
 from .prompts import PromptApplicationExpr
 from .spans import SourceSpan
-from .syntax import ExpansionStack, HelperExpansionFrame, ProcedureExpansionFrame, SyntaxList, SyntaxNode, WorkflowLispSyntaxModule, syntax_head, syntax_identifier, syntax_node_datum, syntax_resolved_name, target_dsl_supports_effect_ceilings
+from .syntax import ExpansionStack, HelperExpansionFrame, ProcedureExpansionFrame, SyntaxList, SyntaxNode, WorkflowLispSyntaxModule, syntax_head, syntax_identifier, syntax_node_datum, syntax_resolved_name
 from .type_env import (
     FrontendTypeEnvironment,
     ListTypeRef,
@@ -266,12 +266,7 @@ def typecheck_function_definitions(
             prompt_catalog=prompt_catalog,
             session_state=compiler_session.elaboration,
         )
-        _validate_pure_function_expr(
-            body_expr,
-            function_def=function_def,
-            procedure_catalog=procedure_catalog,
-            target_dsl_version=type_env.target_dsl_version,
-        )
+        _validate_pure_function_expr(body_expr, function_def=function_def)
         typed_body = typecheck_expression(
             body_expr,
             type_env=type_env,
@@ -1189,8 +1184,7 @@ def normalize_resolved_inline_procedure_calls(
                 for frame in expr.expansion_stack
             )
             if (procedure is not None and is_pure_function_expansion
-                and procedure_effect_summary is not None
-                and target_dsl_supports_effect_ceilings(target_dsl_version)):
+                and procedure_effect_summary is not None):
                 from .effects import unresolved_effect_calls
                 if unresolved_effect_calls(procedure_effect_summary, typed_procedures_by_name):
                     raise representation_unsupported()
@@ -1203,11 +1197,10 @@ def normalize_resolved_inline_procedure_calls(
                     or procedure_effect_summary.transitive_effects
                 )
             ):
-                if target_dsl_supports_effect_ceilings(target_dsl_version):
-                    from .effects import effect_summary_contains_runs_ref
-                    from .typecheck_context import raise_run_ref_placement_invalid
-                    if effect_summary_contains_runs_ref(procedure_effect_summary):
-                        raise_run_ref_placement_invalid(expr, reason="is not permitted in a pure function")
+                from .effects import effect_summary_contains_runs_ref
+                from .typecheck_context import raise_run_ref_placement_invalid
+                if effect_summary_contains_runs_ref(procedure_effect_summary):
+                    raise_run_ref_placement_invalid(expr, reason="is not permitted in a pure function")
                 raise LispFrontendCompileError(
                     (
                         LispFrontendDiagnostic(
@@ -2060,10 +2053,7 @@ def _validate_pure_function_expr(
     expr: ExprNode,
     *,
     function_def: FunctionDef,
-    procedure_catalog: "ProcedureCatalog | None" = None,
-    target_dsl_version: str | None = None,
 ) -> None:
-    from .effects import RunsRefEffect
     from .typecheck_context import raise_run_ref_placement_invalid
 
     for candidate in walk_expr(expr):
@@ -2072,17 +2062,6 @@ def _validate_pure_function_expr(
                 candidate,
                 reason="is not permitted in a pure function",
             )
-        if isinstance(candidate, ProcedureCallExpr) and procedure_catalog is not None:
-            signature = procedure_catalog.signatures_by_name.get(candidate.callee_name)
-            if (not target_dsl_supports_effect_ceilings(target_dsl_version or "")
-                and signature is not None and any(
-                isinstance(effect, RunsRefEffect)
-                for effect in signature.declared_effects
-            )):
-                raise_run_ref_placement_invalid(
-                    candidate,
-                    reason="is not permitted in a pure function",
-                )
     violation = _find_purity_violation(
         expr,
         allow_procedure_calls=True,

@@ -9,8 +9,7 @@ from experiments.orc_structural_search.candidates import candidate_id, compile_c
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 
 REPO = Path(__file__).resolve().parents[2]
-SOURCE = (REPO / "workflows/examples/plan_review_execute.orc").read_text().replace(
-    '(:target-dsl "2.35")', '(:target-dsl "2.39")')
+SOURCE = (REPO / "workflows/examples/plan_review_execute.orc").read_text()
 PROVIDERS = (REPO / "workflows/examples/inputs/plan_review_execute/providers.json").read_text()
 CONFIG = {
     "mutable_files": ["plan_review_execute.orc"],

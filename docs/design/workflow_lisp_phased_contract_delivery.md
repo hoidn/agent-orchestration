@@ -61,8 +61,8 @@ model, effort, timeout, required documents and result-guidance contracts apply.
 
 - Omitted delivery and explicit `:delivery :composed` retain the existing
   composed path and its exact request, artifact and memo shapes.
-- `:delivery :phased` is admitted only when its defining source targets 2.39.
-  An imported older definition does not gain admission from a 2.39 caller.
+- `:delivery :phased` arrived at target 2.39 and is part of the one admitted
+  target, 2.40.
 - `:materialization-attempts` is an integer literal in `1..3`, defaults to `2`
   for phased delivery, and is illegal otherwise. It counts total candidate
   submissions in this attempt, not provider attempts or crash retries.

@@ -422,15 +422,9 @@ def match(value, *, name=None, **cases):
     return _bind_branch(trace, expression, binder, name)
 
 
-def _require_host_input_target(generator, *, site=None):
-    if str(getattr(generator.module, "TARGET", "2.39")) != "2.40":
-        raise PythonFrontendError("python_host_input_target", "ask and HostReply require explicit TARGET = '2.40'", site=site)
-
-
 def ask(question, *, returns, timeout_sec=None, show=(), name=None):
     from .declarations import HostReply, PromptApplication
     trace = active_trace()
-    _require_host_input_target(trace.generator)
     if isinstance(question, PromptApplication) and question.prompt.extern_name is not None:
         raise PythonFrontendError("python_host_prompt_extern", "Host questions require a declared prompt application, not Prompt.extern")
     return trace.bind(trace.expression("ask", (question, returns, timeout_sec, tuple(show)), HostReply[returns]),

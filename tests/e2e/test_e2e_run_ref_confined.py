@@ -395,7 +395,7 @@ def test_host_refuses_a_fifo_result_file_promptly_as_escape_rejected(launch):
     }, elapsed
 
 
-TASK9_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+TASK9_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule run_ref_confined) (export main)
   (defpath Artifact :kind relpath :under "out" :must-exist true)
   (defworkflow candidate-body ((seed Int)) -> Artifact

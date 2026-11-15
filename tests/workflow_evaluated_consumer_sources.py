@@ -142,9 +142,11 @@ PROGRAMS = {
     "reviewed_change": Program(
         f"{COMPARISON}/reviewed_change.orc", "reviewed_change::reviewed-change", COMPARISON,
         {"providers": f"{COMPARISON}/reviewed_change.providers.json"}, prepare=lambda root: _repository(root / "repo")),
+    # The frozen smoke source stays at 2.35 (closed at the one-target cut); tests run its 2.40 copy.
     "best_of_n": Program(
         f"{COMPARISON}/best_of_n.orc", "best_of_n::best-of-n", COMPARISON,
-        {"providers": f"{COMPARISON}/best_of_n.providers.json"}, prepare=_candidates),
+        {"providers": f"{COMPARISON}/best_of_n.providers.json"}, prepare=_candidates,
+        source_fixture="tests/fixtures/workflow_lisp/current_examples/best_of_n.orc"),
     "watchdog": Program(
         "workflows/library/generic_run_watchdog/watchdog.orc", "generic_run_watchdog/watchdog::watchdog",
         "workflows/library", {kind: f"{MIGRATIONS}/generic_run_watchdog.{kind}.json" for kind in FLAGS},

@@ -656,7 +656,7 @@ class Builder:
             return reader, {}
         procedure, source = self.procedure_owners[call.specialized_callee_name or call.callee_name]
         origin = context.io_routes.get(expression.callee_name, {})
-        reader = self._io_procedure_reader(procedure, source, context, origin.get((), ("reader",)))
+        reader = ("reader",)
         references = {path: route for path, route in origin.items() if path}
         base, _, _ = self._procedure_binding_maps(procedure)
         parameters = base.signature.params if len(base.signature.params) == len(expression.args) else procedure.signature.params
@@ -666,14 +666,6 @@ class Builder:
             projection = self._io_reference_projection(argument, context.io_routes, d)
             references.update({(formal, *path): route for path, route in projection.items()})
         return reader, references
-
-    def _io_procedure_reader(self, procedure, source, context, origin):
-        from ..procedures import effective_private_workflow_name
-
-        if self._command_inline_edge(procedure, context):
-            return ("reader",)
-        return ("procedure", effective_private_workflow_name(procedure),
-            self._module_for_owner(source, procedure.definition.name, procedure), origin)
 
     def _remember_io_call(self, node, d, request):
         if request.io_reader is None:
@@ -2780,18 +2772,17 @@ class Builder:
     def _preparation_inputs(self, procedure, source, captures, facts, actual_values, context):
         from .names import _key_type_ref, _source_expression_identity
 
-        inline = self._command_inline_edge(procedure, context)
         roots = [(formal, _key_type_ref(operand.metadata.type_ref,
             typed=context.source_program, run_ref_signatures=_run_ref_signatures(context.source_program)))
-            for formal, operand in context.command_roots] if inline else []
-        index = context.command_index if inline else None
+            for formal, operand in context.command_roots]
+        index = context.command_index
         index_type = None if index is None else _key_type_ref(index.metadata.type_ref,
             typed=context.source_program, run_ref_signatures=_run_ref_signatures(context.source_program))
         rows = [self._capture_key_shapes(captures, source),
             _source_expression_identity(facts, typed=source),
             self._preparation_substitutions(procedure, facts),
-            roots, index_type, inline, self._command_root_partition(context) if inline else []]
-        actuals = self._preparation_actuals(procedure, source, actual_values) if inline else ()
+            roots, index_type, True, self._command_root_partition(context)]
+        actuals = self._preparation_actuals(procedure, source, actual_values)
         return ("procedure", id(source), procedure.definition.name, _canonical_json(rows), _canonical_json(actuals))
 
     def _preparation_actuals(self, procedure, source, actual_values):
@@ -2918,20 +2909,6 @@ class Builder:
             "command_params": prepared["command_params"]}
 
     @staticmethod
-    def _command_inline_edge(procedure, context):
-        from orchestrator.workflow_lisp.procedure_specialization import (
-            schema1_iteration_private_override_applies,
-        )
-        from ..procedures import ProcedureLoweringMode
-
-        facts = context.control
-        return procedure.resolved_lowering_mode != ProcedureLoweringMode.PRIVATE_WORKFLOW and not schema1_iteration_private_override_applies(
-            procedure, iteration_scope=facts.iteration_scope, workflow_name=facts.workflow_name,
-            default_type_env=facts.type_env, typed_procedures=facts.typed_procedures,
-            procedure_type_envs=facts.procedure_type_envs,
-            workflow_signatures=facts.workflow_catalog.signatures_by_name)
-
-    @staticmethod
     def _procedure_compile_time_bindings(procedure, captures):
         from orchestrator.workflow_lisp.procedure_specialization import (
             procedure_specialization_bindings,
@@ -3044,11 +3021,10 @@ class Builder:
         from orchestrator.workflow_lisp.procedure_specialization import (inline_procedure_bindings)
         from .command_interfaces import command_bearing, command_capture_routes, command_fact_demand
 
-        inline = self._command_inline_edge(procedure, command_context)
-        values = inline_procedure_bindings(procedure, caller_values={}, actual_values=actual_values) if inline else {}
+        values = inline_procedure_bindings(procedure, caller_values={}, actual_values=actual_values)
         type_env = source_program.procedure_type_env(procedure)
         value_env, root_names, index_name, root_candidates = self._command_root_bindings(
-            procedure, captures, command_context, inline, source_program)
+            procedure, captures, command_context, source_program)
         capture_sources = self._command_capture_source_bindings(
             procedure, source_program, call, captures, command_context, d)
         local = self._command_procedure_context(procedure, source_program, type_env,
@@ -3063,7 +3039,7 @@ class Builder:
         demand = command_fact_demand(body, child_demands=demands, call_declaration_identity=resolver)
         indices = tuple(range(len(call.args)))
         obligations = ()
-        if inline and demand:
+        if demand:
             effective, indices = self._inline_static_view(procedure, actual_values, binding_facts, d, source_program)
             if effective is not procedure:
                 procedure = effective
@@ -3081,13 +3057,13 @@ class Builder:
         routes = command_capture_routes(body, child_interfaces=child_interfaces, call_declaration_identity=resolver)
         self._retain_command_roots(captures, root_candidates, routes, command_context, d)
         interface, command_params, lookup_demand = self._procedure_command_interface(
-            procedure, source_program, body, children, captures, inline, resolver)
+            procedure, source_program, body, children, captures, True, resolver)
         bearing = command_bearing(body, child_bearings={selector: child.command_bearing
             for selector, child in children.items()}, call_declaration_identity=resolver)
         return {"procedure": procedure, "arguments": tuple(call.args[index] for index in indices),
             "argument_indices": indices, "body": body, "children": children,
             "interface": interface, "command_params": command_params,
-            "fact_demand": inline and demand, "lookup_demand": inline and lookup_demand,
+            "fact_demand": demand, "lookup_demand": lookup_demand,
             "bearing": bearing, "projection_type_obligations": obligations,
             "retained_capture_bindings": local.capture_binding_identities,
             "capture_source_bindings": capture_sources,
@@ -3169,31 +3145,24 @@ class Builder:
                     result.append(association)
         return tuple(result)
 
-    def _command_root_bindings(self, procedure, captures, context, inline, source_program):
+    def _command_root_bindings(self, procedure, captures, context, source_program):
         value_env = dict(_procedure_signature_local_type_bindings(procedure))
         for index, capture in enumerate(captures):
             value_env[self._capture_source(index)] = capture.type_ref
         for name, index in self._runtime_capture_names(procedure, captures, source_program).items():
             value_env[name] = captures[index].type_ref
         roots, candidates, index_name = {}, [], None
-        if inline:
-            for formal, operand in context.command_roots:
-                route = ["command-input", formal]
-                internal = self._command_capture_source(route)
-                value_env[internal] = operand.metadata.type_ref
-                roots[formal] = internal
-                candidates.append((route, operand))
-            if context.command_index is not None:
-                route = ["command-loop-index"]
-                index_name = self._command_capture_source(route)
-                value_env[index_name] = context.command_index.metadata.type_ref
-                candidates.append((route, context.command_index))
-        else:
-            roots.update((name, name) for name, _ in procedure.signature.params)
-            for capture in captures:
-                for route in capture.routes:
-                    if route[0] == "parameter":
-                        roots[route[1]] = route[1]
+        for formal, operand in context.command_roots:
+            route = ["command-input", formal]
+            internal = self._command_capture_source(route)
+            value_env[internal] = operand.metadata.type_ref
+            roots[formal] = internal
+            candidates.append((route, operand))
+        if context.command_index is not None:
+            route = ["command-loop-index"]
+            index_name = self._command_capture_source(route)
+            value_env[index_name] = context.command_index.metadata.type_ref
+            candidates.append((route, context.command_index))
         return value_env, roots, index_name, candidates
 
     def _retain_command_roots(self, captures, candidates, demanded, context, d):
