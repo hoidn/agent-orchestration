@@ -1162,6 +1162,7 @@ def _orphan(short, lh):
     fx = json.loads((KIT / "fixtures" / "token-three-tools-normal-end.json").read_text())
     trial = ctx.root / "slots" / attempt["id"] / "jobs" / attempt["id"] / "wal-recovery-ordering__abcdefg"
     _replay({**fx, "verifier_result": {"rewards": {"reward": 1.0}}}, trial)
+    _container(lh, f"{trial.name.lower()}__env_main_1")  # the session's containers, still there
     return ctx, attempt, trial
 
 
@@ -1220,6 +1221,16 @@ def test_a_match_in_one_container_s_file_system_is_never_replaced_by_a_later_con
     """B1: the trial's agent container and a verifier project's both end in _main_1; the first holds the token."""
     found = _runtime(short, lambda t: {MAIN: {"fs": f"x {t} y"}, "verifier__abc_main_1": {"fs": "clean\n"}})
     assert found == MATCH
+
+
+@pytest.mark.parametrize("containers, session, want", [
+    (lambda t: {}, True, INCOMPLETE),  # a session, and no container under the trial's prefix
+    (lambda t: {"env_agent_1": {"fs": f"x {t} y"}}, True, INCOMPLETE),  # an export due, and no agent container
+    (lambda t: {"env_agent_1": {}}, False, INCOMPLETE),
+    (lambda t: {}, False, None)])  # no session and no container: nothing ran, nothing to scan
+def test_a_runtime_check_that_finds_nothing_it_must_read_is_incomplete_never_clean(short, containers, session, want):
+    """B2: an attempt with a session, or with containers, whose agent container is not found."""
+    assert _runtime(short, containers, session=session) == want
 
 def _events_file(root, *events):
     with open(root / "passthrough" / "tranche.jsonl", "a") as fh:

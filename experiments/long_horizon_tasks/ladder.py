@@ -1670,11 +1670,18 @@ def _export_scan(ctx, name):
     return 2 if exported.wait() != 0 and code == 0 else code
 
 
+def had_session(attempt_dir):
+    """Whether the attempt's trial holds the agent's stream: a session ran, so containers ran."""
+    trial = trial_dir(attempt_dir)
+    return trial is not None and (trial / "agent" / "claude-code.txt").is_file()
+
+
 def runtime_check(ctx, attempt_dir, export):
     """D4's runtime check on the attempt's containers before they are removed: every container's inspected
     configuration and the process environments read while it ran; with `export`, the file system of every agent
     container (`*_main_1`) too. The egress sidecar's log is read to its end and kept first. The finding, or None:
-    any finding in any container is the attempt's."""
+    any finding in any container is the attempt's. A session with no container under the trial's prefix, or an
+    export due with no agent container, is an incomplete scan, never clean (Task 8 B2)."""
     (attempt_dir / "containers").mkdir(exist_ok=True)
     names = container_names(ctx, prefixes(attempt_dir))
     for name in names:
@@ -1684,7 +1691,10 @@ def runtime_check(ctx, attempt_dir, export):
     for name in names:
         (attempt_dir / "containers" / f"{name}.inspect.json").write_bytes(podman(ctx, "inspect", name).stdout)
     codes = [token_scan(ctx, attempt_dir / "containers")] if names else []  # no container: nothing to scan
-    for name in [n for n in names if n.endswith("_main_1")] if export else []:
+    agents = [n for n in names if n.endswith("_main_1")]
+    if (names or had_session(attempt_dir)) and (not names or export and not agents):
+        codes.append(2)
+    for name in agents if export else []:
         if 1 in codes:
             break
         codes.append(_export_scan(ctx, name))
