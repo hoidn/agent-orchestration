@@ -1,4 +1,4 @@
-"""Confined run-ref children end to end: public `orchestrator run` at 2.38 with a real holder.
+"""Confined run-ref children end to end: public `orchestrator run` at 2.40 with a real holder.
 
 Task 6c witnesses. The parent compiles a confined `run-ref :program (:workflow ...)`
 site whose child runs two command leaves (`python3 write.py`, then `python3
@@ -40,7 +40,7 @@ WRITE = 'import os\nopen("out.txt", "w").write("written by leaf one\\n")\n' \
         'open(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], "w").write("3")\n'
 READ = 'import os\nn = len(open("out.txt").read())\nopen(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], "w").write(str(n))\n'
 STOP = 'import os, signal\nopen("late.txt", "w").write("never checkpointed\\n")\nos.kill(os.getppid(), signal.SIGSTOP)\n'
-PARENT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+PARENT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule controller) (export run)
   (defworkflow candidate-body ((seed Int)) -> Int
     (let* ((first (command-result first :argv ("python3" "write.py") :returns Int))
