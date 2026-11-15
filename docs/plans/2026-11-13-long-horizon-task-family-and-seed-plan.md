@@ -434,7 +434,7 @@ listed address is reachable on every port (recorded). The proxy dials a listed n
      system.
    - *Its limit:* it finds a whole copy in one of those forms, not a part of the token and not
      another encoding (compressed, encrypted, or escaped, such as JSON's `\/` or a URL's
-     `%XX`). A named path it cannot read whole (missing, unreadable, a symlink, or no file at
+     `%XX`), and not base64 wrapped at 76 columns (`base64(1)`'s default and MIME's). A named path it cannot read whole (missing, unreadable, a symlink, or no file at
      all) fails the scan. A match anywhere is a stop; the owner revokes the token and replaces
      it.
 
