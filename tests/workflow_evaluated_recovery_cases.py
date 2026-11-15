@@ -26,9 +26,11 @@ from tests.workflow_evaluated_recovery_helpers import WINDOWS, current_source, d
 
 IMPROVE = "workflow:improve_experiment_proposal::run-experiment"
 STD = (IMPROVE + " / result=procedure:std/improve::improve"
-       "[7eaa3bc62fe4dc0150d1ba45bf073096c79f3f6259b001f8769d1fccefa68ed5] / loop:state")
-REVIEW = "decision=procedure:improve_experiment_proposal::review-proposal / #1"
-REVISE = "REVISE / next=procedure:improve_experiment_proposal::revise-proposal / #1"
+       "[b9406f757d2f1b1b1898accbfe7f7d67acae54e3c09c6e3043ca9bb12ad030b9] / loop:state")
+REVIEW = ("decision=procedure:improve_experiment_proposal::review-proposal"
+          "[d03757aaeecde4717b05e190306cdb308a6724d3673e0851e1e0a226ed705c91] / #1")
+REVISE = ("REVISE / next=procedure:improve_experiment_proposal::revise-proposal"
+          "[1495ecd870eaa93399ceb904c2e6f084912a27c0709dbf0cf836630817a8d524] / #1")
 REVIEWED = "workflow:reviewed_change::reviewed-change"
 BEST = "workflow:best_of_n::best-of-n"
 CODER = " / else / #1=workflow:best_of_n::implement-one / change"

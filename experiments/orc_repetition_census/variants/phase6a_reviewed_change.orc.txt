@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   ;; Measurement variant installed at the maintained source path by the focused pilot test.
   (defmodule reviewed_change)
   (import std/improve :only (Decision improve))
@@ -63,8 +63,6 @@
 
   (defproc review-for-improve ((state ReviewState) (context ReviewContext))
     -> Decision[Review Outcome]
-    :effects ((uses-provider providers.reviewer))
-    :lowering inline
     (let* ((review (provider-result providers.reviewer
                      :prompt (review-prompt
                                :repo context.repo
@@ -94,8 +92,6 @@
   (defproc revise-for-improve
     ((state ReviewState) (context ReviewContext) (review Review))
     -> ReviewState
-    :effects ((uses-provider providers.coder))
-    :lowering inline
     (match review
       ((REQUEST_CHANGES r)
        (let* ((revision (provider-result providers.coder
@@ -128,9 +124,9 @@
                      :effort "medium"
                      :timeout-sec 5400))
            (initial (record ReviewState :round 1 :account change.account :replies "none"))
-           (result (improve initial context
-                            (proc-ref review-for-improve)
-                            (proc-ref revise-for-improve)
+           (result (improve initial
+                            (bind-proc (proc-ref review-for-improve) :context context)
+                            (bind-proc (proc-ref revise-for-improve) :context context)
                             3)))
       (match result
         ((APPROVED approved)

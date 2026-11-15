@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   ;; Measurement variant installed at the maintained source path by the focused pilot test.
   (defmodule reviewed_change)
   (import std/improve :only (Decision Improvement))
@@ -44,21 +44,17 @@
      (limit Int))
     :where ((S is-record))
     -> Improvement[S F B]
-    :effects ()
-    :lowering inline
-    (loop/recur :max limit
-      :state (loop-state (current S initial))
+    (loop/recur ((state (loop-state (current S initial)))) :max limit
       :on-exhausted (variant Improvement[S F B] EXHAUSTED :value state.current)
-      (fn (state)
-        (let* ((decision (review state.current)))
-          (match decision
-            ((APPROVE a)
-             (done (variant Improvement[S F B] APPROVED :value state.current :evidence a.evidence)))
-            ((BLOCKED b)
-             (done (variant Improvement[S F B] BLOCKED :value state.current :reason b.reason)))
-            ((REVISE r)
-             (let* ((next (revise state.current r.feedback)))
-               (continue (loop-state :like state :current next)))))))))
+      (let* ((decision (review state.current)))
+        (match decision
+          ((APPROVE a)
+           (done (variant Improvement[S F B] APPROVED :value state.current :evidence a.evidence)))
+          ((BLOCKED b)
+           (done (variant Improvement[S F B] BLOCKED :value state.current :reason b.reason)))
+          ((REVISE r)
+           (let* ((next (revise state.current r.feedback)))
+             (continue (loop-state :like state :current next))))))))
 
   (defprompt implement-prompt
     (:fills (task :text))
@@ -82,8 +78,6 @@
 
   (defproc review-for-improve ((state ReviewState) (repo String) (intent String))
     -> Decision[Review Outcome]
-    :effects ((uses-provider providers.reviewer))
-    :lowering inline
     (let* ((review (provider-result providers.reviewer
                      :prompt (review-prompt
                                :repo repo
@@ -113,8 +107,6 @@
   (defproc revise-for-improve
     ((state ReviewState) (task String) (review Review))
     -> ReviewState
-    :effects ((uses-provider providers.coder))
-    :lowering inline
     (match review
       ((REQUEST_CHANGES r)
        (let* ((revision (provider-result providers.coder
