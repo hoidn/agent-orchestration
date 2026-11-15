@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 
 import pytest
 
@@ -23,7 +24,7 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from tests.workflow_lisp_closed_program_helpers import build_outcome
 
 SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
-  (defmodule m) (export run)
+  (defmodule m)IMPORTS (export run)
   (defrecord Pair (a Int))
   (defrecord Note (text String))
   (defprompt ask (:fills (q :text)) -> Pair "Answer {q}.")
@@ -35,9 +36,15 @@ ASK = '(ask :q "x")'
 CALL = '(provider-result providers.a :model model :prompt {})'
 
 
-def build(root: Path, body: str, *definitions: str, result: str = "Int"):
-    """The public build of `run`; returns the build result, or raises the build's error."""
+def build(root: Path, body: str, *definitions: str, result: str = "Int", lib: str | None = None):
+    """The public build of `run`; returns the build result, or raises the build's error.
+
+    `lib` is the definitions of a module `lib` beside `m`, exporting each name it defines; `m` imports them."""
     source = SOURCE.replace("DEFINITIONS", "\n  ".join(definitions)).replace("RESULT", result).replace("BODY", body)
+    source = source.replace("IMPORTS", "" if lib is None else f" (import lib :as lib :only ({' '.join(_defined(lib))}))")
+    if lib is not None:
+        (root / "lib.orc").write_text(f'(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule lib) '
+                                      f"(export {' '.join(_defined(lib))})\n  {lib})\n", encoding="utf-8")
     (root / "m.orc").write_text(source, encoding="utf-8")
     (root / "providers.json").write_text(json.dumps({"providers.a": "codex", "providers.b": "codex"}))
     return build_closed_program_bundle(FrontendBuildRequest(
@@ -45,10 +52,14 @@ def build(root: Path, body: str, *definitions: str, result: str = "Int"):
         provider_externs_path=root / "providers.json", workspace_root=root))
 
 
-def outcome(root: Path, body: str, *definitions: str, result: str = "Int") -> tuple:
+def _defined(definitions: str) -> list[str]:
+    return re.findall(r"\((?:defrecord|defunion|defproc) ([^\s)]+)", definitions)
+
+
+def outcome(root: Path, body: str, *definitions: str, result: str = "Int", lib: str | None = None) -> tuple:
     """`("builds", digest)`, `("refused", codes...)` or the crash of a `compiler_defect`."""
     built = []
-    seen = build_outcome(lambda: built.append(build(root, body, *definitions, result=result)))
+    seen = build_outcome(lambda: built.append(build(root, body, *definitions, result=result, lib=lib)))
     return ("builds", built[0].program.digest) if built else seen
 
 
@@ -202,6 +213,95 @@ SHADOWS_PROVIDER = {
 def test_binding_named_like_a_provider_keeps_its_digest(tmp_path, position):
     """A name bound over a provider extern's name is that binding, not the provider (recorded by the base build)."""
     body, definitions, recorded = SHADOWS_PROVIDER[position]
+
+    assert outcome(tmp_path, body, *definitions) == ("builds", recorded)
+
+
+TAKE_PROVIDER = "(defproc take ((w Provider) (k Int)) -> Int k)"
+BIND = "(bind-proc (proc-ref take) :w providers.a)"
+UNCALLED_BIND_PROC = {
+    "a let* binding": (f"(let* ((f {BIND})) n)", (TAKE_PROVIDER,), None, "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+    "an alias of it": (f"(let* ((f {BIND}) (g f)) n)", (TAKE_PROVIDER,), None, "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+    "inside a reached procedure": ("(f n)", (TAKE_PROVIDER, f"(defproc f ((k Int)) -> Int (let* ((g {BIND})) k))"), None,
+                                   "sha256:f3e85f5e4f834968add31aff4dc577724846a0e4b8ffef6ddaea1d6d8f0566f8"),
+    "an if branch": (f"(if (> n 0) (let* ((f {BIND})) n) 0)", (TAKE_PROVIDER,), None, "sha256:fc359258b0fe46e139218ef99484a503c775fc1b0dd60fb31b114fb1eb0c2213"),
+    "a map body": (f"(list/length (list/map ((x (list 1 2))) (let* ((f {BIND})) x)))", (TAKE_PROVIDER,), None, "sha256:dadf68606c17a1152f3e1bce42ce8315f85af9e748b72ad9783db10247c5a670"),
+    "a loop body": (f"(loop/recur ((s 0)) :max 1 :on-exhausted n (let* ((f {BIND})) (done s)))", (TAKE_PROVIDER,), None,
+                    "sha256:69e24e7b37cc2c08f31d9678a7bde00bd057fcae516ee9964f1443de6ce42836"),
+    "over a let-proc local": ("(let-proc ((h ((w Provider) (k Int)) -> Int k)) "
+                              "(let* ((g (bind-proc (proc-ref h) :w providers.a))) n))", (), None, "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+    "beside a proc-ref": (f"(let* ((g {BIND}) (r (proc-ref take))) n)", (TAKE_PROVIDER,), None, "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+    "a macro expansion": ("(mk n)", (TAKE_PROVIDER, f"(defmacro mk (x) (let* ((f {BIND})) x))"), None, "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+    "over an imported procedure": ("(let* ((f (bind-proc (proc-ref lib.take) :w providers.a))) n)", (), TAKE_PROVIDER,
+                                   "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+}
+
+
+@pytest.mark.parametrize("position", sorted(UNCALLED_BIND_PROC))
+def test_bind_proc_over_a_provider_that_is_not_called_keeps_its_digest(tmp_path, position):
+    """A `bind-proc` argument is not a refused position (design §4.4); recorded by the base build."""
+    body, definitions, lib, recorded = UNCALLED_BIND_PROC[position]
+
+    assert outcome(tmp_path, body, *definitions, lib=lib) == ("builds", recorded)
+
+
+# A type the author declares, or imports, under the name `Prompt` or `Provider` keeps its meaning.
+USER_PROMPT = "(defunion Prompt :forall (T) (SOME (value T)) (NONE (none Int)))"
+OPEN = "(match p ((SOME s) s.value) ((NONE x) 0))"
+DECLARED_PROMPT = {
+    "a record field": ("n", (USER_PROMPT, "(defrecord H (p Prompt[Int]))"), "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+    "a let* value": (f"(let* ((p (variant Prompt[Int] SOME :value n))) {OPEN})", (USER_PROMPT,), "sha256:014728386301059deac8f4e74a60d6ac3c21d6ca0474c589661d6da6a7371104"),
+    "a result type": ("(match (f n) ((SOME s) s.value) ((NONE x) 0))",
+                      (USER_PROMPT, "(defproc f ((k Int)) -> Prompt[Int] (variant Prompt[Int] SOME :value k))"),
+                      "sha256:c18f857cad03539c2ca9a8f5826c4c118c07c7797fd550b68b918e3d3080e599"),
+    "a workflow parameter": ("n", (USER_PROMPT, "(defworkflow w ((p Prompt[Int])) -> Int 1)"), "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+    "a procedure parameter it uses": ("(f (variant Prompt[Int] SOME :value n))",
+                                      (USER_PROMPT, f"(defproc f ((p Prompt[Int])) -> Int {OPEN})"), "sha256:a6aad26bc7d7a421f7ad3b38bc444531102839b5872e6fd393e3b2225662334b"),
+    "a list item": ("n", (USER_PROMPT, "(defrecord H (ps List[Prompt[Int]]))"), "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+}
+
+
+@pytest.mark.parametrize("position", sorted(DECLARED_PROMPT))
+def test_a_union_declared_as_prompt_keeps_its_digest(tmp_path, position):
+    """`Prompt[...]` is the built-in type only where no declared or imported type has the name (recorded by the
+    base build)."""
+    body, definitions, recorded = DECLARED_PROMPT[position]
+
+    assert outcome(tmp_path, body, *definitions) == ("builds", recorded)
+
+
+IMPORTED_PROMPT = {
+    "a record field": ("n", ("(defrecord H (p Prompt[Int]))",)),
+    "a procedure parameter it uses": ("(f (variant Prompt[Int] SOME :value n))",
+                                      (f"(defproc f ((p Prompt[Int])) -> Int {OPEN})",)),
+    "a procedure parameter it does not use": ("n", ("(defproc f ((p Prompt[Int])) -> Int 1)",)),
+}
+
+
+@pytest.mark.parametrize("position", sorted(IMPORTED_PROMPT))
+def test_an_imported_union_named_prompt_keeps_the_base_refusal(tmp_path, position):
+    """The prelude's `Prompt` shadows an imported one, so the base refuses these with `generic_union_not_generic`;
+    the built-in `Prompt[...]` does not take them over."""
+    body, definitions = IMPORTED_PROMPT[position]
+
+    assert outcome(tmp_path, body, *definitions, lib=USER_PROMPT) == ("refused", "generic_union_not_generic")
+
+
+USER_PROVIDER = {
+    "a record field": ("n", ("(defrecord Provider (a Int))", "(defrecord H (p Provider))"), "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+    "a record as parameter and result": ("(let* ((r (f (record Provider :a n)))) r.a)",
+                                         ("(defrecord Provider (a Int))", "(defproc f ((w Provider)) -> Provider w)"),
+                                         "sha256:a14bdac276aea1f7decd3d19845a9df61f8079b664245af4e8c88e1720ab97d0"),
+    "a union as parameter and result": ("(match (f (variant Provider ONE :a n)) ((ONE o) o.a) ((TWO t) t.b))",
+                                        ("(defunion Provider (ONE (a Int)) (TWO (b Int)))",
+                                         "(defproc f ((w Provider)) -> Provider w)"), "sha256:2df6ebd3b8cf077f81690b1e17387c97fb36763a05cf8133509377fe62d107e0"),
+}
+
+
+@pytest.mark.parametrize("position", sorted(USER_PROVIDER))
+def test_a_type_declared_as_provider_keeps_its_digest(tmp_path, position):
+    """Recorded by the base build; the provider check reads extern names, not the type name."""
+    body, definitions, recorded = USER_PROVIDER[position]
 
     assert outcome(tmp_path, body, *definitions) == ("builds", recorded)
 
