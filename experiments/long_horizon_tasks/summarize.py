@@ -41,31 +41,50 @@ def _role(name):
     return ("verifier " if "__verifier__" in name else "agent ") + ("sidecar" if "sidecar" in name else "main")
 
 
+def _named(rest, trial):
+    """A sample line's container name and fields, and whether it is the trial's own (all are, without a trial)."""
+    name, *fields = rest.split(" ")
+    return name, dict(f.split("=", 1) for f in fields), not trial or name.startswith(trial.lower() + "__")
+
+
+def _container(acc, rest, trial):
+    name, values, own = _named(rest, trial)
+    if not own:
+        return
+    box = acc["boxes"].setdefault(name, {"role": _role(name), "peak_bytes": None, "affinity": set()})
+    if values.get("peak"):
+        box["peak_bytes"] = max(box["peak_bytes"] or 0, int(values["peak"]))
+    box["affinity"] |= set(filter(None, values.get("affinity", "").split("|")))
+
+
+def _policy(acc, rest, trial):
+    name, values, own = _named(rest, trial)
+    seen = {"role": _role(name), "mode": values["mode"].replace("_", " "), "hosts": int(values["hosts"])}
+    if own and seen not in acc["policies"]:
+        acc["policies"].append(seen)
+
+
+def _free_min(frees):
+    return {"/": min(f[0] for f in frees), "/home": min(f[1] for f in frees)} if frees else None
+
+
+_SAMPLE = {"load": lambda acc, rest, trial: acc["load"].append(float(rest)),
+           "free": lambda acc, rest, trial: acc["free"].append([int(x) for x in rest.split()]),
+           "container": _container, "policy": _policy}
+
+
 def parse_samples(text, trial=None):
-    """The highest 1-minute load, the lowest free space, and per container its peak memory and affinities.
+    """The highest 1-minute load, the lowest free space, per container its peak memory and affinities, and the
+    network policies the sidecars reported (`network-policy show`), each once, in the order seen.
 
     The follower samples every container of the label; given the trial's name, only that trial's are kept."""
-    loads, frees, boxes = [], [], {}
-    own = (trial or "").lower() + "__"
-    for line in text.splitlines():
-        kind, _, rest = line.partition(" ")
-        if kind == "load":
-            loads.append(float(rest))
-        elif kind == "free":
-            frees.append([int(x) for x in rest.split()])
-        elif kind == "container":
-            name, *fields = rest.split(" ")
-            if trial and not name.startswith(own):
-                continue
-            values = dict(f.split("=", 1) for f in fields)
-            box = boxes.setdefault(name, {"role": _role(name), "peak_bytes": None, "affinity": set()})
-            if values.get("peak"):
-                box["peak_bytes"] = max(box["peak_bytes"] or 0, int(values["peak"]))
-            box["affinity"] |= {a for a in values.get("affinity", "").split("|") if a}
-    return {"load_max": max(loads, default=None),
-            "free_min": {"/": min(f[0] for f in frees), "/home": min(f[1] for f in frees)} if frees else None,
-            "containers": [b | {"affinity": sorted(b["affinity"])}
-                           for _, b in sorted(boxes.items(), key=lambda kv: (kv[1]["role"], kv[0]))]}
+    acc = {"load": [], "free": [], "boxes": {}, "policies": []}
+    for kind, _, rest in (line.partition(" ") for line in text.splitlines()):
+        if kind in _SAMPLE:
+            _SAMPLE[kind](acc, rest, trial)
+    boxes = sorted(acc["boxes"].items(), key=lambda kv: (kv[1]["role"], kv[0]))
+    return {"load_max": max(acc["load"], default=None), "free_min": _free_min(acc["free"]),
+            "policies": acc["policies"], "containers": [b | {"affinity": sorted(b["affinity"])} for _, b in boxes]}
 
 
 def parse_egress(texts):
@@ -118,38 +137,64 @@ def trial_record(round_dir):
               "load_start": _floats(meta.get("load_start")), "load_end": _floats(meta.get("load_end")),
               "gate": meta.get("gate"), "cpus": meta.get("cpus"), "overlay_sha256": meta.get("overlay_sha256"),
               "images": dict(x.split(":", 1) for x in meta.get("images", "").split()),
-              "disk_stop": meta.get("disk_stop")}
+              "wall_bound_s": int(meta["wall_bound_s"]) if "wall_bound_s" in meta else None,
+              "stop": meta.get("stop") or meta.get("disk_stop")}
     record |= {"env_s": None, "agent_setup_s": None, "agent_s": None, "verify_s": None} | _outcome(round_dir)
     own = f"egress-{(record['trial'] or '').lower()}__*"
     record["egress"] = parse_egress(p.read_text() for p in sorted(round_dir.glob(own)))
     return record | parse_samples(samples.read_text() if samples.exists() else "", record["trial"])
 
 
-def _passes(runs):
-    return [sum(r["reward"] == 1 for r in runs), len(runs)]
+def verdict(r):
+    """A graded run's outcome: "pass" (reward exactly 1), "fail" (reward exactly 0), or why it is no evidence.
+
+    A run is evidence only without an error or a stop and with the verifier's tests run (its output kept and,
+    where it wrote a CTRF report, at least one test in it); D1 counts reward 1 and reward 0 only."""
+    if r.get("stop"):
+        return "stopped: " + r["stop"]
+    if r["error"]:
+        return r["error"]
+    if r["reward"] is None:
+        return "no reward"
+    if r["verifier_output"] is None or (r["ctrf"] is not None and r["ctrf"]["tests"] == 0):
+        return "no tests ran"
+    return {1: "pass", 0: "fail"}.get(r["reward"], f"reward {r['reward']}")
 
 
 def _errors(runs):
-    return [f"{r['agent']} {r['round']}: {r['error'] or 'no reward'}" for r in runs
-            if r["error"] or (r["reward"] is None and r["agent"] != "install")]
+    """Every run that is no evidence, and an install that failed."""
+    graded = [f"{r['agent']} {r['round']}: {verdict(r)}" for r in runs
+              if r["agent"] != "install" and verdict(r) not in ("pass", "fail")]
+    return graded + [f"install {r['round']}: {r['error']}" for r in runs if r["agent"] == "install" and r["error"]]
+
+
+def _of(runs, agent):
+    return [r for r in runs if r["agent"] == agent]
+
+
+def _install(runs):
+    installs = _of(runs, "install")
+    return (installs[0]["error"] or "ok") if installs else None
+
+
+def _label_counts(label, runs):
+    ref, nop = _of(runs, "oracle"), _of(runs, "nop")
+    ref_v, nop_v = [verdict(r) for r in ref], [verdict(r) for r in nop]
+    qualifies = set(ref_v) == {"pass"} and set(nop_v) == {"fail"}  # both halves present, every run evidence
+    return {"label": label, "task": runs[0]["task"], "reference": [ref_v.count("pass"), len(ref)],
+            "untouched": [nop_v.count("pass"), len(nop)], "install": _install(runs), "errors": _errors(runs),
+            "passes": qualifies, "wall_s": {a: [r["wall_s"] for r in _of(runs, a)] for a in ("oracle", "nop")},
+            "load": [[r["load_start"], r["load_end"]] for r in ref + nop]}
 
 
 def counts(records):
-    """Per label: reference and untouched passes of runs, install outcome, errors, wall times, loads."""
+    """Per label: reference passes of runs, untouched passes (reward 1) of runs, install outcome, every run that
+    is no evidence, whether the label qualifies (every reference run passes, every untouched run earns exactly 0,
+    none is missing), wall times and loads."""
     by_label = defaultdict(list)
     for r in records:
         by_label[r["label"]].append(r)
-    out = {}
-    for label, runs in sorted(by_label.items()):
-        ref, nop = ([r for r in runs if r["agent"] == a] for a in ("oracle", "nop"))
-        installs = [r for r in runs if r["agent"] == "install"]
-        reference, untouched = _passes(ref), _passes(nop)
-        out[label] = {"label": label, "task": runs[0]["task"], "reference": reference, "untouched": untouched,
-                      "install": (installs[0]["error"] or "ok") if installs else None, "errors": _errors(runs),
-                      "passes": bool(ref and nop) and reference[0] == len(ref) and untouched[0] == 0,
-                      "wall_s": {a: [r["wall_s"] for r in rs] for a, rs in (("oracle", ref), ("nop", nop)) if rs},
-                      "load": [[r["load_start"], r["load_end"]] for r in ref + nop]}
-    return out
+    return {label: _label_counts(label, runs) for label, runs in sorted(by_label.items())}
 
 
 def _load(pair):
@@ -158,12 +203,13 @@ def _load(pair):
 
 
 def table(by_label):
-    lines = ["label | reference | untouched | install | wall s (oracle; nop) | load 1-min start-end | errors"]
+    lines = ["label | reference | untouched | install | wall s (oracle; nop) | load 1-min start-end | errors | verdict"]
     for c in by_label.values():
         walls = "; ".join(",".join(str(w) for w in c["wall_s"].get(a, [])) for a in ("oracle", "nop"))
         lines.append(" | ".join([c["label"], "reference {} of {}".format(*c["reference"]),
                                  "untouched {} of {}".format(*c["untouched"]), str(c["install"]), walls,
-                                 " ".join(_load(p) for p in c["load"]), "; ".join(c["errors"]) or "-"]))
+                                 " ".join(_load(p) for p in c["load"]), "; ".join(c["errors"]) or "-",
+                                 "qualifies" if c["passes"] else "does not qualify"]))
     return lines
 
 

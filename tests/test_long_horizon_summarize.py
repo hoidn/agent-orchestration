@@ -49,7 +49,16 @@ def test_samples_give_the_highest_load_the_lowest_free_space_and_each_container_
     assert got == {"load_max": 61.5, "free_min": {"/": 49 * 10**9, "/home": 70 * 10**9}, "containers": [
         {"role": "agent main", "peak_bytes": 250, "affinity": ["8-31"]},
         {"role": "agent sidecar", "peak_bytes": 7, "affinity": ["8-31"]},
-        {"role": "verifier main", "peak_bytes": 90, "affinity": ["0-31", "8-31"]}]}
+        {"role": "verifier main", "peak_bytes": 90, "affinity": ["0-31", "8-31"]}], "policies": []}
+
+
+def test_samples_give_each_sidecar_s_network_policies_in_the_order_seen():
+    text = ("policy t1__x__env_harbor-docker-egress-control-sidecar_1 mode=allow-all hosts=0\n"
+            "policy t1__x__env_harbor-docker-egress-control-sidecar_1 mode=controlled_egress hosts=13\n"
+            "policy t1__other__env_harbor-docker-egress-control-sidecar_1 mode=controlled_egress hosts=2\n")
+    assert summarize.parse_samples(text, "t1__x")["policies"] == [
+        {"role": "agent sidecar", "mode": "allow-all", "hosts": 0},
+        {"role": "agent sidecar", "mode": "controlled egress", "hosts": 13}]
 
 
 def test_containers_of_another_trial_of_the_same_label_are_left_out():
@@ -106,6 +115,34 @@ def test_a_trial_without_a_reward_counts_as_a_run_and_an_error(tmp_path):
 def test_a_task_passes_when_every_reference_run_passes_and_no_untouched_run_does(tmp_path):
     recs = _records(tmp_path, [("t1", "oracle", 1, 1.0, None), ("t1", "nop", 1, 0.0, None)])
     assert summarize.counts(recs)["t1"]["passes"] is True
+
+
+@pytest.mark.parametrize(("nop", "listed"), [
+    ({"reward": None, "error": "RuntimeError"}, "nop 1: RuntimeError"),
+    ({"reward": None}, "nop 1: no reward"),
+    ({"reward": 0.5}, "nop 1: reward 0.5"),
+    ({"reward": 0.0, "error": "AgentTimeoutError"}, "nop 1: AgentTimeoutError")])
+def test_an_untouched_run_counts_only_with_reward_exactly_0_and_no_error(tmp_path, nop, listed):
+    ref, untouched = _records(tmp_path, [("t1", "oracle", 1, 1.0, None), ("t1", "nop", 1, 0.0, None)])
+    got = summarize.counts([ref, untouched | nop])["t1"]
+    assert (got["errors"], got["passes"]) == ([listed], False)
+
+
+@pytest.mark.parametrize(("ref", "listed"), [
+    ({"ctrf": {"tests": 0, "passed": 0, "failed": 0, "skipped": 0}}, "oracle 1: no tests ran"),
+    ({"verifier_output": None}, "oracle 1: no tests ran"),
+    ({"error": "VerifierOutputParseError"}, "oracle 1: VerifierOutputParseError")])
+def test_a_reference_run_counts_only_with_reward_exactly_1_tests_run_and_no_error(tmp_path, ref, listed):
+    reference, nop = _records(tmp_path, [("t1", "oracle", 1, 1.0, None), ("t1", "nop", 1, 0.0, None)])
+    got = summarize.counts([reference | ref, nop])["t1"]
+    assert (got["reference"], got["errors"], got["passes"]) == ([0, 1], [listed], False)
+
+
+def test_the_table_says_whether_a_label_qualifies(tmp_path):
+    good = _records(tmp_path / "a", [("t1", "oracle", 1, 1.0, None), ("t1", "nop", 1, 0.0, None)])
+    bad = _records(tmp_path / "b", [("t2", "oracle", 1, 1.0, None), ("t2", "nop", 1, None, "RuntimeError")])
+    lines = summarize.table(summarize.counts(good + bad))
+    assert (lines[1].endswith("| qualifies"), lines[2].endswith("| does not qualify")) == (True, True)
 
 
 def test_the_table_prints_one_line_per_label_with_its_counts(tmp_path):
