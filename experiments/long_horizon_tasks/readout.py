@@ -4,6 +4,8 @@ Standard library only, so it runs under `python -I` like the rest of the kit.
 """
 
 import math
+import random
+from collections import defaultdict
 from fractions import Fraction
 
 
@@ -76,3 +78,83 @@ def band_effort(cells, rules):
     effort = min((e for e, (k, n) in cells.items() if k >= 1),
                  key=lambda e: (abs(Fraction(cells[e][0], cells[e][1]) - target), order.index(e)))
     return {"effort": effort, "label": rule["label"], "flagged": cells[effort][0] >= rule["flagged_if_k_at_least"]}
+
+
+def sign_flip_p(ds):
+    """The exact one-sided p values of the sign-flip permutation test on sum(ds): (P(T <= t), P(T >= t)).
+
+    Under the null each d_i keeps or flips its sign with probability 1/2; the distribution of T is counted exactly
+    over all 2^m assignments, so a d_i of 0 leaves both p values unchanged.
+    """
+    counts = {0: 1}
+    for d in ds:
+        step = defaultdict(int)
+        for total, count in counts.items():
+            step[total + d] += count
+            step[total - d] += count
+        counts = step
+    observed, assignments = sum(ds), 2 ** len(ds)
+    below = sum(count for total, count in counts.items() if total <= observed)
+    above = sum(count for total, count in counts.items() if total >= observed)
+    return Fraction(below, assignments), Fraction(above, assignments)
+
+
+def _difference(tasks, a, b):
+    ds = [tasks[task]["successes"][a] - tasks[task]["successes"][b] for task in sorted(tasks)]
+    below, above = sign_flip_p(ds)
+    return {"sum": sum(ds), "p_below": below, "p_above": above}
+
+
+def _verdict(differences, pooled, efforts, rule):
+    """D6: falls, rises or not resolved, from the differences and the pooled successes over complete triples."""
+    high_low, adjacent = rule["falls"]
+    name = "-".join(high_low["d"])
+    if differences[name]["sum"] < high_low["sum_below"] and differences[name]["p_below"] <= _p(high_low):
+        return "falls"
+    pairs = [f"{b}-{a}" for a, b in zip(efforts, efforts[1:])]
+    if any(differences[p]["sum"] < adjacent["sum_below"] and differences[p]["p_below"] <= _p(adjacent) for p in pairs):
+        return "falls"
+    rises, name = rule["rises"], "-".join(rule["rises"]["d"])
+    ordered = all(pooled[a] <= pooled[b] for a, b in zip(efforts, efforts[1:]))
+    if ordered and differences[name]["sum"] > rises["sum_above"] and differences[name]["p_above"] <= _p(rises):
+        return "rises"
+    return rule["otherwise"]
+
+
+def _p(rule):
+    return Fraction(str(rule["p_at_most"]))
+
+
+def fall_bound(tasks, low, high, rule):
+    """D6's bound on the fall: the one-sided upper bound on the pooled fall from low to high, in points.
+
+    A bootstrap over tasks (rule["resamples"] resamples drawn by random.Random(rule["seed"]), tasks in name order);
+    the bound is the smallest resampled fall with at least rule["one_sided"] of the resamples at or below it. None
+    when no task has a complete triple.
+    """
+    rows = [(tasks[task]["triples"], tasks[task]["successes"][low] - tasks[task]["successes"][high])
+            for task in sorted(tasks)]
+    if not rows:
+        return None
+    rng, resamples = random.Random(rule["seed"]), rule["resamples"]
+    falls = []
+    for _ in range(resamples):
+        picks = [rows[rng.randrange(len(rows))] for _ in rows]
+        falls.append(100 * sum(fall for _, fall in picks) / sum(triples for triples, _ in picks))
+    return sorted(falls)[math.ceil(rule["one_sided"] * resamples) - 1]
+
+
+def effort_test(tasks, efforts, rules):
+    """D6's effort test over complete (task, round) triples.
+
+    tasks maps each task with at least one complete triple to {"triples": t, "successes": {effort: s_i(e)}}. Returns
+    the pooled successes, each difference's sum and exact one-sided p values, the verdict and the bound on the fall.
+    """
+    rule = rules["effort_test"]
+    pairs = [tuple(rule["falls"][0]["d"])] + [(b, a) for a, b in zip(efforts, efforts[1:])]
+    differences = {f"{a}-{b}": _difference(tasks, a, b) for a, b in pairs}
+    pooled = {e: sum(task["successes"][e] for task in tasks.values()) for e in efforts}
+    low, high = efforts[0], efforts[-1]
+    return {"tasks": len(tasks), "triples": sum(task["triples"] for task in tasks.values()), "pooled": pooled,
+            "differences": differences, "verdict": _verdict(differences, pooled, efforts, rule),
+            "fall_bound": fall_bound(tasks, low, high, rules["fall_bound"])}

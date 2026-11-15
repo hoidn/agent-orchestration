@@ -8,6 +8,7 @@ import importlib.util
 import itertools
 import json
 import re
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -126,3 +127,95 @@ def test_the_band_effort_is_closest_to_one_in_five_with_ties_to_the_lower_level(
 def test_the_band_effort_is_refused_for_every_pattern_the_screen_does_not_admit(triple):
     with pytest.raises(readout.ReadoutError, match="not screened in"):
         readout.band_effort(_cells(triple), RULES)
+
+
+# ---- 3. The effort verdict and the bound on the fall, on constructed tables --------------------------------------
+
+SEEDED = RULES | {"fall_bound": RULES["fall_bound"] | {"seed": 20261114}}
+
+
+def _tasks(*groups, triples=5):
+    """Per-task successes over complete triples: groups of (number of tasks, (low, medium, high) successes)."""
+    tasks, count = {}, 0
+    for size, successes in groups:
+        for _ in range(size):
+            count += 1
+            tasks[f"t{count:02}"] = {"triples": triples, "successes": dict(zip(EFFORTS, successes))}
+    return tasks
+
+
+def _test(tasks):
+    return readout.effort_test(tasks, EFFORTS, SEEDED)
+
+
+@pytest.mark.parametrize("ds, below, above", [([1, 1, 1], 1, Fraction(1, 8)),
+                                              ([2, 1], 1, Fraction(1, 4)),
+                                              ([1, -1], Fraction(3, 4), Fraction(3, 4)),
+                                              ([], 1, 1)])
+def test_the_sign_flip_test_is_exact(ds, below, above):
+    assert readout.sign_flip_p(ds) == (below, above)
+
+
+def test_a_rising_table_rises_and_its_bound_on_the_fall_is_below_zero():
+    result = _test(_tasks((16, (0, 1, 2))))
+    assert (result["verdict"], result["fall_bound"] < 0) == ("rises", True)
+
+
+def test_a_flat_table_is_not_resolved_and_its_bound_on_the_fall_is_zero():
+    result = _test(_tasks((16, (1, 1, 1))))
+    assert (result["verdict"], result["fall_bound"]) == ("not resolved", 0.0)
+
+
+def test_a_fall_within_the_bound_is_not_resolved_and_the_bound_covers_it():
+    """Three tasks fall by one success of five (p = 1/8): no fall is ruled out above the bound, which covers 3.75."""
+    result = _test(_tasks((3, (1, 1, 0)), (13, (1, 1, 1))))
+    assert (result["verdict"], result["differences"]["high-low"]["p_below"], result["fall_bound"] >= 3.75) == (
+        "not resolved", Fraction(1, 8), True)
+
+
+def test_a_fall_beyond_the_test_s_threshold_falls():
+    result = _test(_tasks((6, (1, 1, 0)), (10, (1, 1, 1))))
+    assert (result["verdict"], result["differences"]["high-low"]["p_below"]) == ("falls", Fraction(1, 64))
+
+
+def test_an_adjacent_pair_falls_at_p_one_in_64_but_not_at_one_in_32():
+    """The adjacent pairs are held to 0.025: six tasks a step down medium from low falls, five do not."""
+    six, five = _test(_tasks((6, (1, 0, 1)), (10, (1, 1, 1)))), _test(_tasks((5, (1, 0, 1)), (11, (1, 1, 1))))
+    assert (six["verdict"], five["verdict"], five["differences"]["medium-low"]["p_below"]) == (
+        "falls", "not resolved", Fraction(1, 32))
+
+
+def test_rises_admits_ties_in_the_pooled_order():
+    result = _test(_tasks((6, (0, 0, 1)), (10, (1, 1, 1))))
+    assert (result["verdict"], result["pooled"]) == ("rises", {"low": 10, "medium": 10, "high": 16})
+
+
+def test_rises_needs_the_pooled_order_whatever_high_against_low_shows():
+    result = _test(_tasks((6, (0, 0, 1)), (2, (1, 0, 1)), (8, (1, 1, 1))))
+    assert (result["differences"]["high-low"]["p_above"] <= Fraction(1, 20), result["verdict"]) == (
+        True, "not resolved")
+
+
+def test_tasks_with_no_difference_do_not_move_the_p_value():
+    """Ties within a task (d_i = 0) leave the exact p unchanged: five rising tasks give 1/32 among 11 flat or none."""
+    alone, among = _test(_tasks((5, (0, 0, 1)))), _test(_tasks((5, (0, 0, 1)), (11, (2, 2, 2))))
+    assert alone["differences"]["high-low"]["p_above"] == among["differences"]["high-low"]["p_above"] == (
+        Fraction(1, 32))
+
+
+def test_a_task_short_of_five_triples_weighs_by_its_own_triples_in_the_bound():
+    """Every task falls by one success: 20 points over five triples, 25 over four; every resample lies between."""
+    short = _tasks((15, (1, 1, 0))) | _tasks((1, (1, 1, 0)), triples=4)
+    short["t01-short"] = short.pop("t01")
+    result = _test(short)
+    assert 20.0 <= result["fall_bound"] <= 25.0
+
+
+def test_the_bound_is_fixed_by_its_seed():
+    tasks = _tasks((4, (1, 1, 0)), (3, (0, 1, 1)), (9, (2, 1, 2)))
+    assert _test(tasks)["fall_bound"] == _test(dict(reversed(tasks.items())))["fall_bound"]
+
+
+def test_no_complete_triple_leaves_the_verdict_not_resolved_and_no_bound():
+    result = _test({})
+    assert (result["verdict"], result["fall_bound"], result["triples"]) == ("not resolved", None, 0)
