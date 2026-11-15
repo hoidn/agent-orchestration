@@ -3053,7 +3053,9 @@ exceptions below.
   call argument in it (D4-subject-argument), also when a `cond` or a list sits
   inside it; a `let-proc` subject whose body passes the local's call in an
   `if` argument (D20-let-proc-subject); an `if` on a variant test whose branch
-  reads a field of the tested variant (D20-subject-tag).
+  reads a field of the tested variant (D20-subject-tag); in a subject that
+  lowers in its typechecked form, an `if` whose condition is an `and` or an
+  `or` and whose branch is a `let-proc` form (D20-let-proc-branch).
 - *A parallel map whose binder a macro template introduces takes a pure
   source.* With an effect in its source it is refused as before
   (`effect_not_permitted`, or `list_map_effect_body_unsupported` when the

@@ -499,7 +499,9 @@ every removed test is listed with the code it covered".
      the result of a procedure with an effect and calls one ends in
      `compiler_defect` (row let-proc-effect-capture); a `match` subject that is
      an `if` on a variant test reading the tested variant's field ends in
-     `compiler_defect` (row D20-subject-tag).
+     `compiler_defect` (row D20-subject-tag); from its re-review: in a subject
+     that lowers typed, an `if` on an `and` or `or` with a `let-proc` branch
+     ends in `compiler_defect` (row D20-let-proc-branch).
    The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
    (accepted 2026-11-13 after an independent review and one revision) orders
    this list by harm. By the owner's direction of 2026-11-13 it is cut to

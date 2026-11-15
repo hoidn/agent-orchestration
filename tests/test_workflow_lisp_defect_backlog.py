@@ -65,7 +65,8 @@ which the Defect Table does not have; rows E7-local (a `let-proc` local written 
 match-arm-binder (a `match` arm whose value is its binder) were found by Task 0b of the staged-authoring plan, and
 let-proc-generic-capture (a local capturing a generic call's result) and let-proc-effect-capture (a local
 capturing the result of a procedure with an effect and calling one) and D20-subject-tag (a `match` subject that is
-an `if` on a variant test) by its review.
+an `if` on a variant test) by its review, and D20-let-proc-branch (an `if` on an `and` or `or` with a `let-proc`
+branch, in a subject that lowers typed) by its re-review.
 Rows D10-input-pure, D10-field, D10-field-pure, D10-literal-let, D10-literal-let-pure and D10-rebound-*
 (the twelfth batch, found by the TD6 review and its fix round) are in the Defect Table.
 """
@@ -141,7 +142,7 @@ KNOWN: dict[str, tuple] = {
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "match-arm-binder": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
-    "D20-subject-tag": BINDER_OUT_OF_SCOPE,
+    "D20-subject-tag": BINDER_OUT_OF_SCOPE, "D20-let-proc-branch": OPERAND,
     "D10-input-pure": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "D10-field": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
     "D10-field-pure": crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
@@ -277,6 +278,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D25": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "match-arm-binder": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
     "D20-subject-tag": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D20-let-proc-branch": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D10-input-pure": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "D10-field": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
     "D10-field-pure": ("crash", "ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
@@ -437,6 +439,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D25": None,
     "match-arm-binder": ("value", 5),
     "D20-subject-tag": ("value", 4),
+    "D20-let-proc-branch": ("value", 2),
     "D10-input-pure": ("value", 2),
     "D10-field": ("value", 3, "add"),
     "D10-field-pure": ("value", 2),
@@ -992,6 +995,12 @@ ROWS: dict[str, Row] = {
     "D20-subject-tag": row(value(4), "((u U)) -> Int (match (if (= u.variant A) (variant V NO :k (+ u.n 1)) "
                            "(variant V NO :k 0)) ((HAS h) 0) ((NO o) o.k))", U,
                            "(defunion V (HAS (xs List[Int])) (NO (k Int)))", inputs=U_IS_A_3),
+    # Found by the re-review of Task 0b: in a subject that lowers in its typechecked form (here for the list), an
+    # `if` whose condition is an `and` or an `or` and whose branch is a `let-proc` form. Without the list it
+    # builds; bound with `let*` first, it builds; on `main` it crashed at `_infer_expr_type` (NO_NARROWING).
+    "D20-let-proc-branch": row(value(2), "((n Int)) -> Int (match (if (and (> n 0) (> n -1)) "
+                               "(let-proc ((f ((k Int)) -> Shape (mkshape k))) (f 2)) "
+                               f"(mkshape (list/length (list 1)))) {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
     "D23-macro": row(value(705), "((n Int)) -> Int (both n)", D23_MACRO,
                      "(defproc both ((n Int)) -> Int (+ (with-loop n 5) (* 100 (with-loop n 7))))", inputs=("n=3",)),
 
