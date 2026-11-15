@@ -70,9 +70,6 @@ def test_reusable_result_bundle_delegates_exact_unframed_json(
     ]
     assert json.loads(capsys.readouterr().out) == payload
 VALID_REVIEW_LOOP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_review_loop.orc"
-# The review-loop fixture at 2.35 with its exact effect clauses, for the one test whose refusal code
-# depends on the target (Task 4b).
-VALID_REVIEW_LOOP_235_FIXTURE = FIXTURES / "valid" / "phase_stdlib_review_loop_235.orc"
 VALID_PHASE_SCOPE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_scope_stdlib_targets.orc"
 VALID_NESTED_IMPLEMENTATION_PHASE_FIXTURE = FIXTURES / "valid" / "design_delta_nested_implementation_phase.orc"
 VALID_NESTED_SAME_FILE_CALL_FIXTURE = (
@@ -345,7 +342,7 @@ def test_typecheck_rejects_unknown_generic_phase_target() -> None:
     _assert_diagnostic_code(excinfo, "phase_target_contract_unresolved")
 
 
-def test_current_target_composes_review_loop_through_phase_private_workflow(
+def test_current_target_composes_review_loop_through_phase_helper(
     tmp_path: Path,
 ) -> None:
     path = _write_module(
@@ -354,7 +351,7 @@ def test_current_target_composes_review_loop_through_phase_private_workflow(
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defmodule reusable_composed_with_phase_review_loop)",
                     "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop with-phase))",
                 "  (defpath WorkReport",
@@ -381,8 +378,6 @@ def test_current_target_composes_review_loop_through_phase_private_workflow(
                 "    ((completed CompletedSurface)",
                 "     (inputs ReviewInputs))",
                 "    -> ReviewDecision",
-                "    :effects ((uses-provider providers.review))",
-                "    :lowering inline",
                 "    (provider-result providers.review",
                 "      :prompt prompts.implementation.review",
                 "      :inputs (completed.plan_path inputs.report_path)",
@@ -392,8 +387,6 @@ def test_current_target_composes_review_loop_through_phase_private_workflow(
                 "     (inputs ReviewInputs)",
                 "     (findings ReviewFindings))",
                 "    -> CompletedSurface",
-                "    :effects ((uses-provider providers.fix))",
-                "    :lowering inline",
                 "    (provider-result providers.fix",
                 "      :prompt prompts.implementation.fix",
                 "      :inputs (completed.plan_path inputs.fix_prompt findings.items_path)",
@@ -403,8 +396,6 @@ def test_current_target_composes_review_loop_through_phase_private_workflow(
                 "     (completed CompletedSurface)",
                 "     (inputs ReviewInputs))",
                 "    -> ReviewLoopResult",
-                    "    :effects ((uses-provider providers.review) (uses-provider providers.fix) (uses-command validate_review_findings_v1))",
-                "    :lowering private-workflow",
                 "    (with-phase phase-ctx implementation-review",
                 "      (review-revise-loop implementation-review",
                 "        :ctx phase-ctx",
@@ -452,7 +443,6 @@ def test_current_target_composes_review_loop_through_phase_private_workflow(
         for procedure in result.typed_procedures
         if procedure.definition.name.endswith("::review-phase-helper")
     )
-    assert helper.resolved_lowering_mode.value == "private-workflow"
     assert helper.transitive_effect_summary.transitive_effects == frozenset(
         {
             UsesProviderEffect(subject=("providers", "review")),
@@ -734,10 +724,8 @@ def test_typecheck_accepts_review_revise_loop_name_as_stdlib_macro_argument(tmp_
 
 
 def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface(tmp_path: Path) -> None:
-    # Below 2.39 the refusal is `stdlib_extension_missing_import_route`; at 2.40 the same source
-    # refuses `stdlib_import_route_required` (Task 4b).
     path = _rewrite_fixture(
-        VALID_REVIEW_LOOP_235_FIXTURE,
+        VALID_REVIEW_LOOP_FIXTURE,
         replacements=(
             (
                 "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult review-revise-loop with-phase))\n",
@@ -751,7 +739,7 @@ def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(path)
 
-    _assert_diagnostic_code(excinfo, "stdlib_extension_missing_import_route")
+    _assert_diagnostic_code(excinfo, "stdlib_import_route_required")
 
 
 def test_typecheck_rejects_review_revise_loop_legacy_bridge_operands(tmp_path: Path) -> None:

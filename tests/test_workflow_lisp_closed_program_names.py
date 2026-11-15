@@ -751,7 +751,7 @@ def test_specialized_callee_key_retains_all_types_and_procedure_references(
     root = tmp_path / "cp"
     root.mkdir()
     entry = root / "if_in_hook.orc"
-    entry.write_text(source.replace("TARGET", TARGET), encoding="utf-8")
+    entry.write_text(source, encoding="utf-8")
     (tmp_path / "probe.py").write_text(
         "raise RuntimeError('Task10 compile-only command; runtime is not tested')\n",
         encoding="utf-8",
@@ -784,14 +784,13 @@ def test_specialized_callee_key_retains_all_types_and_procedure_references(
     )
 
     assert key[0:3] == ["std/improve", "procedure", "improve"]
-    assert [row[0] for row in key[3]] == ["B", "F", "I", "S"]
+    assert [row[0] for row in key[3]] == ["B", "F", "S"]
     assert [row[0] for row in key[4]] == ["review", "revise"]
     assert {row[1]["target"][2] for row in key[4]} == {"review", "revise"}
     assert key[5:8] == [[], [], []]
     assert [row[1]["name"] for row in key[3]] == [
         "cp/if_in_hook::Note",
         "cp/if_in_hook::Note",
-        "cp/if_in_hook::Brief",
         "cp/if_in_hook::Candidate",
     ]
     assert key[8]["result"]["name"] == {
@@ -814,7 +813,12 @@ def test_specialized_callee_key_retains_all_types_and_procedure_references(
         for row in restored.tree["definitions"].values()
         if row["key"][:3] == ["std/improve", "procedure", "improve"]
     ]
-    assert persisted[:9] == key
+    # The literal `limit` actual is bound into the specialization: the persisted key holds it and drops it from the
+    # residual parameters; the key computed above without binding facts keeps it as a parameter.
+    assert persisted[6] == [["limit", {"kind": "primitive", "name": "Int"},
+                             {"k": "lit", "type": {"kind": "primitive", "name": "Int"}, "v": 5}]]
+    assert key[8]["params"][-1] == {"kind": "primitive", "name": "Int"}
+    assert persisted[:9] == [*key[:6], persisted[6], key[7], {**key[8], "params": key[8]["params"][:-1]}]
     decisions = persisted[9]['command_decisions']
     assert {decision[0] for decision in decisions} == {'call'}
     procedure_refs = {name: value for name, value in persisted[4]}
@@ -836,7 +840,6 @@ def test_specialized_callee_key_retains_all_types_and_procedure_references(
     }
     assert [row["name"] for row in revise_target[8]["params"]] == [
         "cp/if_in_hook::Candidate",
-        "cp/if_in_hook::Brief",
         "cp/if_in_hook::Note",
     ]
     assert revise_target[8]["result"]["name"] == "cp/if_in_hook::Candidate"

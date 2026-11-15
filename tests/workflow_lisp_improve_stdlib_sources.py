@@ -58,32 +58,26 @@ IMPORT_LINE = "  (import std/improve :only (Decision Improvement improve))\n"
 
 ENTRY = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
 """ + IMPORT_LINE + """  (export run)
   (defrecord Candidate (title String) (score Int))
-  (defrecord Brief (goal String))
   (defrecord Feedback (note String))
   (defrecord Blocker (why String))
   (defproc review-candidate
-    ((candidate Candidate) (brief Brief))
+    ((candidate Candidate))
     -> Decision[Feedback Blocker]
-    :effects ((uses-command probe_review))
-    :lowering inline
     (command-result probe_review
-      :argv ("python" "PROBE_REVIEW" candidate.title brief.goal)
+      :argv ("python" "PROBE_REVIEW" candidate.title "tidy")
       :returns Decision[Feedback Blocker]))
   (defproc revise-candidate
-    ((candidate Candidate) (brief Brief) (feedback Feedback))
+    ((candidate Candidate) (feedback Feedback))
     -> Candidate
-    :effects ((uses-command probe_revise))
-    :lowering inline
     (command-result probe_revise
-      :argv ("python" "PROBE_REVISE" candidate.title brief.goal feedback.note)
+      :argv ("python" "PROBE_REVISE" candidate.title "tidy" feedback.note)
       :returns Candidate))
   (defworkflow run () -> Improvement[Candidate Feedback Blocker]
     (improve (record Candidate :title "SEED" :score 0)
-             (record Brief :goal "tidy")
              (proc-ref review-candidate)
              (proc-ref revise-candidate)
              LIMIT)))
@@ -99,10 +93,8 @@ BARE_IMPORT = """(workflow-lisp
 """
 
 PROVIDER_REVISE = """  (defproc revise-candidate
-    ((candidate Candidate) (brief Brief) (feedback Feedback))
+    ((candidate Candidate) (feedback Feedback))
     -> Candidate
-    :effects ((uses-provider providers.execute))
-    :lowering inline
     (provider-result providers.execute
       :prompt prompts.implementation.execute
       :inputs (feedback.note)
@@ -115,56 +107,29 @@ ASSESS_LIB = (
     ENTRY[: ENTRY.index("  (defmodule grt/entry)")]
     + "  (defmodule grt/assess)\n"
     + "  (import std/improve :only (Decision))\n"
-    + "  (export Candidate Brief Feedback Blocker assess)\n"
+    + "  (export Candidate Feedback Blocker assess)\n"
     + replace_exact(ENTRY[ENTRY.index("  (defrecord Candidate") : ENTRY.index("  (defproc revise-candidate")],
                     "(defproc review-candidate", "(defproc assess")
     .rstrip()
     + ")\n"
 )
 
-WRAPPED_REVIEW = """  (defproc review-candidate
-    ((candidate Candidate) (brief Brief))
-    -> Decision[Feedback Blocker]
-    :effects ((uses-command probe_review))
-    :lowering inline
-    (assess candidate brief))
-"""
-
-
-def wrapped_review_sources(imported: str, probes: dict[str, Path]) -> dict[str, str]:
-    """The caller's review hook becomes a thin local wrapper around the imported `assess`."""
-
-    start = imported.index("  (defrecord Candidate")
-    end = imported.index("  (defproc revise-candidate")
-    entry = replace_exact(
-        imported[:start] + WRAPPED_REVIEW + imported[end:],
-        IMPORT_LINE, IMPORT_LINE + "  (import grt/assess :only (Candidate Brief Feedback Blocker assess))\n"
-    )
-    return {
-        "grt/assess.orc": replace_exact(ASSESS_LIB, "PROBE_REVIEW", probes["probe_review"].as_posix()),
-        "grt/entry.orc": entry,
-    }
-
-
 # Current-target caller that uses the imported union result without naming its type.
 # Its review hook lives in `grt/assess`; its match arms remain effectful (see I1).
 UNNAMED_UNION_CALLER = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
   (import std/improve :only (improve))
-  (import grt/assess :only (Candidate Brief Feedback assess))
+  (import grt/assess :only (Candidate Feedback assess))
   (export run)
   (defrecord Summary (outcome String) (title String) (score Int))
 """ + ENTRY[ENTRY.index("  (defproc revise-candidate") : ENTRY.index("  (defworkflow run")] + """  (defproc summarize ((outcome String) (candidate Candidate)) -> Summary
-    :effects ((uses-command probe_summarize))
-    :lowering inline
     (command-result probe_summarize
       :argv ("python" "PROBE_SUMMARIZE" outcome candidate.title candidate.score)
       :returns Summary))
   (defworkflow run () -> Summary
     (let* ((result (improve (record Candidate :title "SEED" :score 0)
-                            (record Brief :goal "tidy")
                             (proc-ref assess)
                             (proc-ref revise-candidate)
                             LIMIT)))
@@ -189,20 +154,6 @@ def unnamed_union_caller_sources(*, seed: str, limit: int, probes: dict[str, Pat
         "grt/assess.orc": replace_exact(ASSESS_LIB, "PROBE_REVIEW", probes["probe_review"].as_posix()),
         "grt/entry.orc": entry,
     }
-
-
-def string_inputs_entry_source(entry: str) -> str:
-    """The caller with a `String` workflow parameter `goal` as `improve`'s `inputs` (I = String)."""
-
-    return (
-        replace_exact(
-            replace_exact(
-                replace_exact(
-                    replace_exact(entry, "(brief Brief)", "(goal String)", count=2),  # review and revise
-                    "brief.goal", "goal", count=2),
-                '(record Brief :goal "tidy")', "goal"),
-            "(defworkflow run ()", "(defworkflow run ((goal String))")
-    )
 
 
 def entry_source(*, seed: str, limit: int, probes: dict[str, Path]) -> str:

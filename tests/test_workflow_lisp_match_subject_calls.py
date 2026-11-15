@@ -32,16 +32,8 @@ SUMMARIZE = """  (defrecord Summary (outcome String) (title String) (score Int))
       :argv ("python" "PROBE_SUMMARIZE" outcome candidate.title candidate.score)
       :returns Summary))
 """
-# The `improve` callers are the five-argument `std/improve` entry at 2.35 (Task 4a), where a
-# procedure declares its exact effects.
-SUMMARIZE_235 = replace_exact(
-    SUMMARIZE,
-    "-> Summary\n    (command-result",
-    "-> Summary\n    :effects ((uses-command probe_summarize))\n    :lowering inline\n    (command-result",
-)
-
 IMPROVE_CALL = (
-    '(improve (record Candidate :title "SEED" :score 0) (record Brief :goal "tidy")'
+    '(improve (record Candidate :title "SEED" :score 0)'
     " (proc-ref review-candidate) (proc-ref revise-candidate) 2)"
 )
 IMPROVE_ARMS = (
@@ -87,7 +79,7 @@ def _improve_sources(probes: dict[str, Path], *, seed: str, bound: bool) -> dict
     entry = entry_source(seed=seed, limit=2, probes=probes)
     prefix = entry[: entry.index("  (defworkflow run")]
     call = replace_exact(IMPROVE_CALL, "SEED", seed)
-    summarize = replace_exact(SUMMARIZE_235, "PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
+    summarize = replace_exact(SUMMARIZE, "PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
     return {"grt/entry.orc": prefix + summarize + _run_body(call, IMPROVE_ARMS, bound=bound)}
 
 

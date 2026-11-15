@@ -138,8 +138,7 @@ PROGRAMS = {
     "improve": Program(
         "workflows/examples/improve_experiment_proposal.orc", "improve_experiment_proposal::run-experiment",
         "workflows/examples", {kind: f"{IMPROVE_INPUTS}/{kind}.json" for kind in FLAGS},
-        (f"{IMPROVE_PROMPTS}/review.md", f"{IMPROVE_PROMPTS}/revise.md"), _launcher,
-        "tests/fixtures/workflow_lisp/current_examples/improve_experiment_proposal.orc"),
+        (f"{IMPROVE_PROMPTS}/review.md", f"{IMPROVE_PROMPTS}/revise.md"), _launcher),
     "reviewed_change": Program(
         f"{COMPARISON}/reviewed_change.orc", "reviewed_change::reviewed-change", COMPARISON,
         {"providers": f"{COMPARISON}/reviewed_change.providers.json"}, prepare=lambda root: _repository(root / "repo")),
@@ -155,7 +154,6 @@ PROGRAMS = {
         source_fixture="tests/fixtures/workflow_lisp/current_examples/generic_run_watchdog/watchdog.orc"),
 }
 
-PROGRAMS["improve"].manifests["commands"] = "tests/fixtures/workflow_lisp/improve_legacy/commands.json"
 PROGRAMS["w3_improve"] = Program(
     "workflows/examples/improve_experiment_proposal.orc", "improve_experiment_proposal::run-experiment",
     "workflows/examples", {kind: f"{IMPROVE_INPUTS}/{kind}.json" for kind in FLAGS},

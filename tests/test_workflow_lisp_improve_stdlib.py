@@ -1,4 +1,4 @@
-"""CF-1b Task 5: the `std/improve` library module (target 2.35).
+"""CF-1b Task 5: the `std/improve` library module.
 
 Contract: docs/design/workflow_lisp_composition_first.md sections 3, 4, 5, 7
 and 10; Review Focus items 1, 2 and 5 of
@@ -17,7 +17,6 @@ remains its regression suite.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -29,7 +28,7 @@ from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _
 from tests.workflow_evaluated_totality_helpers import _public_run
 from tests.test_workflow_lisp_generic_unions_runtime import _compile
 from tests.source_edits import replace_exact
-from tests.workflow_lisp_improve_stdlib_sources import BARE_IMPORT, REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE, entry_source, inline_entry_source, provider_revise_entry_source, string_inputs_entry_source, unnamed_union_caller_sources
+from tests.workflow_lisp_improve_stdlib_sources import BARE_IMPORT, REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE, entry_source, inline_entry_source, provider_revise_entry_source, unnamed_union_caller_sources
 
 
 def _write_project(root: Path, *, seed: str, limit: int, inline: bool = False) -> dict[str, Path]:
@@ -185,28 +184,12 @@ def test_resume_after_a_committed_iteration_exhausts_without_replaying_committed
 
 
 
-def test_resume_keeps_a_string_workflow_parameter_as_inputs_and_replays_no_committed_hook(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Ruling R10: `inputs` bound to a `String` workflow parameter reaches every hook call, fresh and resumed."""
-
-    probes = _write_project(tmp_path, seed="draft", limit=3)
-    entry = tmp_path / "grt" / "entry.orc"
-    entry.write_text(string_inputs_entry_source(entry.read_text(encoding="utf-8")), encoding="utf-8")
-    inputs = tmp_path / "inputs.json"
-    inputs.write_text(json.dumps({"goal": "steady"}), encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-
-    _exercise_improve_resume(tmp_path, probes, monkeypatch, inputs=inputs, goal="steady")
-
-
-
-def _exercise_improve_resume(root, probes, monkeypatch, *, inputs=None, goal="tidy"):
+def _exercise_improve_resume(root, probes, monkeypatch, *, goal="tidy"):
     from tests.workflow_evaluated_totality_helpers import pause_public, checked_run
     from tests.test_workflow_evaluated_resume import _resume_cli, _snapshot
     _compile(root, probes=probes)
     files = _public_run_files(root, probes)
-    pause_public(files, monkeypatch, inputs)
+    pause_public(files, monkeypatch, None)
     authority, snapshot = checked_run(root)
     assert snapshot.terminal is None
     assert _hook_calls(probes) == ([f"draft {goal}"], [])
