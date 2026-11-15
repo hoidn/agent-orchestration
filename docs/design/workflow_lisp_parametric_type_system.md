@@ -21,7 +21,7 @@ Related docs:
 - [Frontend specification §7](workflow_lisp_frontend_specification.md#7-types) (type-to-contract mapping; `docs/design/workflow_lisp_type_catalog.md` is the historical record)
 - `docs/design/workflow_lisp_stdlib_lowering.md` (historical record)
 - [Frontend specification §8.7 and Part VII](workflow_lisp_frontend_specification.md#part-vii-macro-system) (macros; `docs/design/workflow_lisp_macro_surface_contract.md` is the historical record)
-- `docs/design/workflow_lisp_proc_refs_partial_application.md`
+- [Frontend specification §7.8](workflow_lisp_frontend_specification.md#78-procedure-references) (procedure references; `docs/design/workflow_lisp_proc_refs_partial_application.md` is the historical record)
 - `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
 - `docs/design/workflow_lisp_runtime_native_drain_authoring.md` (historical record; owned the
   concrete drain hook shape contracts consumed by Tranche 2)

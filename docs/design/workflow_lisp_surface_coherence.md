@@ -129,7 +129,7 @@ design: pure fields and a pure `:on-exhausted` are "rules" of the flat 2.33
 route ([composition first](workflow_lisp_composition_first.md) §11.1), the
 one-call map body and literal `:max` the "first tranche" of 2.18
 ([list traversal](workflow_lisp_pure_list_traversal.md), historical record), a local called by
-name "deferred" ([let-proc](workflow_lisp_let_proc_local_proc_refs.md) §7.3).
+name "deferred" ([let-proc](workflow_lisp_let_proc_local_proc_refs.md) §7.3, a historical record since).
 `tsv` is `typecheck_structural_values.py`; paths are under
 `orchestrator/workflow_lisp/`, or `orchestrator/` if they start with
 `workflow/` or `contracts/`. "Today" in the tables is `main` on 2026-11-12,
@@ -180,7 +180,7 @@ Not probed (probes use commands only): a provider's `:inputs`, which share
 | `defun` and `defproc` are called positionally | Reproduced. A keyword there crashes: Python traceback, exit 1 | `expressions.py:_elaborate` | Defect |
 | `defworkflow` only through `(call w :x n)` | Reproduced: `(w n)` gives `procedure_call_unknown`, `(call p :x n)` on a procedure gives `workflow_call_unknown`; neither message names the other convention | `expressions.py:_elaborate_list`; `typecheck_calls.py` | By design: workflow inputs are named, may be omitted when defaulted, and are the names `--input` uses |
 | A `let-proc` local cannot be called by name | Reproduced (`let_proc_bare_name_invalid`), yet `(let* ((g (proc-ref f))) (g 1))` compiles when `f` has a signature | `expressions.py:_elaborate_list` | (b) |
-| (New) A local calling another local, or a nested `let-proc` | Refused: `let_proc_bare_name_invalid`, `let_proc_nested_unsupported` | [Write once](workflow_lisp_write_once.md) §6.3: "do not permit sibling calls" | By design |
+| (New) A local calling another local, or a nested `let-proc` | Refused: `let_proc_bare_name_invalid`, `let_proc_nested_unsupported` | [Write once](workflow_lisp_write_once.md) §6.3 (historical record since): "do not permit sibling calls" | By design |
 | Procedure references cannot be stored or returned | Partly wrong: a reference can be bound by `let*`, forwarded and called. Refused in a record, a list, a workflow input or result, as a procedure's result, or as the value of an `if` (the last by a `compiler_defect` when probed; C1 refuses it with a code, §6) | `type_env.py`, `workflows.py`, `typecheck_calls.py` | (a) no runtime closures |
 | Recursion is refused | Reproduced (`proc_lowering_cycle`, `function_cycle`); a workflow that calls itself is refused as `compiler_defect` (`RecursionError`) | `closed/build.py` | (a) bounded execution; the workflow diagnostic is a defect |
 
@@ -521,7 +521,7 @@ run-reference exception instead of leaving.
 | `specs/dsl.md` | It has no section for these forms and gains none. In "Workflow Lisp rich loop values": "not an exhaustion-time evaluator" and "arbitrary computed/effectful exhaustion expressions remain unsupported" become "`:on-exhausted` is an expression evaluated on exhaustion with the last state in scope; top-level Optional/Map state remains unsupported". In the run-reference placement note: "exhaustion guards and other pure contexts stay pure" becomes "a run reference stays refused in `:on-exhausted`, a map source and the pure places" | No |
 | `specs/versioning.md` | The same run-reference sentence; one compatibility entry per change under "Source admitted without a new target (surface coherence)", none moving an identity of source that still compiles; C1's entry states its one refusal; the macro templates of §13 are not in I2a's entry | No |
 | [List traversal](workflow_lisp_pure_list_traversal.md) (historical record since 2026-11-14) | I1 corrected the body, `:max` and code sentences of "Bounded effectful binder" in place; the section leaves with the document | Done: the specification's §10.3 carries its operator, constructor-typing, `list/map` and `path/join-under` rules and no longer defers to it |
-| [let-proc](workflow_lisp_let_proc_local_proc_refs.md) | §7.3 and §27.2 are reversed by §6 here | When the release that removes the older targets removes the V1 form it specifies; write once §6.3 and the specification's §7.8 are then the contract |
+| [let-proc](workflow_lisp_let_proc_local_proc_refs.md) | §7.3 and §27.2 are reversed by §6 here | Done ahead of that release: a historical record since the specification's §7.8 states the form of both targets, the V1 form in one bullet |
 | [Composition first](workflow_lisp_composition_first.md) | Loses §11.1's rule on pure fields and `:on-exhausted` and §11.3's `on-exhausted-call-edge` row | No |
 | [Evaluated execution](workflow_lisp_evaluated_execution.md) | §1.2's map-body sentence states rule 2's run-reference exception (done with I1); §1.2's "`:on-exhausted` remains a pure projection" keeps only the run-reference guard; §4.3's argument-position bullet points to the specification's §16; with I2b the keyword-order sentences of its last bullet go | No |
 | [Tutorial](../tutorial_first_pipeline.md) | With the rewrite of I2 (the one-target plan's sweep), `grow.orc` uses the binder form; the rewrite does not move its digest | No |

@@ -1517,8 +1517,8 @@ def _typecheck_let_proc_expr_impl(
     # the same hidden-context gate an authored top-level `defproc` body gets:
     # the generated signature's own params decide derived-private-child
     # eligibility, not whatever `defworkflow`/enclosing-`defproc` gate was
-    # active at the `let-proc` call site (let-proc equivalence contract,
-    # docs/design/workflow_lisp_let_proc_local_proc_refs.md; mirrors the
+    # active at the `let-proc` call site (frontend specification §16.3,
+    # docs/design/workflow_lisp_frontend_specification.md; mirrors the
     # per-definition proc body gate above).
     session_state.workflow_signature = None
     session_state.procedure_hidden_context_signature = (

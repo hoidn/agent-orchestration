@@ -73,7 +73,7 @@ revise ProcRef[(S F) -> S], limit Int) -> Improvement[S F B]`, with
 `:forall (S F B)` and `S is-record`. Both packaged helper variants use source header 2.35;
 every source importer sees the entry-selected API. Old five-argument source
 callers must migrate on retargeting; complete snapshots retain producer
-authority. [Write-once §9](workflow_lisp_write_once.md#9-targets-and-compatibility)
+authority. The v2.36 entry of [versioning](../../specs/versioning.md)
 owns selection and compatibility. W3 is implemented at 2.36; its
 [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns bounded qualification evidence. Outcome/evidence pairing and exhaustion
 policy are the same for both APIs.
