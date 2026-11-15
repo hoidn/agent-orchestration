@@ -1493,8 +1493,8 @@ generic surface rather than a provider-specific parameter map:
 inline-lowerable scalar/template subset. String literals, typed inputs or
 procedure parameters, names, references, and supported projections are the
 intended shape; computed calls, records, operators, and other general
-expressions are not silently materialized. `:timeout-sec` is only a positive
-exact-`Int` literal. Omit a keyword to preserve provider defaults; omission does
+expressions are not silently materialized. `:timeout-sec` is a positive
+exact-`Int` literal, or an `Int` name or field except on a phased call. Omit a keyword to preserve provider defaults; omission does
 not synthesize policy, argv fragments, or `null` fields.
 
 Provider externs remain compiler-known. Their declarative bindings decide how

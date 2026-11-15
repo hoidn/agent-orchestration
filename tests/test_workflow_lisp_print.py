@@ -26,7 +26,7 @@ BODY = '''(let* ((draft (provider-result providers.plan :prompt prompts.base
       (print feedback))'''
 BAD = '{"findings":"not a list"}'
 LINES = ['["one","two"]', '{"findings":[]}']
-PROPAGATION = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+PROPAGATION = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Plan (steps List[String]))
   (defrecord Feedback (findings List[String]))
@@ -53,7 +53,7 @@ def _printed(stdout: str, *, result: str | None = None) -> list[str]:
 
 
 def test_print_writes_each_value_line_and_returns_the_operand(tmp_path):
-    result = _run(tmp_path, _fixture(tmp_path, SOURCE.format(target="2.35", body=BODY)), "task=x", "scale=1.5")
+    result = _run(tmp_path, _fixture(tmp_path, SOURCE.format(body=BODY)), "task=x", "scale=1.5")
     assert result.returncode == 0, result.stderr
     assert _printed(result.stdout, result=RESULT) == LINES
     shown = _repl(tmp_path, [":result", "shown", ":quit"], run_id=_run_root(tmp_path).name)
@@ -68,7 +68,7 @@ def _resume(root, run_id, results):
 
 
 def test_a_resumed_attempt_prints_replayed_and_new_values_once(tmp_path):
-    fixture = _fixture(tmp_path, SOURCE.format(target="2.35", body=BODY))
+    fixture = _fixture(tmp_path, SOURCE.format(body=BODY))
     stopped = _run(tmp_path, fixture, "task=x", "scale=1.5", results=(PLAN, BAD, FEEDBACK))
     assert stopped.returncode != 0
     assert _printed(stopped.stdout) == [LINES[0]]
@@ -81,7 +81,7 @@ def test_a_resumed_attempt_prints_replayed_and_new_values_once(tmp_path):
 
 
 def test_readers_replay_the_program_without_printing(tmp_path):
-    fixture = _fixture(tmp_path, SOURCE.format(target="2.35", body=BODY))
+    fixture = _fixture(tmp_path, SOURCE.format(body=BODY))
     assert _run(tmp_path, fixture, "task=x", "scale=1.5").returncode == 0
     run_id = _run_root(tmp_path).name
     result = _repl(tmp_path, ["(print feedback.findings)", ":quit"], run_id=run_id)

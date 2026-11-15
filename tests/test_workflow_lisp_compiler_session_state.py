@@ -182,7 +182,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
     state.loop_body_depth = 4
     state.let_proc_depth = 2
     state.guidance_example = True
-    state.target_dsl_version = "2.35"
+    state.target_dsl_version = "2.40"
     state.prompt_catalog = cast("PromptCatalog", object())
     baseline = state.__dict__.copy()
 
@@ -207,7 +207,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         "loop_body_depth": 4,
         "let_proc_depth": 0,
         "guidance_example": False,
-        "target_dsl_version": "2.35",
+        "target_dsl_version": "2.40",
         "prompt_catalog": outer_prompt_catalog,
     }
     inner_expected = {
@@ -222,7 +222,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         "loop_body_depth": 4,
         "let_proc_depth": 0,
         "guidance_example": True,
-        "target_dsl_version": "2.35",
+        "target_dsl_version": "2.40",
         "prompt_catalog": inner_prompt_catalog,
     }
     original_elaborate = expressions._elaborate
@@ -247,7 +247,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
                         procedure_name_resolver=inner_procedure_resolver,
                         workflow_name_resolver=inner_workflow_resolver,
                         guidance_example=True,
-                        target_dsl_version="2.35",
+                        target_dsl_version="2.40",
                         prompt_catalog=inner_prompt_catalog,
                         session_state=state,
                     )
@@ -272,7 +272,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         procedure_name_resolver=outer_procedure_resolver,
         workflow_name_resolver=outer_workflow_resolver,
         guidance_example=False,
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
         prompt_catalog=outer_prompt_catalog,
         session_state=state,
     )
@@ -294,7 +294,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
             procedure_name_resolver=outer_procedure_resolver,
             workflow_name_resolver=outer_workflow_resolver,
             guidance_example=False,
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
             prompt_catalog=outer_prompt_catalog,
             session_state=state,
         )
@@ -347,7 +347,6 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
     state.procedure_hidden_context_signature = cast(
         "ProcedureSignature", object()
     )
-    state.reusable_state_producer_context = {"outer": object()}
     state.shared_union_field_capabilities = (
         cast("SharedUnionFieldCapability", object()),
     )
@@ -386,9 +385,6 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
             "workflow_signature": state.workflow_signature,
             "procedure_hidden_context_signature": (
                 state.procedure_hidden_context_signature
-            ),
-            "reusable_state_producer_context": dict(
-                state.reusable_state_producer_context or {}
             ),
             "shared_union_field_capabilities": tuple(
                 state.shared_union_field_capabilities
@@ -501,7 +497,6 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
         "pending_local_hook_preparer": None,
         "workflow_signature": None,
         "procedure_hidden_context_signature": None,
-        "reusable_state_producer_context": None,
         "shared_union_field_capabilities": (),
         "loop_carrier_metadata_by_name": {},
         "loop_carrier_metadata_by_expr_key": {},
@@ -890,12 +885,10 @@ def test_procedure_typecheck_recursion_uses_its_compiler_session_state(
         """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defproc echo
     ((value String))
     -> String
-    :effects ()
-    :lowering inline
     (let* ((copy value)) copy))
   (defworkflow run () -> String (echo "ok")))
 """,
@@ -978,7 +971,7 @@ def test_direct_module_sequential_edit_does_not_reuse_loop_carrier_metadata(
         """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defworkflow first () -> String
     (let* ((state (loop-state (value String "first"))))
       state.value)))
@@ -997,7 +990,7 @@ def test_direct_module_sequential_edit_does_not_reuse_loop_carrier_metadata(
         f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defworkflow second ((state {old_carrier_name})) -> String "second"))
 """,
     )
@@ -1034,14 +1027,12 @@ def _library_only_source(procedure_name: str) -> str:
     return f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule library_only)
   (export {procedure_name})
   (defproc {procedure_name}
     ((value String))
     -> String
-    :effects ()
-    :lowering inline
     value))
 """
 
@@ -1050,7 +1041,7 @@ def _multi_export_application_source() -> str:
     return """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule multi_export)
   (export first selected)
   (defworkflow first () -> String "first")
@@ -1144,12 +1135,12 @@ def test_run_ref_reentry_preserves_extern_scope_and_default_entry_isolated():
       :policy (:setup ()))'''
     expr = elaborate_expression(syntax(source), bound_names=frozenset(),
                                 extern_names=frozenset({"providers.reviewer"}),
-                                target_dsl_version="2.36", session_state=state)
+                                target_dsl_version="2.40", session_state=state)
     assert isinstance(expr.inputs[0][1], NameExpr)
     assert expr.inputs[0][1].name == "providers.reviewer"
     assert state.extern_names == frozenset({"baseline.extern"})
     for guidance in (False, True):
         isolated = elaborate_expression(syntax("baseline.extern"), bound_names=frozenset(),
-                                        guidance_example=guidance, target_dsl_version="2.36", session_state=state)
+                                        guidance_example=guidance, target_dsl_version="2.40", session_state=state)
         assert isinstance(isolated, EnumMemberExpr)
         assert state.extern_names == frozenset({"baseline.extern"})

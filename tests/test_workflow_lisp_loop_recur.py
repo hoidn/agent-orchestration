@@ -110,7 +110,7 @@ def test_typecheck_loop_recur_resets_variant_proof_each_iteration(tmp_path: Path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defenum BlockerClass",
                 "    missing_resource",
                 "    unavailable_hardware",
@@ -171,7 +171,7 @@ def test_typecheck_loop_recur_rejects_non_projectable_carried_types(tmp_path: Pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord LoopResult",
                 "    (status String))",
                 "  (defworkflow helper",
@@ -204,7 +204,7 @@ def test_typecheck_loop_recur_rejects_proc_ref_state(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord WorkflowInput",
                 "    (value String))",
                 "  (defrecord WorkflowOutput",
@@ -214,8 +214,6 @@ def test_typecheck_loop_recur_rejects_proc_ref_state(tmp_path: Path) -> None:
                 "  (defproc helper",
                 "    ((input WorkflowInput))",
                 "    -> WorkflowOutput",
-                "    :effects ()",
-                "    :lowering inline",
                 "    (record WorkflowOutput :value input.value))",
                 "  (defworkflow loop-recur-proc-ref-state",
                 "    ()",
@@ -243,7 +241,7 @@ def test_typecheck_loop_recur_rejects_proc_ref_done_results(tmp_path: Path) -> N
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord LoopResult",
                 "    (status String))",
                 "  (defrecord WorkflowInput",
@@ -253,8 +251,6 @@ def test_typecheck_loop_recur_rejects_proc_ref_done_results(tmp_path: Path) -> N
                 "  (defproc helper",
                 "    ((input WorkflowInput))",
                 "    -> WorkflowOutput",
-                "    :effects ()",
-                "    :lowering inline",
                 "    (record WorkflowOutput :value input.value))",
                 "  (defworkflow loop-recur-proc-ref-result",
                 "    ()",
@@ -285,7 +281,7 @@ def test_typecheck_loop_recur_rich_list_root_union_uses_defining_type_env(tmp_pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Task",
                 "    (task_id String))",
                 "  (defunion TaskOutcome",
@@ -365,7 +361,7 @@ def test_loop_recur_list_constructor_seed_retains_native_list_type(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule loop_recur_list_constructor_seed)",
                 "  (export orchestrate)",
                 "  (defworkflow orchestrate () -> List[String]",
@@ -414,7 +410,7 @@ def test_typecheck_loop_recur_rich_list_root_record_state_preserves_descriptors(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Task",
                 "    (task_id String))",
                 "  (defworkflow carry-tasks ((tasks List[Task])) -> List[Task]",

@@ -377,7 +377,7 @@ def _nested_root_provider_source() -> str:
         (
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule nested_root_transport)",
             "  (defrecord Measurement",
             "    (label String)",

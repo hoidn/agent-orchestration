@@ -218,7 +218,7 @@ def test_document_only_imported_effect_call_retains_sites_and_owner(tmp_path, ce
     program = build(tmp_path, {
         "helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
           (defmodule helper) (export produce)
-          (defproc produce ((x Int)) -> Int :effects ((uses-command inc)) :lowering private-workflow
+          (defproc produce ((x Int)) -> Int
             (command-result inc :argv ("python" "inc.py" x) :returns Int)))''',
         "entry.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
           (defmodule entry) (import helper :as h :only (produce)) (export run)
@@ -252,7 +252,7 @@ def test_document_only_local_capture_keeps_original_wire_after_shadowing(tmp_pat
     commands = {name: replace(binding, closure=()) for name, binding in bindings_for(tmp_path, ("emit", "inc")).items()}
     program = build(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule captured) (export run)
-      (defproc invoke ((hook ProcRef[Int -> Int]) (x Int)) -> Int :effects () :lowering inline (hook x))
+      (defproc invoke ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))
       (defworkflow run ((n Int)) -> String
         (let-proc (saved ((x Int)) -> Int :captures (n)
           (command-result inc :argv ("python" "inc.py" n x) :returns Int))

@@ -147,12 +147,12 @@ def test_authored_match_and_loop_labels_reach_closed_control_nodes(tmp_path: Pat
 def test_macro_reference_calls_keep_their_exact_return_types(tmp_path: Path) -> None:
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/macro_returns) (export run)
-      (defproc integer () -> Int :effects ((uses-command fetch)) :lowering inline
+      (defproc integer () -> Int
         (command-result fetch :argv ("python" "probe.py") :returns Int))
-      (defproc text () -> String :effects ((uses-command fetch)) :lowering inline
+      (defproc text () -> String
         (command-result fetch :argv ("python" "probe.py") :returns String))
       (defproc apply :forall (T) ((hook ProcRef[() -> T])) -> T
-        :effects () :lowering inline (hook))
+        (hook))
       (defmacro invoke (hook) (apply (proc-ref hook)))
       (defworkflow run () -> String
         (let* ((number (invoke integer)) (answer (invoke text))) answer)))'''
@@ -175,7 +175,7 @@ def test_macro_parameter_origins_use_the_declaration_identifier(tmp_path: Path) 
           (+ parameter-name 1)))
       (defmacro make-procedure (procedure-name parameter-name)
         (defproc procedure-name ((parameter-name Int)) -> Int
-          :effects () :lowering inline (+ parameter-name 1)))
+          (+ parameter-name 1)))
       (make-workflow run authored)
       (make-procedure helper proc_authored))'''
     path = install(tmp_path, source)
@@ -448,9 +448,9 @@ def test_captured_runtime_value_keeps_its_lexical_owner_after_shadowing(tmp_path
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/capture_owner) (export run)
       (defproc invoke ((runner ProcRef[Int -> Int]) (n Int)) -> Int
-        :effects () :lowering inline (runner n))
+        (runner n))
       (defproc forward ((runner ProcRef[Int -> Int]) (n Int)) -> Int
-        :effects () :lowering inline (invoke runner n))
+        (invoke runner n))
       (defworkflow run ((input Int)) -> Int
         (let* ((first (command-result fetch :argv ("python" "probe.py" input) :returns Int)))
           (let-proc (saved ((n Int)) -> Int :captures (first)
@@ -520,7 +520,7 @@ def test_captured_entry_parameter_is_frozen_before_a_same_name_shadow(tmp_path: 
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/parameter_capture) (export run)
       (defproc forward ((runner ProcRef[Int -> Int]) (n Int)) -> Int
-        :effects () :lowering inline (runner n))
+        (runner n))
       (defworkflow run ((input Int)) -> Int
         (let* ((first input))
           (let-proc (saved ((n Int)) -> Int :captures (input)
@@ -631,10 +631,9 @@ def test_computed_proc_ref_argument_is_evaluated_at_its_binding_region(
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/computed_ref_capture) (export run)
       (defproc helper ((fixed Int) (y Int)) -> Int
-        :effects ((uses-command fetch)) :lowering inline
         (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
       (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
-        :effects () :lowering inline (runner y))
+        (runner y))
       (defworkflow run ((x Int)) -> Int BODY))'''
     root = tmp_path / "computed_ref_capture"
     path = install(root, source.replace("BODY", body))
@@ -707,10 +706,9 @@ def test_computed_closed_proc_ref_argument_stays_a_closed_value(tmp_path: Path) 
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/computed_closed_ref) (export run)
       (defproc helper ((fixed Int) (y Int)) -> Int
-        :effects ((uses-command fetch)) :lowering inline
         (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
       (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
-        :effects () :lowering inline (runner y))
+        (runner y))
       (defworkflow run ((x Int)) -> Int
         (invoke (bind-proc (proc-ref helper) :fixed (+ 2 3)) x)))'''
     root = tmp_path / "computed_closed_ref"
@@ -765,10 +763,9 @@ def test_one_bound_effect_creation_is_shared_by_direct_and_reference_calls(
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/mixed_ref_creation) (export run)
       (defproc helper ((fixed Int) (y Int)) -> Int
-        :effects ((uses-command fetch)) :lowering inline
         (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
       (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
-        :effects () :lowering inline (runner y))
+        (runner y))
       (defworkflow run ((x Int)) -> Int
         (let* ((hook (bind-proc (proc-ref helper) :fixed
                       (command-result fetch :argv ("python" "probe.py" x) :returns Int))))
@@ -835,10 +832,9 @@ def test_zero_input_effectful_bound_value_runs_at_creation_once(tmp_path: Path) 
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/zero_input_bound_effect) (export run)
       (defproc helper ((fixed Int) (y Int)) -> Int
-        :effects ((uses-command fetch)) :lowering inline
         (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
       (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
-        :effects () :lowering inline (runner y))
+        (runner y))
       (defworkflow run ((x Int)) -> Int
         (let* ((hook (bind-proc (proc-ref helper) :fixed
                       (command-result fetch :argv ("python" "probe.py") :returns Int))))
@@ -942,12 +938,11 @@ def test_inline_zero_input_capture_preserves_effect_argument_order(
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/inline_zero_input_capture) (export run)
       (defproc helper ((fixed Int) (y Int)) -> Int
-        :effects ((uses-command fetch)) :lowering inline
         (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
       (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
-        :effects () :lowering inline (runner y))
+        (runner y))
       (defproc invoke-last ((y Int) (runner ProcRef[Int -> Int])) -> Int
-        :effects () :lowering inline (runner y))
+        (runner y))
       (defworkflow run () -> Int BODY))'''
     root = tmp_path / callee
     path = install(root, source.replace("BODY", body))
@@ -1013,12 +1008,11 @@ def test_nested_zero_input_effectful_bound_value_runs_before_later_effects(
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/nested_zero_input_effect) (export run)
       (defproc helper ((fixed Int) (y Int)) -> Int
-        :effects ((uses-command fetch)) :lowering inline
         (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
       (defproc apply-one ((callback ProcRef[Int -> Int]) (y Int)) -> Int
-        :effects () :lowering inline (callback y))
+        (callback y))
       (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
-        :effects () :lowering inline (runner y))
+        (runner y))
       (defworkflow run ((x Int)) -> Int
         (let* ((hook (bind-proc (proc-ref apply-one) :callback
                       (bind-proc (proc-ref helper) :fixed
@@ -1083,10 +1077,9 @@ def test_inherited_name_captures_keep_their_distinct_creation_regions(tmp_path: 
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/inherited_name_capture) (export run)
       (defproc helper ((fixed Int) (offset Int) (y Int)) -> Int
-        :effects ((uses-command fetch)) :lowering inline
         (command-result fetch :argv ("python" "probe.py" fixed offset y) :returns Int))
       (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
-        :effects () :lowering inline (runner y))
+        (runner y))
       (defworkflow run ((x Int)) -> Int
         (let* ((inner (bind-proc (proc-ref helper) :fixed x)))
           (let* ((x 100) (outer (bind-proc inner :offset x)))
@@ -1264,7 +1257,7 @@ def test_retained_nested_match_cannot_read_same_typed_outer_binder(tmp_path, mon
     from orchestrator.workflow_lisp.wcc.model import WccCase, WccHalt
 
     declaration = '(defunion Choice (A (n Int)) (B (n Int)))'
-    declaration += '(defproc helper ((values List[Choice])) -> List[Int] :effects ((uses-command echo)) :lowering inline '
+    declaration += '(defproc helper ((values List[Choice])) -> List[Int] '
     declaration += '(let* ((out (command-result echo :argv ("python" "probe.py") :returns Int))) '
     declaration += '(list/map ((item values)) (match item ((A outer) '
     declaration += '(match item ((A inner) inner.n) ((B fallback) fallback.n))) ((B other) other.n)))))'
@@ -1329,10 +1322,10 @@ def test_reference_and_command_captures_keep_their_distinct_binding_owners(tmp_p
     from tests.test_workflow_lisp_closed_command_transport import _compile, _command, _commands
 
     declarations = '(defproc helper ((fixed Int) (n Int)) -> Int '
-    declarations += ':effects ((uses-command echo)) :lowering inline '
+    declarations += ' '
     declarations += _command('"${inputs.input}" fixed n') + ')'
     declarations += '(defproc invoke ((runner ProcRef[Int -> Int]) (n Int)) -> Int '
-    declarations += ':effects () :lowering inline (runner n))'
+    declarations += ' (runner n))'
     source = '(let* ((hook (bind-proc (proc-ref helper) :fixed input))) (invoke hook 1))'
     closed = build_closed_program(_compile(tmp_path, source, params='(input Int)',
         declarations=declarations))
@@ -1348,16 +1341,19 @@ def test_reference_and_command_captures_keep_their_distinct_binding_owners(tmp_p
     assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
 
 
-def _opaque_command_program(tmp_path, argument='"${inputs.root}:${loop.index}"', *, local_command=False):
+def _opaque_command_program(tmp_path, argument='"${inputs.root}:${loop.index}"', *, local_command=False,
+                            target="TARGET"):
     from tests.test_workflow_lisp_closed_command_transport import _compile, _command
 
     declarations = '(defun make-block ((value Int)) -> Int (let* ((inside (+ value 1))) inside))'
-    declarations += '(defproc child ((n Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations += '(defproc child ((n Int)) -> Int '
+    if target != "TARGET":
+        declarations += ':effects ((uses-command echo)) :lowering inline '
     declarations += _command(argument) + ')'
     body = '(loop/recur :max 1 :state 0 :on-exhausted 0 (fn (state) '
     local = _command('"${inputs.root}:${loop.index}"') if local_command else '1'
     body += '(let* ((held (make-block (+ (child state) ' + local + ')))) (done held))))'
-    return _compile(tmp_path, body, declarations=declarations, params='(root Int)')
+    return _compile(tmp_path, body, declarations=declarations, params='(root Int)', target=target)
 
 
 def _assert_block_body_continuity(program, body, builder):
@@ -1383,7 +1379,7 @@ def test_opaque_normalized_child_inherits_loop_inputs_and_survives_anf_hygiene(t
     from tests.test_workflow_lisp_closed_command_requests import _prepared_entry
     from tests.test_workflow_lisp_closed_command_transport import _commands
 
-    program = _opaque_command_program(tmp_path, local_command=True)
+    program = _opaque_command_program(tmp_path, local_command=True, target="2.35")
     body, children, builder = _prepared_entry(program)
     (child,) = children.values()
     assert builder.definitions == {} and builder.run_ref_producers == []
@@ -1486,7 +1482,7 @@ def test_compound_union_if_proof_updates_actual_elaboration_frames(tmp_path, mon
     program = _compile(tmp_path, '0', params='(choice Choice)', declarations='(defrecord Payload (text String)) (defunion Choice (SCALAR (value Int)) (RECORD (value Payload)))')
     inputs, facts = _scope_inputs(program, closed_build.Builder(program))
     source = '(if (= choice.variant RECORD) ' + _command('choice.value.text') + ' ' + _command('choice.value') + ')'
-    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(inputs['value_env']), target_dsl_version='2.35')
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(inputs['value_env']), target_dsl_version='2.40')
     typed = typecheck_expression(expr, type_env=inputs['type_env'], value_env=inputs['value_env'])
     assert typed.expr.true_proof_context and typed.expr.false_proof_context
     transitions = []
@@ -1514,7 +1510,7 @@ def _constructor_memo_source(kind):
     payload = '(record Payload :n seed :flag true :text "same")'
     constructor = payload if kind == 'record' else '(variant Choice BOX :value ' + payload + ')'
     declarations = '(defrecord Payload (n Int) (flag Bool) (text String)) (defunion Choice (BOX (value Payload)) (EMPTY))'
-    declarations += '(defproc carry ((value ' + ('Payload' if kind == 'record' else 'Choice') + ')) -> Int :effects ((uses-command echo)) :lowering inline ' + _command('"${inputs.root}"') + ')'
+    declarations += '(defproc carry ((value ' + ('Payload' if kind == 'record' else 'Choice') + ')) -> Int ' + _command('"${inputs.root}"') + ')'
     body = '(let* ((seed 7) (saved ' + constructor + ') (alias saved) (first (carry saved)) (second (carry alias))) (let* ((seed 9) (last ' + constructor + ') (third (carry last)) (old (carry saved))) old))'
     return declarations, body
 
@@ -1652,7 +1648,7 @@ def test_wrapper_mapping_keeps_old_constructor_beside_new_creation_fact(tmp_path
     constructor = '(variant Choice BOX :value ' + payload + ')'
     declarations, _ = _constructor_memo_source('union')
     declarations += '(defrecord Wrapper (u Choice)) (defrecord Duo (old Choice) (fresh Choice))'
-    declarations += '(defproc consume ((value Duo)) -> Int :effects ((uses-command echo)) :lowering inline ' + _command('"${inputs.root}"') + ')'
+    declarations += '(defproc consume ((value Duo)) -> Int ' + _command('"${inputs.root}"') + ')'
     body = '(let* ((seed 7) (saved ' + constructor + ') (wrapped (record Wrapper :u ' + constructor + '))) (let* ((seed 9) (combined (record Duo :old saved :fresh ' + constructor + '))) (consume combined)))'
     retained = {}
     actual = CommandScopeContext.bind
@@ -1673,14 +1669,13 @@ def test_wrapper_mapping_keeps_old_constructor_beside_new_creation_fact(tmp_path
 
 
 def test_partial_union_constructor_labels_get_projected_keys_while_preserving_runtime_input(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule probe/partial_owner) (export run)
       (defrecord Output (n Int))
       (defunion Choice (YES (n Int) (label String)) (NO (n Int) (label String)))
       (defproc extract :forall (T) ((value T))
         :where ((T has-shared-union-field n Int)
                 (T has-shared-union-field label String)) -> Output
-        :effects ((uses-command probe)) :lowering inline
         (command-result probe
           :argv ("python" "probe.py" value.n value.label) :returns Output))
       (defworkflow run ((input Int)) -> Output
@@ -1789,7 +1784,7 @@ def test_constructor_memo_distinguishes_creation_runtime_from_shadow_literal_and
     from tests.test_workflow_lisp_closed_command_transport import _compile, _command
 
     declarations = '(defunion Choice (YES (n Int) (label String)) (NO (n Int) (label String)))'
-    declarations += '(defproc extract :forall (T) ((value T)) :where ((T has-shared-union-field n Int) (T has-shared-union-field label String)) -> Int :effects ((uses-command echo)) :lowering inline ' + _command('value.n value.label') + ')'
+    declarations += '(defproc extract :forall (T) ((value T)) :where ((T has-shared-union-field n Int) (T has-shared-union-field label String)) -> Int ' + _command('value.n value.label') + ')'
     body = '(let* ((saved (variant Choice YES :n input :label "same")) (other (variant Choice YES :n renamed :label "same")) (alias saved)) (let* ((input 9) (literal (variant Choice YES :n input :label "same")) (a (extract saved)) (b (extract other)) (c (extract alias)) (d (extract literal))) d))'
     program = _compile(tmp_path, body, params='(input Int) (renamed Int)', declarations=declarations)
     original_inputs = closed_build.Builder._preparation_inputs
@@ -1853,7 +1848,7 @@ def test_retained_constructor_internal_let_and_if_freeze_selected_creation_facts
     program = _compile(tmp_path, '0', declarations='(defunion Choice (YES (n Int) (label String)) (NO))')
     env = program.workflow_type_env(program.entry.definition.name)
     source = '(let* ((label "before") (saved (variant Choice YES :n runtime :label label))) (let* ((label "after")) (if true saved (variant Choice NO))))'
-    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset({'runtime'}), target_dsl_version='2.35')
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset({'runtime'}), target_dsl_version='2.40')
     typed = typecheck_expression(expr, type_env=env, value_env={'runtime': env.resolve_type('Int', span=expr.span, form_path=expr.form_path)})
     fact = _resolve_inline_expr_value(typed.expr, local_values={'runtime': RUNTIME_REFERENCE}, retain_expression_facts=True)
     assert isinstance(fact, RetainedExpressionFact) and fact.form == 'union'

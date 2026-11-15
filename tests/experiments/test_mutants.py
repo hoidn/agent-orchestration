@@ -802,6 +802,20 @@ def test_the_seed_source_is_restored_and_the_world_removed(recorded):
     assert recorded["left"] == []
 
 
+NO_REPO_SEED = (SEED.replace("(defmodule fixture)", "(defmodule norepo)").replace(" (repo String)", "")
+                .replace("(repo :text) ", "").replace(" (repo :text)", "").replace("{repo}", "here")
+                .replace(":repo repo ", "").replace(" :repo repo", ""))
+
+
+@pytest.mark.parametrize("program", ["fixture", "norepo"])
+def test_a_stand_in_run_binds_repo_only_when_the_entry_declares_it(program, tmp_path):
+    seed = seed_dir(tmp_path / "seed", {program: {"fixture": SEED, "norepo": NO_REPO_SEED}[program]})
+    standin = {**STANDIN, "answers": {program: {"clean": [CHANGE, CHANGE, MET]}}}
+    with check.recorded_run(seed, program, standin, "clean") as run:
+        bound = json.loads((run["world"] / "inputs.json").read_text(encoding="utf-8"))
+        assert (run["steps"], run["calls"], "repo" in bound) == (4, 3, program == "fixture")
+
+
 def test_a_coded_refusal_is_no_plan_with_its_code(recorded, tmp_path, monkeypatch):
     # The preflight's refusal: the run's inputs file edited.
     assert recorded["inputs_changed"] == ("no_plan", "resume_inputs_changed")

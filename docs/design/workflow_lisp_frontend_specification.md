@@ -3112,7 +3112,7 @@ accepts exactly three optional call-policy keywords in its ordinary keyword sect
   :inputs (<expr> ...)
   [:model <String expr>]
   [:effort <String expr>]
-  [:timeout-sec <positive Int literal>]
+  [:timeout-sec <positive Int literal | Int name or field>]
   :returns <return-spec>)
 ```
 
@@ -3120,7 +3120,7 @@ The complete allowed-key set remains explicit: `:prompt`, `:inputs`, `:returns`,
 `:prompt-dependencies`, `:model`, `:effort`, and `:timeout-sec`. Each key occurs
 at most once. Model and effort accept exact `String` values from the effect-free
 inline-lowerable scalar and template subset; procedure edges alone do not count
-as runtime effects. Timeout accepts only a positive exact-`Int` literal.
+as runtime effects. Timeout accepts a positive exact-`Int` literal or, except for phased delivery, an effect-free `Int` name or field; a value below 1 from a name or field refuses the step before `started` (`provider_timeout_nonpositive`).
 Diagnostics for type errors precede the inline-subset diagnostic.
 
 At target 2.38, the first operand may instead be a run-local `Agent` under

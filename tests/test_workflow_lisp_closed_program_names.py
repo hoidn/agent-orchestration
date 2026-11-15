@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
+from orchestrator.contracts.closed_program.targets import CURRENT_TARGET_DSL_VERSION
 from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
-from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram
@@ -24,7 +24,7 @@ from orchestrator.workflow_lisp.closed.names import (
 )
 
 
-TARGET = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+TARGET = CURRENT_TARGET_DSL_VERSION
 
 
 def _typed_nominal_program(root: Path):
@@ -100,7 +100,7 @@ def test_closed_imported_private_nesting_survives_generic_specialization_keys(
     root.mkdir()
     for module in ("a", "b"):
         (root / f"{module}.orc").write_text(
-            f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+            f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
               (defmodule {module}) (export Outer keep)
               (defenum Flag yes no)
               (defpath Report :kind relpath :under "reports" :must-exist true)
@@ -113,7 +113,7 @@ def test_closed_imported_private_nesting_survives_generic_specialization_keys(
         )
     entry = root / "entry.orc"
     entry.write_text(
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule entry) (import a :as left) (import b :as right) (export run)
           (defworkflow run ((first left.Outer) (second right.Outer)) -> left.Outer
             (let* ((first-result (call left.keep :value first))
@@ -435,7 +435,7 @@ def test_generic_loop_carriers_keep_same_spelled_private_field_owners(
                 f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
                   (defmodule {module}) (export get)
                   (defrecord Note (n Int))
-                  (defproc get () -> Note :effects () :lowering inline
+                  (defproc get () -> Note
                     (record Note :n 1)))''',
                 encoding="utf-8",
             )
@@ -446,7 +446,6 @@ def test_generic_loop_carriers_keep_same_spelled_private_field_owners(
             + f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
               (defmodule main) (import a :as a) (import b :as b) (export run)
               (defproc carry :forall (T) ((value T)) -> Int
-                :effects () :lowering inline
                 (let* ((state (loop-state (payload T value)))) 0))
               (defworkflow run () -> Int
                 (+ (carry (a.get)) (carry (b.get)))))''',
@@ -511,9 +510,8 @@ def test_specialized_loop_carriers_project_same_run_ref_signature_and_keep_origi
       (defmodule cp/carrier_refs) (export run)
       (defunion Wrapper :forall (T) (WRAP (value Int)))
       (defproc wrap :forall (T) ((value T)) -> Wrapper[T]
-        :effects () :lowering inline (variant Wrapper[T] WRAP :value 0))
+        (variant Wrapper[T] WRAP :value 0))
       (defproc carry :forall (T) ((value T)) -> Int
-        :effects ((runs-ref child)) :lowering inline
         (let* ((state (loop-state (payload T value)))
                (check (run-ref :source (:repo "file:///workspace" :commit "0123456789abcdef0123456789abcdef01234567")
                  :program (:path "child.orc" :entry child) :inputs (:n 0) :returns Int
@@ -625,7 +623,7 @@ def test_run_ref_signatures_use_exact_imported_type_origins(tmp_path: Path) -> N
             f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
               (defmodule cp/{module}) (export get)
               (defrecord Box (n Int))
-              (defproc get () -> Int :effects ((runs-ref child)) :lowering inline
+              (defproc get () -> Int
                 (let* ((r (run-ref :source (:repo "file:///workspace" :commit "0123456789abcdef0123456789abcdef01234567")
                            :program (:path "child.orc" :entry child)
                            :inputs (:x (record Box :n 0)) :returns Int
@@ -858,8 +856,8 @@ def test_bound_procedure_reference_key_uses_merged_target_specialization(
     int_type = {"kind": "primitive", "name": "Int"}
     source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
       (defmodule cp/bound) (export run)
-      (defproc helper ((fixed Int) (x Int)) -> Int :effects () :lowering inline (+ fixed x))
-      (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int :effects () :lowering inline (runner x))
+      (defproc helper ((fixed Int) (x Int)) -> Int (+ fixed x))
+      (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int (runner x))
       (defworkflow run ((x Int)) -> Int
         (invoke (bind-proc (proc-ref helper) :fixed {value}) x)))'''
     path = tmp_path / "cp" / "bound.orc"
@@ -928,12 +926,12 @@ def _typed_runtime_capture_program(root: Path, *, nested: bool, shifted: bool):
     path.write_text(
         f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
           (defmodule cp/captures) (export run)
-          (defproc helper ((fixed Int) (x Int)) -> Int :effects () :lowering inline (+ fixed x))
-          (defproc apply-one ((callback ProcRef[Int -> Int]) (x Int)) -> Int :effects () :lowering inline (callback x))
-          (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int :effects () :lowering inline (runner x))
+          (defproc helper ((fixed Int) (x Int)) -> Int (+ fixed x))
+          (defproc apply-one ((callback ProcRef[Int -> Int]) (x Int)) -> Int (callback x))
+          (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int (runner x))
           (defproc invoke-three ((a ProcRef[Int -> Int]) (b ProcRef[Int -> Int])
                                  (runner ProcRef[Int -> Int]) (x Int)) -> Int
-            :effects () :lowering inline (runner x))
+            (runner x))
           (defworkflow run ((x Int)) -> Int {call}))''',
         encoding="utf-8",
     )
@@ -1030,8 +1028,8 @@ def test_public_same_named_procedure_workflow_and_local_callables_keep_kind_owne
 ) -> None:
     source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
       (defmodule cp/local_kinds) (export run)
-      (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int :effects () :lowering inline (runner x))
-      (defproc same ((x Int)) -> Int :effects () :lowering inline
+      (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int (runner x))
+      (defproc same ((x Int)) -> Int
         (let-proc (leaf ((y Int)) -> Int :captures ()
           (let* ((state (loop-state (n Int y)))) state.n)) (invoke (proc-ref leaf) x)))
       (defworkflow same ((x Int)) -> Int
@@ -1204,9 +1202,9 @@ def test_legacy_snapshot_keeps_carrier_family_for_later_closed_import(
     module_header = "(defmodule cp/producer)" if producer_mode == "named" else ""
     export_header = "(export get)" if producer_mode == "named" else ""
     producer_path.write_text(
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           {module_header} {export_header}
-          (defproc carry ((value Int)) -> Int :effects () :lowering inline
+          (defproc carry ((value Int)) -> Int
             (let* ((state (loop-state (n Int value)))) state.n))
           (defworkflow get ((n Int)) -> Int (carry n)))''',
         encoding="utf-8",
@@ -1344,7 +1342,7 @@ def test_sibling_local_names_use_owner_ordinals_and_ignore_relocation_edits(
 ) -> None:
     base = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
       (defmodule cp/local_scopes) (export run)
-      (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int :effects () :lowering inline (runner x))
+      (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int (runner x))
       (defworkflow run ((x Int)) -> Int
         BODY))'''
 
@@ -1456,7 +1454,7 @@ def test_workflow_reference_keys_use_exact_resolved_extern_rows(tmp_path: Path) 
       (defworkflow helper ((input Box)) -> Box
         (provider-result providers.execute :prompt prompts.execute :inputs (input.n) :returns Box))
       (defproc invoke ((runner WorkflowRef[Box -> Box]) (input Box)) -> Box
-        :effects ((calls-workflow runner)) :lowering inline (call runner :input input))
+        (call runner :input input))
       (defworkflow run ((input Box)) -> Box (invoke (workflow-ref helper) input)))'''
     path = tmp_path / "cp" / "wrefs.orc"
     path.parent.mkdir(parents=True)

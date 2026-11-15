@@ -230,7 +230,7 @@ schema notation, not authored workflow files.
 
 - Workflow Lisp call-local provider policy
   - Ordinary Workflow Lisp `provider-result` may author the closed canonical
-    options `model` and `effort`, plus a positive literal timeout. Target 2.23
+    options `model` and `effort`, plus a timeout: a positive literal, or an `Int` name or field. Target 2.23
     additionally accepts explicit `delivery` and bounded literal
     `materialization_attempts`. The closed internal `provider_call_policy`
     mapping orders present keys as `model`, `effort`, `delivery`, then

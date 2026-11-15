@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp import syntax
+from orchestrator.contracts.closed_program.targets import CURRENT_TARGET_DSL_VERSION
 from orchestrator.workflow_lisp import compiler as compiler_module
 from orchestrator.workflow_lisp.build import (
     FrontendBuildRequest,
@@ -32,21 +32,20 @@ from orchestrator.workflow_lisp.type_env import PathTypeRef
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "closed_program"
-TARGET = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+TARGET = CURRENT_TARGET_DSL_VERSION
 BOUNDARIES = {
     "fetch": ExternalToolBinding(name="fetch", stable_command=("python", "probe.py"))
 }
 
 
 @pytest.mark.parametrize("procedure", [False, True])
-@pytest.mark.parametrize("target", ["2.35", "2.40"])
+@pytest.mark.parametrize("target", ["2.40"])
 def test_source_free_short_command_keeps_producer_binding(tmp_path, procedure, target):
     from orchestrator.workflow_lisp.expressions import CommandResultExpr
 
     producer = tmp_path / "producer.orc"
     command = '(command-result inspect :returns Int)'
-    lowering = ':lowering inline' if target == "2.35" else ''
-    helper = (f'(defproc probe () -> Int :effects ((uses-command inspect)) {lowering} {command})'
+    helper = (f'(defproc probe () -> Int {command})'
               if procedure else '')
     producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
       (defmodule producer) (export run) {helper}
@@ -88,9 +87,9 @@ def test_typed_import_empty_external_argv_requires_source(tmp_path, procedure, n
 
     producer = tmp_path / "producer.orc"
     command = '(command-result inspect :argv ("python" "original.py") :returns Int)'
-    helper = (f'(defproc probe () -> Int :effects ((uses-command inspect)) :lowering inline {command})'
+    helper = (f'(defproc probe () -> Int {command})'
               if procedure else '')
-    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule producer) (export run) {helper}
       (defworkflow run () -> Int {"(probe)" if procedure else command}))''')
     native = compile_typed_program(producer, entry_workflow="run", source_roots=(tmp_path,),
@@ -360,7 +359,7 @@ def test_mixed_schema_typed_imports_keep_each_original_snapshot_after_source_del
 
     consumer_path = tmp_path / "cp" / "consumer.orc"
     consumer_path.write_text(
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule cp/consumer) (export run)
           (defworkflow run ((n Int)) -> Int (call parent :n n)))''',
         encoding="utf-8",
@@ -453,7 +452,7 @@ def test_typed_program_retains_procedure_specializations_and_owner_environments(
 def test_evaluated_entry_skips_flat_lowering_for_its_whole_source_graph(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    old_helper = _install(tmp_path, "loop_in_branch", target="2.35")
+    old_helper = _install(tmp_path, "loop_in_branch")
     old_source = old_helper.read_text(encoding="utf-8").replace("(export run)", "(export Box run)")
     old_helper.write_text(old_source, encoding="utf-8")
     entry = tmp_path / "cp" / "entry.orc"
@@ -495,7 +494,7 @@ def test_evaluated_entry_skips_flat_lowering_for_its_whole_source_graph(
 def test_typed_program_keeps_each_module_externs_and_unused_bindings(
     tmp_path: Path,
 ) -> None:
-    old_helper = _install(tmp_path, "loop_in_branch", target="2.35")
+    old_helper = _install(tmp_path, "loop_in_branch")
     old_source = old_helper.read_text(encoding="utf-8").replace(
         "(export run)", "(export Box run)"
     )
@@ -984,7 +983,7 @@ def test_imported_snapshot_must_match_an_overlapping_source_graph(
     producer_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{TARGET}")
+  (:target-dsl "2.35")
   (defmodule cp/shared)
   (export get)
   (defworkflow get ((value Int)) -> Int value))
@@ -1048,7 +1047,7 @@ def test_imported_snapshot_refuses_a_different_overlapping_definition(
     producer_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{TARGET}")
+  (:target-dsl "2.35")
   (defmodule cp/shared)
   (export get)
   (defworkflow get ((value Int)) -> Int value))
@@ -1240,7 +1239,7 @@ def test_old_std_improve_snapshot_conflicts_with_selected_w3_source_authority(
 
 
 def test_source_digests_use_consumed_import_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    helper = _install(tmp_path, "loop_in_branch", target="2.35")
+    helper = _install(tmp_path, "loop_in_branch")
     helper_source = helper.read_bytes()
     helper_source_text = helper_source.decode("utf-8").replace("(export run)", "(export Box run)")
     helper.write_text(helper_source_text, encoding="utf-8")
@@ -1296,7 +1295,7 @@ def test_local_definition_keys_ignore_paths_positions_and_pure_bindings(tmp_path
   (:target-dsl "{TARGET}")
   (defmodule cp/local)
   (export run)
-  (defproc apply-int ((hook ProcRef[Int -> Int]) (value Int)) -> Int :effects () :lowering inline (hook value))
+  (defproc apply-int ((hook ProcRef[Int -> Int]) (value Int)) -> Int (hook value))
   (defworkflow run ((choice Bool) (input Int)) -> Int
     (if choice
       (let-proc (increment ((value Int)) -> Int :captures () (+ value 1))
@@ -1387,7 +1386,7 @@ def test_macro_expansion_local_identity_is_scoped_to_its_callable(tmp_path: Path
   (:target-dsl "{TARGET}")
   (defmodule sample)
   (export run)
-  (defproc apply-int ((hook ProcRef[Int -> Int]) (value Int)) -> Int :effects () :lowering inline (hook value))
+  (defproc apply-int ((hook ProcRef[Int -> Int]) (value Int)) -> Int (hook value))
   (defmacro invoke (value)
     (let-proc (increment ((arg Int)) -> Int :captures () (+ arg 1))
       (apply-int (proc-ref increment) value)))
@@ -1479,7 +1478,7 @@ def test_typed_snapshot_copies_certified_adapter_configuration(
     entry.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/producer)
   (export get)
   (defworkflow get ((n Int)) -> Int n))
@@ -1528,10 +1527,10 @@ def test_typed_program_can_import_an_explicit_source_snapshot(tmp_path: Path) ->
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/producer)
   (export get)
-  (defproc private-inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
+  (defproc private-inc ((n Int)) -> Int (+ n 1))
   (defworkflow get ((n Int)) -> Int (private-inc n)))
 ''',
         encoding="utf-8",
@@ -1646,10 +1645,10 @@ def test_typed_snapshot_keeps_its_schema_across_a_direct_import(tmp_path: Path) 
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/producer)
   (export get)
-  (defproc private-inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
+  (defproc private-inc ((n Int)) -> Int (+ n 1))
   (defworkflow get ((n Int)) -> Int (private-inc n)))
 ''',
         encoding="utf-8",
@@ -1718,10 +1717,10 @@ def test_source_manifest_compilation_uses_current_schema(
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/producer)
   (export get)
-  (defproc private-inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
+  (defproc private-inc ((n Int)) -> Int (+ n 1))
   (defworkflow get ((n Int)) -> Int (private-inc n)))
 ''',
         encoding="utf-8",
@@ -1789,7 +1788,7 @@ def test_typed_snapshot_contract_survives_deleted_nested_nominal_sources(
     types_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule types)
   (export Outer)
   (defrecord Inner (x Int))
@@ -1801,7 +1800,7 @@ def test_typed_snapshot_contract_survives_deleted_nested_nominal_sources(
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule child)
   (import types)
   (export get)
@@ -1849,7 +1848,7 @@ def test_typed_snapshot_contract_survives_deleted_nested_nominal_sources(
     assert retained.field_types["inner"].field_types["x"].name == "Int"
     assert retained.field_types["inner"].name == inner_type.name
     assert Path(retained.field_types["inner"].definition.span.start.path) == types_path
-    assert typed.workflow_type_env("child::get").target_dsl_version == "2.35"
+    assert typed.workflow_type_env("child::get").target_dsl_version == "2.40"
     types_path.unlink()
     producer_path.unlink()
     consumer_path.unlink()
@@ -1874,7 +1873,7 @@ def test_typed_product_preserves_grouped_inputs_and_defaults(tmp_path: Path) -> 
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule producer)
   (export get)
   (defrecord Pair (left Int) (right Int))
@@ -1928,7 +1927,7 @@ def test_typed_product_groups_private_context_by_its_source_formal(
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule producer)
   (import std/phase :only (with-phase))
   (export entry run-phase)
@@ -2107,7 +2106,7 @@ def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
     entry.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/entry)
   (import cp/child :only (inc))
   (export run)
@@ -2118,7 +2117,7 @@ def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
     child.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/child)
   (export inc)
   (defworkflow inc ((n Int)) -> Int (+ n 1)))
@@ -2168,7 +2167,7 @@ def test_graph_source_producer_reads_each_source_once(
     entry.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/entry)
   (import cp/child :only (inc))
   (export run)
@@ -2179,7 +2178,7 @@ def test_graph_source_producer_reads_each_source_once(
     child.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/child)
   (export inc)
   (defworkflow inc ((n Int)) -> Int (+ n 1)))
@@ -2469,7 +2468,7 @@ def test_operator_binding_object_order_is_not_argument_order(tmp_path: Path) -> 
     updates = " ".join(f":f{index} {index}" for index in range(11))
     source = tmp_path / "entry.orc"
     source.write_text(
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule entry) (export run)
   (defrecord State {fields})
   (defworkflow run ((state State)) -> State (record-update state {updates})))
@@ -2541,7 +2540,7 @@ def test_required_drain_context_stays_an_explicit_entry_input(
 def test_omitted_non_synthesizable_drain_context_is_refused(tmp_path: Path) -> None:
     source = tmp_path / "entry.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule entry) (export run)
           (defrecord DrainCtx
             (state-root Path.state-root)

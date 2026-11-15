@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule gu/lib)
   (export Outcome Item lib-ok)
   (defunion Outcome :forall (T E)
@@ -11,5 +11,4 @@
   (defproc lib-ok
     ((n Int))
     -> Outcome[Int String]
-    :effects ()
     (variant Outcome[Int String] OK :value n)))
