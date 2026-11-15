@@ -506,7 +506,6 @@ _FORM_SPECS = (
         elaboration_route="agent",
         feature_tags=("agent_sessions",),
         rationale="Run-local agent allocation elaborates through one fixed compiler path.",
-        min_target_dsl_version="2.38",
     ),
     _spec(
         "with-live-providers",

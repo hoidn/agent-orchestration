@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -190,16 +189,6 @@ def test_target_239_phased_provider_preserves_timeout_value_validation(
     assert excinfo.value.diagnostics[0].code == code
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36", "2.37", "2.38"])
-def test_phased_provider_is_refused_before_239_definition_target(tmp_path: Path, target: str) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(tmp_path / "phased239.orc", _source(target))
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "provider_phased_delivery_policy_invalid"
-    assert diagnostic.phased_delivery_diagnostic.reason == "target_below_2_39"
-    assert diagnostic.phased_delivery_diagnostic.rejected_value.canonical_value == target
-
-
 def test_target_239_phased_delivery_rejects_agent_valued_provider(tmp_path: Path) -> None:
     source = _source("2.40").replace(
         '(provider-result providers.review :prompt (review :subject subject)\n'
@@ -245,99 +234,6 @@ def test_target_239_phased_delivery_rejects_context_and_session_pairings(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(tmp_path / "phased239.orc", source)
     assert excinfo.value.diagnostics[0].code == code
-
-
-def test_imported_phased_definition_uses_its_older_owner_target(tmp_path: Path) -> None:
-    older = _source("2.38").replace("phased239", "older").replace("run", "review")
-    main = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
-      (defmodule main) (import older :as older :only (Review review)) (export run)
-      (defworkflow run ((subject String)) -> older.Review
-        (call older.review :subject subject)))'''
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_modules(tmp_path, {"main.orc": main, "older.orc": older}, "main::run")
-    assert excinfo.value.diagnostics[0].phased_delivery_diagnostic.reason == "target_below_2_39"
-
-
-def test_source_free_typed_import_keeps_older_phased_definition_owner_target(
-    tmp_path: Path,
-) -> None:
-    from orchestrator.workflow_lisp.expressions import LiteralExpr
-
-    older_path = tmp_path / "older.orc"
-    older_path.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
-          (defmodule older) (export run)
-          (defprompt review (:fills (subject :text)) -> String "Review {subject}")
-          (defworkflow run () -> String
-            (provider-result providers.review :prompt (review :subject "x")
-              :delivery :composed)))''',
-        encoding="utf-8",
-    )
-    older = compile_typed_program(
-        older_path,
-        entry_workflow="older::run",
-        source_roots=(tmp_path,),
-        command_boundaries={},
-        provider_externs={"providers.review": "test-provider"},
-        prompt_externs={},
-        workspace_root=tmp_path,
-    )
-    older_path.unlink()
-
-    caller_path = tmp_path / "caller.orc"
-    caller_path.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
-          (defmodule caller) (export run)
-          (defworkflow run () -> String (call older)))''',
-        encoding="utf-8",
-    )
-    caller = compile_typed_program(
-        caller_path,
-        entry_workflow="caller::run",
-        source_roots=(tmp_path,),
-        command_boundaries={},
-        provider_externs={},
-        prompt_externs={},
-        workspace_root=tmp_path,
-        imported_programs={"older": older},
-    )
-
-    workflow = older.workflows["older::run"]
-    effect = workflow.typed_body.expr
-    assert effect.delivery.value == "composed"
-    phased_effect = replace(
-        effect,
-        delivery=replace(effect.delivery, value="phased"),
-        materialization_attempts=LiteralExpr(
-            2,
-            "int",
-            effect.delivery.span,
-            effect.delivery.form_path,
-            effect.delivery.expansion_stack,
-        ),
-    )
-    phased_workflow = replace(
-        workflow,
-        typed_body=replace(workflow.typed_body, expr=phased_effect),
-    )
-    older_workflows = dict(older.workflows)
-    older_workflows["older::run"] = phased_workflow
-    older_capsule = replace(older, workflows=older_workflows, entry=phased_workflow)
-    caller_imports = dict(caller.imported_programs)
-    caller_imports["older"] = older_capsule
-    caller_workflows = dict(caller.workflows)
-    caller_workflows["older::run"] = phased_workflow
-    caller_capsule = replace(
-        caller,
-        imported_programs=caller_imports,
-        workflows=caller_workflows,
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_closed_program(caller_capsule)
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "closed_program_gap"
-    assert "defining source to target DSL 2.39" in diagnostic.message
 
 
 def test_closed_checker_rejects_phased_provider_reached_by_parallel_worker(tmp_path: Path) -> None:

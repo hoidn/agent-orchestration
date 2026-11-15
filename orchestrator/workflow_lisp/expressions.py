@@ -24,10 +24,6 @@ from orchestrator.workflow.run_ref.source import (
     normalize_repository_locator,
     validate_commit_sha,
 )
-from orchestrator.contracts.closed_program.targets import (
-    RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION,
-    target_dsl_supports_run_ref_confined,
-)
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 from orchestrator.workflow.provider_phased_delivery.diagnostics import (
     PhasedDeliveryDiagnostic,
@@ -2145,10 +2141,6 @@ def _parse_run_ref_workflow_mode(
     """Parse `run-ref :program (:workflow name)`; see the confined child design."""
 
     program_node = sections[":program"]
-    if not target_dsl_supports_run_ref_confined(target_dsl_version):
-        _run_ref_refuse(program_node, "`run-ref :program (:workflow ...)` requires target DSL "
-                        f"{RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION} or newer",
-                        "run_ref_child_target_unavailable", form_path)
     program_sections = _run_ref_sections(program_node.items, label="`run-ref :program`", form_path=form_path)
     if set(program_sections) != {":workflow"}:
         _run_ref_refuse(program_node, "`run-ref :program` must select exactly one of :path or :workflow",
@@ -5682,24 +5674,19 @@ def _elaborate_request_input(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> RequestInputExpr:
-    typed = session_state.target_dsl_version == "2.40"
-    if not typed and len(datum.items) > 2:
-        _raise_error("typed `request-input` requires target 2.40", code="closed_program_gap",
-            span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
-    if len(datum.items) < 2 or (not typed and len(datum.items) != 2):
+    if len(datum.items) < 2:
         _raise_error("`request-input` requires one question", code="request_input_arity_invalid",
             span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
-    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`request-input`") if typed else {}
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`request-input`")
     question_node = datum.items[1]
     head = syntax_head(question_node) if isinstance(question_node, SyntaxList) else None
-    prompt = session_state.prompt_catalog.resolve(head.resolved_name) if typed and head is not None and session_state.prompt_catalog else None
+    prompt = session_state.prompt_catalog.resolve(head.resolved_name) if head is not None and session_state.prompt_catalog else None
     inferred_answer_type_name = (
         render_type_ref(prompt.return_type_ref)
         if prompt is not None and prompt.declaration.return_contract_declared
         else None
     )
-    if typed and ((":returns" not in sections and inferred_answer_type_name is None)
-            or set(sections) - {":returns", ":timeout-sec", ":show"}):
+    if (":returns" not in sections and inferred_answer_type_name is None) or set(sections) - {":returns", ":timeout-sec", ":show"}:
         _raise_error("`request-input` requires :returns unless its prompt declares a return contract; admits only :timeout-sec and :show",
             code="request_input_keyword_invalid", span=datum.span, form_path=form_path,
             expansion_stack=datum.expansion_stack)
@@ -5715,7 +5702,7 @@ def _elaborate_request_input(
     return RequestInputExpr(question=question, span=datum.span, form_path=form_path,
         expansion_stack=datum.expansion_stack,
         answer_type_name=(parse_return_spec(sections[":returns"], form_path=form_path,
-            label="`request-input :returns`").type_name if ":returns" in sections else inferred_answer_type_name) if typed else None,
+            label="`request-input :returns`").type_name if ":returns" in sections else inferred_answer_type_name),
         timeout_sec=operand(sections[":timeout-sec"]) if ":timeout-sec" in sections else None,
         show=tuple(operand(item) for item in shown.items) if shown is not None else ())
 

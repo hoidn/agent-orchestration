@@ -13,10 +13,12 @@ from tempfile import TemporaryDirectory
 from types import ModuleType, UnionType
 from typing import Union, get_args, get_origin
 
+from orchestrator.contracts.closed_program.targets import CURRENT_TARGET_DSL_VERSION
+
 from .declarations import Definition, Fill, MISSING, Prompt, fields_of, validate_field_names
 from .diagnostics import (PythonFrontendError, PythonSite, PythonSourceMap,
                           SourceMapEntry, definition_site, python_span, remap_compiler_error)
-from .trace import Expr, Trace, _require_host_input_target
+from .trace import Expr, Trace
 from .imports import (CompilerCase, CompilerType, ImportedCallable, ImportedPrompt,
                       OrcMember, OrcModule, _GENERATOR)
 
@@ -163,15 +165,11 @@ class ModuleGenerator:
     def type_ref(self, annotation, *, site=None, signature=False):
         site = site or self.fallback
         if isinstance(annotation, OrcMember):
-            if annotation._module._name == "std/host" and annotation._name == "HostReply":
-                _require_host_input_target(self, site=site)
             name = self.import_name(annotation._module._name, annotation._name)
             if annotation._arguments:
                 name += "[" + " ".join(self.type_ref(arg, site=site) for arg in annotation._arguments) + "]"
             return name
         if isinstance(annotation, CompilerType):
-            if annotation._owner == "std/host" and annotation._name == "HostReply":
-                _require_host_input_target(self, site=site)
             name = self.import_name(annotation._owner, annotation._name)
             if annotation._arguments:
                 name += "[" + " ".join(self.type_ref(arg, site=site) for arg in annotation._arguments) + "]"
@@ -267,7 +265,7 @@ class ModuleGenerator:
             self._trace_all()
         w = self.writer
         w.write('(workflow-lisp\n  (:language "0.1")\n  (:target-dsl ')
-        self.literal(str(getattr(self.module, "TARGET", "2.39")))
+        self.literal(str(getattr(self.module, "TARGET", CURRENT_TARGET_DSL_VERSION)))
         w.write(f")\n  (defmodule {self.module_name})\n")
         import_offset = len(w.text())
         exports = self._exports()
@@ -390,22 +388,8 @@ class ModuleGenerator:
                     self.expression(default, expected=annotation)
                 w.write(")")
             w.write(") -> " + self.type_ref(returns))
-            if definition.kind == "proc":
-                from orchestrator.workflow_lisp.syntax import target_dsl_supports_effect_ceilings
-                target = str(getattr(self.module, "TARGET", "2.39"))
-                effects = definition.effects
-                if target_dsl_supports_effect_ceilings(target):
-                    if effects is not MISSING:
-                        self.emit_effects(effects)
-                else:
-                    if effects is MISSING:
-                        raise PythonFrontendError(
-                            "python_proc_effects_required",
-                            "Targets 2.35–2.38 require an explicit proc effects contract",
-                            site=definition.site,
-                        )
-                    self.emit_effects(effects)
-                    w.write(" :lowering inline")
+            if definition.kind == "proc" and definition.effects is not MISSING:
+                self.emit_effects(definition.effects)
             w.write("\n    ")
             self.region(trace, result, expected=returns)
             w.write(")\n")
@@ -1113,8 +1097,7 @@ class ModuleGraph:
         self.skeleton_source_map = PythonSourceMap()
         # Skeleton paths are read once and never overwritten with final source.
         for generator in self.generators.values():
-            if str(getattr(generator.module, "TARGET", "2.39")) == "2.40":
-                generator.import_name("std/host", "HostReply")
+            generator.import_name("std/host", "HostReply")
             declarations = {id(value): value for value in vars(generator.module).values()
                             if isinstance(value, Definition) and value.__module__ == generator.module.__name__}
             for definition in declarations.values():
@@ -1132,7 +1115,7 @@ class ModuleGraph:
             generator.writer = writer
             try:
                 writer.write('(workflow-lisp (:language "0.1") (:target-dsl ')
-                generator.literal(str(getattr(generator.module, "TARGET", "2.39")))
+                generator.literal(str(getattr(generator.module, "TARGET", CURRENT_TARGET_DSL_VERSION)))
                 writer.write(f") (defmodule {generator.module_name})\n")
                 generator.emit_imports()
                 public_types = {name for annotation, name in (*generator.type_names.items(), *generator.union_names.items())

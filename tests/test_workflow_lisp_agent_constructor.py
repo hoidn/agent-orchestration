@@ -67,11 +67,6 @@ def test_string_is_not_an_agent(tmp_path: Path) -> None:
     assert agent_as_string == control
 
 
-@pytest.mark.parametrize("target", ["2.36", "2.37"])
-def test_agent_below_238_refuses_with_target_diagnostic(tmp_path: Path, target: str) -> None:
-    assert _first_code(tmp_path, MODULE.format(target=target)) == "agent_target_dsl_unsupported"
-
-
 @pytest.mark.parametrize("operand", ["task", "prompts.base"])
 def test_agent_requires_a_provider_extern(tmp_path: Path, operand: str) -> None:
     source = replace_exact(MODULE.format(target="2.40"), "(agent providers.claude", f"(agent {operand}")
@@ -95,20 +90,11 @@ def test_agent_policy_must_be_inline_lowerable(tmp_path: Path) -> None:
     assert _first_code(tmp_path, source) == "agent_policy_operand_not_inline_lowerable"
 
 
-def test_agent_type_name_is_absent_below_238(tmp_path: Path) -> None:
-    source = replace_exact(MODULE.format(target="2.37"), '(agent providers.claude :model planner :effort "high")', '"x"')
-    source = replace_exact(source, "(defrecord Note (text String))", "(defrecord Note (text String) (who Agent))")
-    assert _first_code(tmp_path, source) == "type_unknown"
-
-
-@pytest.mark.parametrize("target, accepted", [("2.37", True), ("2.40", False)])  # 2.37: below the gate (Task 4b)
+@pytest.mark.parametrize("target, accepted", [("2.40", False)])
 def test_user_type_named_agent_is_reserved_only_from_238(tmp_path: Path, target: str, accepted: bool) -> None:
     source = replace_exact(MODULE.format(target=target), '(agent providers.claude :model planner :effort "high")', '"x"')
     source = replace_exact(source, "(defrecord Note (text String))", "(defrecord Note (text String)) (defrecord Agent (n String))")
-    if accepted:
-        assert _build(tmp_path, source).workflows["main::run"]
-    else:
-        assert _first_code(tmp_path, source) == "prelude_type_name_reserved"
+    assert _first_code(tmp_path, source) == "prelude_type_name_reserved"
 
 
 def test_agent_inside_a_pure_definition_is_refused_like_any_effect(tmp_path: Path) -> None:

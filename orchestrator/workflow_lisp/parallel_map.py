@@ -1,6 +1,6 @@
 """Target admission, authored clauses and pure workspace typing for parallel maps."""
 
-from .syntax import SyntaxInt, SyntaxKeyword, target_dsl_supports_parallel_map
+from .syntax import SyntaxInt, SyntaxKeyword
 from .type_env import PathTypeRef, PrimitiveTypeRef
 from .typecheck_context import raise_error
 
@@ -50,12 +50,6 @@ def _positive_literal(datum, value, *, name, form_path, raise_error):
 
 
 def parallel_map_options(datum, *, target, form_path, raise_error):
-    if not target_dsl_supports_parallel_map(target):
-        _refuse(
-            datum, "parallel `list/map-effect` requires target DSL 2.37 or newer",
-            "list_traversal_target_dsl_unsupported",
-            form_path=form_path, raise_error=raise_error,
-        )
     values = _clauses(datum, form_path=form_path, raise_error=raise_error)
     cap = _positive_literal(
         datum, values.get(":max"), name=":max",

@@ -279,12 +279,6 @@ def _translate_provider_result(
         and payload["delivery"].literal_kind == "string"
         and payload["delivery"].value == "phased"
     )
-    if phased and getattr(d.type_env, "target_dsl_version", None) not in {"2.39", "2.40"}:
-        raise builder.gap(
-            "provider-result",
-            "phased provider delivery requires its defining source to target DSL 2.39",
-            perform,
-        )
     owner_config = builder.configuration_for(d.source_program, d.owner)
     provider_row = owner_config["providers"].get(perform.target_name)
     if not isinstance(provider_row, Mapping) or not isinstance(provider_row.get("provider_id"), str):

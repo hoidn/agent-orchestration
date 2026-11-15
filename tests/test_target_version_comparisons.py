@@ -16,7 +16,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = "orchestrator/contracts/closed_program/targets.py"
 
-# The admission set and the current-target name are admission, not gates; every other match counts.
+# The two admission sets (source, readable program labels) and the current-target name are admission, not gates;
+# every other match counts.
 COMPARISON = re.compile(
     r"""["']2\.\d\d["']"""  # a version literal, alone, in a set or as a getattr default
     r"|\(\s*2\s*,\s*\d\d\s*\)"  # a version tuple
@@ -24,7 +25,7 @@ COMPARISON = re.compile(
     r"""|\w*(?:target|version)\w*\.startswith\(\s*["']2\."""  # a prefix test
     r"|\bfloat\(\s*\w*(?:target|version)"  # a target read as a number
     r"|\bVersion\s*\("  # a parsed version object
-    r"|\b(?!SUPPORTED_TARGET_DSL_VERSIONS\b|CURRENT_TARGET_DSL_VERSION\b)[A-Z_]*TARGET_DSL_VERSIONS?\b"  # a named version
+    r"|\b(?!SUPPORTED_TARGET_DSL_VERSIONS\b|READABLE_PROGRAM_TARGET_DSL_VERSIONS\b|CURRENT_TARGET_DSL_VERSION\b)[A-Z_]*TARGET_DSL_VERSIONS?\b"  # a named version
     r"|\btarget_dsl_(?:supports_\w+|uses_evaluated_execution|version_at_least)\s*\("  # a target predicate
     r"|\b_available_at_target\s*\("  # the registry's own gate
     r"|\b(?:get_form_spec|registered_form_heads)\s*\(.*\btarget_dsl_version\s*=\s*(?!None\b)"  # a registry gate
@@ -57,17 +58,6 @@ ALLOWED = {
     "orchestrator/prompt_scaffold_render.py": (  # 14
         '\'  (:target-dsl "2.27")\',',
     ),
-    "orchestrator/py/emit.py": (  # 7, 11, 12
-        'self.literal(str(getattr(self.module, "TARGET", "2.39")))',
-        'target = str(getattr(self.module, "TARGET", "2.39"))',
-        'if target_dsl_supports_effect_ceilings(target):',
-        'if str(getattr(generator.module, "TARGET", "2.39")) == "2.40":',
-        'generator.literal(str(getattr(generator.module, "TARGET", "2.39")))',
-    ),
-    "orchestrator/py/trace.py": (  # 11, 12
-        'if str(getattr(generator.module, "TARGET", "2.39")) != "2.40":',
-        'raise PythonFrontendError("python_host_input_target", "ask and HostReply require explicit TARGET = \'2.40\'", site=site)',
-    ),
     "orchestrator/workflow/prompting.py": (  # 15
         'int(part) for part in target_dsl_version.split(".")',
         'return parts >= (2, 22)',
@@ -93,23 +83,14 @@ ALLOWED = {
         'or not target_dsl_uses_evaluated_execution(',
         '+ EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION',
     ),
-    "orchestrator/workflow_lisp/agent_forms.py": (  # 5
-        'if not target_dsl_supports_agent_sessions(session_state.target_dsl_version or ""):',
-        'f"`agent` requires target DSL {AGENT_SESSIONS_MIN_TARGET_DSL_VERSION} or newer",',
-    ),
     "orchestrator/workflow_lisp/closed/__init__.py": (  # 2 (re-export of the floor)
         '__all__ = ["EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION"]',
     ),
     "orchestrator/workflow_lisp/closed/build.py": (  # 14
         'target_dsl_version=PATH_MODE_RUN_REF_TARGET_DSL_VERSION,',
     ),
-    "orchestrator/workflow_lisp/closed/effects.py": (  # 10
-        'if phased and getattr(d.type_env, "target_dsl_version", None) not in {"2.39", "2.40"}:',
-    ),
     "orchestrator/workflow_lisp/closed/target.py": (  # 2
         'major, minor = (int(part) for part in target.split("."))',
-        'if not syntax.target_dsl_uses_evaluated_execution(target):',
-        'if syntax.target_dsl_uses_evaluated_execution(target):',
     ),
     "orchestrator/workflow_lisp/compiler.py": (  # 3, 7, 9
         'return (target_dsl_supports_effect_ceilings(imported_target)',
@@ -122,14 +103,10 @@ ALLOWED = {
     "orchestrator/workflow_lisp/expressions.py": (  # 3, 6, 8, 11
         'if target_dsl_version_at_least(',
         'FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION,',
-        'if not target_dsl_supports_run_ref_confined(target_dsl_version):',
-        'f"{RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION} or newer",',
         'if target_dsl_supports_local_hook_inference(session_state.target_dsl_version or ""):',
-        'typed = session_state.target_dsl_version == "2.40"',
     ),
     "orchestrator/workflow_lisp/form_registry.py": (  # 5, 8 (and the minimum check itself)
         'FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION = "2.39"',
-        'min_target_dsl_version="2.38",',
         'return spec.min_target_dsl_version is None or target_dsl_version_at_least(',
         'target = tuple(int(part) for part in target_dsl_version.split("."))',
         'if spec is None or not _available_at_target(spec, target_dsl_version):',
@@ -141,9 +118,6 @@ ALLOWED = {
         'and target_dsl_supports_effect_ceilings(target_dsl_version)):',
         'if target_dsl_supports_effect_ceilings(target_dsl_version):',
         'if (not target_dsl_supports_effect_ceilings(target_dsl_version or "")',
-    ),
-    "orchestrator/workflow_lisp/parallel_map.py": (  # 4
-        'if not target_dsl_supports_parallel_map(target):',
     ),
     "orchestrator/workflow_lisp/procedure_specialization.py": (  # 3, 7
         'if preserve_inherited_bound_params or target_dsl_supports_local_hook_inference(type_env.target_dsl_version):',
@@ -184,14 +158,6 @@ ALLOWED = {
     ),
     "orchestrator/workflow_lisp/syntax.py": (  # 3
         'return target_dsl_version in SUPPORTED_TARGET_DSL_VERSIONS and tuple(map(int, target_dsl_version.split("."))) >= (2, 36)',
-    ),
-    "orchestrator/workflow_lisp/type_env.py": (  # 5
-        'if target_dsl_supports_agent_sessions(target_dsl_version):',
-        'if target_dsl_supports_agent_sessions(module.target_dsl_version):',
-    ),
-    "orchestrator/workflow_lisp/typecheck_effects.py": (  # 10, 11
-        'if typed_new and context.type_env.target_dsl_version != "2.40":',
-        'if phased and getattr(context.type_env, "target_dsl_version", None) not in {"2.39", "2.40"}:',
     ),
     "orchestrator/workflow_lisp/workflows.py": (  # 3
         'w3 = target_dsl_supports_local_hook_inference(type_env.target_dsl_version)',

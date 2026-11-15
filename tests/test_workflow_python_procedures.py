@@ -166,43 +166,6 @@ def test_proc_pure_and_target_effect_contracts(tmp_path):
     assert '(defproc restricted ' in source and ':effects ()' in source
     assert '(defun increment ' in source
 
-    generated_old, _built, _manifest = _compile_with_commands(
-        tmp_path / "older", '''
-        TARGET = "2.38"
-        probe = Command("probe", returns=int)
-
-        @workflow
-        def child(value: int) -> int:
-            return value + 1
-
-        agent = Provider("agent")
-        prompt = Prompt(text="Inspect", fills={}, returns=int)
-
-        @proc(effects=(
-            uses_command(probe), uses_provider(agent), calls_workflow(child),
-        ))
-        def effectful(value: int) -> int:
-            probe("python", "probe.py", value)
-            return child(agent(prompt()))
-
-        @workflow
-        def run(value: int) -> int:
-            return effectful(value)
-        ''', command, providers={"providers.agent": "stub"})
-    old_source = generated_old.source_path.read_text(encoding="utf-8")
-    assert ':effects ((uses-command probe) (uses-provider providers.agent) (calls-workflow child)) :lowering inline' in old_source
-
-    with pytest.raises(PythonFrontendError, match="python_proc_effects_required"):
-        compile_source(tmp_path / "missing-old-restriction", '''
-        TARGET = "2.38"
-        @proc
-        def helper(value: int) -> int:
-            return value + 1
-        @workflow
-        def run(value: int) -> int:
-            return helper(value)
-        ''')
-
     effectful_pure = '''
     probe = Command("probe", returns=int)
     @pure

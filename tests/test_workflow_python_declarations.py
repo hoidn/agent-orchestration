@@ -382,7 +382,7 @@ def test_provider_stub_validates_typed_result(tmp_path, payload, expected):
     assert len((tmp_path / "requests.jsonl").read_text().splitlines()) == 1
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36", "2.39", "2.40"])
+@pytest.mark.parametrize("target", ["2.40"])
 def test_module_target_is_admitted_by_existing_compiler(tmp_path, target):
     _, generated, built = compile_source(tmp_path, f'TARGET = "{target}"\n@workflow(returns=int)\ndef run():\n    return 1\n')
     assert generated.module_name == "py/sample"

@@ -147,12 +147,6 @@ def test_source_free_checker_refuses_tampered_requests(tmp_path, mutation):
         ClosedProgram.from_artifact(json.dumps(tree))
 
 
-def test_target_239_typed_request_has_located_gap(tmp_path):
-    with pytest.raises(LispFrontendCompileError) as caught:
-        _compile(tmp_path, target='2.39')
-    assert caught.value.diagnostics[0].code == 'closed_program_gap'
-
-
 def test_target_240_inherits_phased_delivery(tmp_path):
     from tests.test_workflow_lisp_phased_239 import _compile as compile_phased, _source, _provider_effect
     program = compile_phased(tmp_path / 'phased239.orc', _source('2.40'))
@@ -364,13 +358,6 @@ def test_declared_invalid_prompt_return_is_not_inferred_as_host_answer(tmp_path)
         _compile(tmp_path, question='(question-prompt :summary question)', include_returns=False,
             declarations='(defprompt question-prompt (:fills (summary :text)) -> Value "{summary}")')
     assert caught.value.diagnostics[0].code == 'request_input_answer_type_invalid'
-
-
-def test_target_239_does_not_infer_prompt_host_answer(tmp_path):
-    with pytest.raises(LispFrontendCompileError):
-        _compile(tmp_path, target='2.39', question='(question-prompt :summary question)',
-            include_returns=False,
-            declarations='(defprompt question-prompt (:fills (summary :text)) -> Approval "{summary}")')
 
 
 def test_imported_aliased_prompt_infers_its_canonical_answer_type(tmp_path):
