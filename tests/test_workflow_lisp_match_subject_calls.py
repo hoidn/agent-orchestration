@@ -21,6 +21,7 @@ from tests.workflow_evaluated_totality_helpers import _public_run
 from tests.test_workflow_lisp_generic_unions_runtime import _compile
 from tests.workflow_lisp_generic_union_runtime_sources import CANDIDATE_CHECK, OUTCOME_LIB, OUTCOME_PROBE
 from tests.workflow_lisp_improve_stdlib_sources import REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE, entry_source
+from tests.source_edits import replace_exact
 
 
 HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.40")\n'
@@ -33,13 +34,11 @@ SUMMARIZE = """  (defrecord Summary (outcome String) (title String) (score Int))
 """
 # The `improve` callers are the five-argument `std/improve` entry at 2.35 (Task 4a), where a
 # procedure declares its exact effects.
-SUMMARIZE_235 = SUMMARIZE.replace(
+SUMMARIZE_235 = replace_exact(
+    SUMMARIZE,
     "-> Summary\n    (command-result",
     "-> Summary\n    :effects ((uses-command probe_summarize))\n    :lowering inline\n    (command-result",
 )
-# `CANDIDATE_CHECK` is shared with modules still at 2.35; at 2.40 its procedure carries no clauses
-# (a no-op once the shared source is migrated).
-CHECK_CANDIDATE = CANDIDATE_CHECK.replace("    :effects ((uses-command probe_check))\n    :lowering inline\n", "")
 
 IMPROVE_CALL = (
     '(improve (record Candidate :title "SEED" :score 0) (record Brief :goal "tidy")'
@@ -87,8 +86,8 @@ def _run_body(call: str, arms: str, *, bound: bool) -> str:
 def _improve_sources(probes: dict[str, Path], *, seed: str, bound: bool) -> dict[str, str]:
     entry = entry_source(seed=seed, limit=2, probes=probes)
     prefix = entry[: entry.index("  (defworkflow run")]
-    call = IMPROVE_CALL.replace("SEED", seed)
-    summarize = SUMMARIZE_235.replace("PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
+    call = replace_exact(IMPROVE_CALL, "SEED", seed)
+    summarize = replace_exact(SUMMARIZE_235, "PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
     return {"grt/entry.orc": prefix + summarize + _run_body(call, IMPROVE_ARMS, bound=bound)}
 
 
@@ -96,9 +95,9 @@ def _check_sources(
     probes: dict[str, Path], *, helper: str, seed: str, bound: bool
 ) -> dict[str, str]:
     imports, declarations, callee = CHECK_HELPERS[helper]
-    check = CHECK_CANDIDATE.replace("PROBE_CHECK", probes["probe_check"].as_posix())
+    check = replace_exact(CANDIDATE_CHECK, "PROBE_CHECK", probes["probe_check"].as_posix())
     if helper != "attempt":
-        check = check.replace("Outcome[Candidate String]", "Checked")
+        check = replace_exact(check, "Outcome[Candidate String]", "Checked", count=2)
     entry = (
         HEADER
         + "  (defmodule grt/entry)\n"
@@ -106,7 +105,7 @@ def _check_sources(
         + "  (export run)\n"
         + check
         + declarations
-        + SUMMARIZE.replace("PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
+        + replace_exact(SUMMARIZE, "PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
         + _run_body(f'({callee} (record Candidate :title "{seed}" :score 0) (proc-ref check-candidate))', CHECK_ARMS, bound=bound)
     )
     return {"grt/lib.orc": OUTCOME_LIB, "grt/entry.orc": entry} if helper == "attempt" else {"grt/entry.orc": entry}
@@ -223,14 +222,16 @@ def _compatible_sources(probes: dict[str, Path], *, helper: str, bound: bool) ->
     entry = (
         HEADER
         + "  (defmodule grt/entry)\n  (export run)\n"
-        + CHECK_CANDIDATE.replace("Outcome[Candidate String]", "Checked")
+        + replace_exact(CANDIDATE_CHECK, "Outcome[Candidate String]", "Checked", count=2)
         + CHECKED
         + declaration
         + SUMMARIZE
         + _run_body(call, CHECK_ARMS, bound=bound)
     )
     return {
-        "grt/entry.orc": entry.replace("PROBE_CHECK", probes["probe_check"].as_posix()).replace(
+        "grt/entry.orc": replace_exact(
+            # once in `check-candidate`, and again in a helper that runs the probe itself
+            replace_exact(entry, "PROBE_CHECK", probes["probe_check"].as_posix(), count=1 + declaration.count("PROBE_CHECK")),
             "PROBE_SUMMARIZE", probes["probe_summarize"].as_posix()
         )
     }
