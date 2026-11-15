@@ -166,6 +166,10 @@ round-one read, a pause or a stop. It reads these ledger rows:
 - `| <date> | Ruling | <attempt> row <N> ... |`, which `ruling` needs before it gives a start paused under D5 row
   16 its row.
 
+Before every start the launcher repeats the launch's checks: the manifest hash it checked (the label every start
+records), the kit against the manifest and, when live, the ledger's current label, the runtime commit, the detached
+checkout and a clean kit. A change stops the tranche, naming it.
+
 One launcher runs per state root: `launch` (with its reconcile) and `resume` hold `<state>/launcher.lock`, and a
 second process is refused, naming the holder's pid.
 

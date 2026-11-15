@@ -128,6 +128,9 @@ def regrade(args):
     exc = {"exception_type": outcome["exception"], "exception_message": ""} if "exception" in outcome else None
     reward = {"rewards": {"reward": outcome["reward"]}} if "reward" in outcome else None
     (out / "result.json").write_text(json.dumps({"exception_info": exc, "verifier_result": reward}))
+    for path, text in outcome.get("append", {}).items():  # a file changed meanwhile, as a person could change it
+        with open(path, "a") as fh:
+            fh.write(text)
 
 
 BODY = {"model": "claude-haiku-5-5", "stream": False, "max_tokens": 1000, "output_config": {"effort": "low"},
@@ -1981,6 +1984,31 @@ def _holder(root):
                             text=True)
     assert proc.stdout.readline().strip() == "held"
     return proc
+
+
+def test_a_kit_changed_after_the_preflight_stops_the_tranche_before_the_next_start(rig):
+    """Task 8 part A M6: the change lands between the preflight and the first start (a regrade that reconcile
+    finishes changes a kit file, as a person editing the checkout would); no start is made under it."""
+    r = rig()
+    ctx = ladder.Ctx(r.kit.env())
+    attempt = ladder.reserve(r.root, _entry(rnd=2), CRITERION, 0.0)
+    trial = r.root / "slots" / attempt["id"] / "jobs" / attempt["id"] / "wal-recovery-ordering__abcdefg"
+    _replay(json.loads((KIT / "fixtures" / "token-three-tools-normal-end.json").read_text()), trial)
+    ladder.close(ctx, r.root, attempt, CRITERION, 0.0, ended_at=attempt["opened"] + 1)
+    ladder._write_json(r.root / "slots" / attempt["id"] / "slot.json",
+                       {**attempt, "launcher": {"pid": 2 ** 22 + 7, "start": 1}})
+    (r.lh / "standin" / "regrade.json").write_text(json.dumps(
+        {trial.name: [{"reward": 1.0, "append": {str(r.kit.kit / "token_scan.py"): "\n# changed\n"}}]}))
+    r.launch()
+    stops = [e["reason"] for e in r.events() if e["event"] == "stop"]
+    runs = [c for c in r.calls() if c["argv"][1] == "run"]
+    assert (runs, len(stops), stops[0].startswith("the configuration changed under the launcher")) == ([], 1, True)
+
+
+def test_a_start_records_the_label_the_preflight_checked(short):
+    """Task 8 part A M6: the hash recorded for a start is the one checked against the ledger, not a later read."""
+    attempt = ladder.reserve(_state(short), _entry(), CRITERION, 0.0, label="c" * 64)
+    assert attempt["label"] == "c" * 64
 
 
 def test_a_second_launcher_on_the_same_state_is_refused_naming_the_holder(rig):

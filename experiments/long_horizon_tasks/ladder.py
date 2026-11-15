@@ -179,9 +179,8 @@ def ledger_text(ctx):
 
 
 def _manifest_refusal(live):
-    recorded = _read_json(manifest.MANIFEST)
-    changed = sorted(p for p in recorded["files"].keys() | manifest.files().keys()
-                     if recorded["files"].get(p) != manifest.files().get(p))
+    recorded, now = _read_json(manifest.MANIFEST), manifest.files()  # hashed once: it runs before every start
+    changed = sorted(p for p in recorded["files"].keys() | now.keys() if recorded["files"].get(p) != now.get(p))
     if changed:
         return f"the manifest does not match the kit: {', '.join(changed[:5])}"
     if live and not recorded["frozen"]:
@@ -595,7 +594,7 @@ def _next_index(root):
     return 1 + max((int(n[:3]) for n in names if n[:3].isdigit()), default=0)
 
 
-def reserve(root, entry, ladder, prior):
+def reserve(root, entry, ladder, prior, label=None):
     """Claim an attempt for `entry` (round, task, effort, kind) under the lock if it fits: the new attempt, or Full.
     Its directory is claimed by mkdir; its fake token goes into the slots file before the lock is let go."""
     reservation = round(cap(ladder, entry["task"]) + ladder["ceiling"]["reservation"]["margin_usd"], 2)
@@ -611,7 +610,7 @@ def reserve(root, entry, ladder, prior):
         attempt = {**entry, "id": name, "index": index, "cap_usd": cap(ladder, entry["task"]),
                    "reservation_usd": reservation, "token": "lh-fake-slot-" + os.urandom(16).hex(),
                    "launcher": {"pid": os.getpid(), "start": process_start(os.getpid())}, "opened": time.time(),
-                   "label": this_label()}
+                   "label": label or this_label()}
         _write_json(root / "slots" / name / "slot.json", attempt)
         _slots_file(root, ladder, prior)
     return attempt
@@ -628,12 +627,12 @@ def settle(root, attempt, record, ladder=None, prior=0.0):
     return record
 
 
-def next_start(root, queue, ladder, prior):
+def next_start(root, queue, ladder, prior, label=None):
     """("start", attempt) for the head of the queue, ("wait", why) or ("end", why). Only the head is ever tried: a
     slot that does not fit waits for the attempts in flight, and the launcher never skips ahead (D4, D7.4)."""
     if not queue:
         return "end", "the schedule is done"
-    got = reserve(root, queue[0], ladder, prior)
+    got = reserve(root, queue[0], ladder, prior, label)
     if isinstance(got, dict):
         return "start", got
     if got.reason == "240 starts":
@@ -1572,6 +1571,15 @@ def hold(head, text, labels):
     return None
 
 
+def config_refusal(ctx, label):
+    """The launch's checks again, before each start (Task 8 part A M6): the manifest hash is still the one the
+    preflight checked, the kit still matches the manifest, and when live the ledger's current label, the runtime
+    commit, the detached checkout and a clean kit; a reason, or None."""
+    if this_label() != label:
+        return f"the manifest is no longer {label}"
+    return _manifest_refusal(ctx.live) or (_live_refusal(ctx) if ctx.live else None)
+
+
 def this_label():
     return hashlib.sha256(manifest.MANIFEST.read_bytes()).hexdigest()
 
@@ -2102,6 +2110,7 @@ class Tranche:
     def __init__(self, ctx, ladder):
         self.ctx, self.ladder, self.root = ctx, ladder, ctx.root
         self.prior, self.plan = prior_usd(ctx), schedule(ladder)
+        self.label = this_label()  # the manifest hash the preflight checked (against the ledger, when live)
         self.workers, self.interrupt, self.closed_since, self.started = {}, threading.Event(), None, False
 
     def run(self):
@@ -2177,7 +2186,11 @@ class Tranche:
         limits = [self.ladder["host"]["concurrency"][CONCURRENCY[head["kind"]]], gate["most"], most]
         if not ok or len(self.workers) >= min(n for n in limits if n is not None):
             return None
-        action, got = next_start(self.root, queue(self.root, self.plan), self.ladder, self.prior)
+        reason = config_refusal(self.ctx, self.label)
+        if reason:
+            self.stop(f"the configuration changed under the launcher: {reason}")
+            return None
+        action, got = next_start(self.root, queue(self.root, self.plan), self.ladder, self.prior, self.label)
         if action == "start":
             self.workers[got["id"]] = worker = threading.Thread(target=Attempt(self, got).run, name=got["id"])
             worker.start()
