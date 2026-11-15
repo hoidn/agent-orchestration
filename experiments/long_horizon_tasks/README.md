@@ -25,7 +25,7 @@ The CLI is never run on the host. There the no-provider stubs stay first on `PAT
 | `fixtures/`, `fixtures/requests/` | The committed cuts (see RECORDINGS.md, "Fixtures") |
 | `recordings.json` | SHA-256 of every raw recording file kept in the local cache |
 | `price_rule.json`, `price_check.py` | The per-request price rule, and its check against the public archives |
-| `tasks.json` | The 16 tasks' digests and image pins, and the fields the oracle runs will fill |
+| `tasks.json` | The 16 tasks' package digests, their pinned images (digests, sizes) and withholding results, the overlay digest and the oracle evidence |
 | `oracle_check.sh`, `summarize.py` | Task 2b's oracle check on the pinned images (overlay, CPU set, load gate, repeats), and its per-label counts and per-trial records |
 | `oracle_first_pass.json` | The first pass's records: one JSON line per trial (outcomes, timings, load, affinity, peak memory, image ids, digests; no log text) |
 | `image_check.py`, `image_measure.json` | Task 2b: pull, size and withholding check of one pinned image; one line per image (RECORDINGS.md, "Task 2b"); `image_check.py tasks` copies the results into `tasks.json` |

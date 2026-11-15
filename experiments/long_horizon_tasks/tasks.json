@@ -12,10 +12,86 @@
    "checked_copy_vs_4_1_0": [
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "vba-userform-port",
+      "reference": [
+       0,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [
+       "nop 1: RewardFileNotFoundError",
+       "oracle 1: RewardFileNotFoundError"
+      ],
+      "passes": false
+     },
+     {
+      "label": "vba-userform-port-uidfix",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:vba-userform-port-environment-bf930c7a5b5b812c@sha256:104fb670ee582f21fb4bb56814e25c4e846d099c3af765aeed7a04a038a5ed28",
+     "digest": "sha256:104fb670ee582f21fb4bb56814e25c4e846d099c3af765aeed7a04a038a5ed28",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "e0afca66925363ac127b9f10eb12842bee8729065b1aace58d34ed43b0dfd392",
+     "compressed": 122391562,
+     "unpacked": 406887380,
+     "layers": 8
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:vba-userform-port-verifier-2561c54d4ae37e58@sha256:ce013facbe7cdaf21cd60b1930282bcfc3cdb6b0543682bed253453952e82a28",
+     "digest": "sha256:ce013facbe7cdaf21cd60b1930282bcfc3cdb6b0543682bed253453952e82a28",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "cb25df7dcaf1bd89e87f87373fe6c2e238d154f8b93338140eeea1c0d70c073d",
+     "compressed": 545986148,
+     "unpacked": 1544558781,
+     "layers": 17
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "environment copies only",
+    "canary_counts": {
+     "env_sha": 1,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:bb2c3e8769cb334b52b69b0cb0dcf964e10cf13eb1d0c2f15d74e407e62be651",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/vf2-speedup-networkx",
@@ -27,10 +103,69 @@
    "checked_copy_vs_4_1_0": [
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "vf2-speedup-networkx",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:vf2-speedup-networkx-environment-59eb15e45ae0d4f9@sha256:b90a9278109552c04b9d3535690ecd3dda8f3372992df445f9d47412e85cc608",
+     "digest": "sha256:b90a9278109552c04b9d3535690ecd3dda8f3372992df445f9d47412e85cc608",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "1ea53a786fe38e6f77cca0da5b90a890e95dbcdfb1197899a465f6608c03a830",
+     "compressed": 542340077,
+     "unpacked": 2107951140,
+     "layers": 6
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:vf2-speedup-networkx-verifier-9ea5a1b9e0a033fa@sha256:a84e6fc87075ee3f62ff8479a1566731cc52b3231decca45b3c235c455b00ed4",
+     "digest": "sha256:a84e6fc87075ee3f62ff8479a1566731cc52b3231decca45b3c235c455b00ed4",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "55d0958eeab00ec8b6002576fc28002623f4e5f914f32f46e2d7350388a58b2d",
+     "compressed": 174697224,
+     "unpacked": 514311549,
+     "layers": 7
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "not found",
+    "canary_counts": {
+     "env_sha": 0,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:180215f27a59c91af95176c47c9cd41a158b5709f75a62ab519482a90123b527",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/wal-recovery-ordering",
@@ -42,10 +177,69 @@
    "checked_copy_vs_4_1_0": [
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "wal-recovery-ordering",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:wal-recovery-ordering-environment-4b8e041ddc112263@sha256:71d215eab08bf95f60d828a5328d7bc1424b4a048ebf6551027267a651396657",
+     "digest": "sha256:71d215eab08bf95f60d828a5328d7bc1424b4a048ebf6551027267a651396657",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "d25383db096b75dbc49df49a4585ef007d035c11f5f348604eaeef08e66acac2",
+     "compressed": 44265303,
+     "unpacked": 125373350,
+     "layers": 6
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:wal-recovery-ordering-verifier-19979e3c03f0c8db@sha256:627bc7812cd00b6e6ff30fec94e1adb413f0eb211adbb1bb11f7e288d75046ef",
+     "digest": "sha256:627bc7812cd00b6e6ff30fec94e1adb413f0eb211adbb1bb11f7e288d75046ef",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "d17f10de2b8cd8c43b0fa1dc074867c5e1e9ad082ac7cb7adb3593a915520043",
+     "compressed": 173124387,
+     "unpacked": 497582996,
+     "layers": 10
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "environment copies only",
+    "canary_counts": {
+     "env_sha": 15,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:79ba48ef2fcf2a9f06243b66ae332eafa93b929a2475a2c6203e71708b41c6e5",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/session-window-debug",
@@ -57,10 +251,69 @@
    "checked_copy_vs_4_1_0": [
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "session-window-debug",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:session-window-debug-environment-1979e39a2d0785d9@sha256:62d159cb3a81205766c5560037802d4b951c15626d86e7a8aaf0e9912cc78b2a",
+     "digest": "sha256:62d159cb3a81205766c5560037802d4b951c15626d86e7a8aaf0e9912cc78b2a",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "a502e9960c06a3ebce6d09cb9202846d74eb3919e6e4ea65f656e09c29721751",
+     "compressed": 88078769,
+     "unpacked": 234443558,
+     "layers": 10
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:session-window-debug-verifier-b15c5820597dd33d@sha256:ae6248a5d486bbdf600f0133c8440910b437f1dc9b734e7b8240fe26e3f603d1",
+     "digest": "sha256:ae6248a5d486bbdf600f0133c8440910b437f1dc9b734e7b8240fe26e3f603d1",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "13512609f1543080b80793c0fc0440e0861aa12f34b8170973957168c2f4a4cd",
+     "compressed": 174765756,
+     "unpacked": 501665718,
+     "layers": 11
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "environment copies only",
+    "canary_counts": {
+     "env_sha": 8,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:2f1a6389c24ab58d0ca4765031fe7c8799ba31284f0af9c7fcd203ad652bfa45",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/production-planning",
@@ -72,10 +325,69 @@
    "checked_copy_vs_4_1_0": [
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "production-planning",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:production-planning-environment-c5889431f3076fed@sha256:51110ff01e23ca0a0c96394f0d56dbc2e32c86569b6475f3c7a0a7641cedf828",
+     "digest": "sha256:51110ff01e23ca0a0c96394f0d56dbc2e32c86569b6475f3c7a0a7641cedf828",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "197007e31b2bcdd61e5013dbb72ebfc7bb8ad678aa20240a1e0d6029bbde0770",
+     "compressed": 67904035,
+     "unpacked": 186215729,
+     "layers": 12
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:production-planning-verifier-5a4b6b63e4f179a7@sha256:0f3eb5e7365486466759aa62585f87fb1b07ef59acede90cfafc572b9adc11a3",
+     "digest": "sha256:0f3eb5e7365486466759aa62585f87fb1b07ef59acede90cfafc572b9adc11a3",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "829fc12c768448eada8f90c814a1787525b43b611344c9b207e125ee9184d695",
+     "compressed": 164776620,
+     "unpacked": 471906002,
+     "layers": 11
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "not found",
+    "canary_counts": {
+     "env_sha": 0,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:7f7237a15a5a8a677a9ddee8d13e5c1576839f3a06202c45f745d1ffada447da",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/vpp-loss-divergence",
@@ -87,10 +399,69 @@
    "checked_copy_vs_4_1_0": [
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "vpp-loss-divergence",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:vpp-loss-divergence-environment-02f6e588846fd410@sha256:81611f7fdd8d76366cd1f23145306b4fda4661d328d9eaeef81b8663c7b8dd7f",
+     "digest": "sha256:81611f7fdd8d76366cd1f23145306b4fda4661d328d9eaeef81b8663c7b8dd7f",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "2a2070f78256f831642e8fe75867a2810d1dc2652d6bc8fc3abc7dc3e9d80286",
+     "compressed": 729625372,
+     "unpacked": 2418911911,
+     "layers": 14
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:vpp-loss-divergence-verifier-a08fd62ced625f45@sha256:460f7e2596897c3303791a72ae171841ca55231077f866180c771401a480fe99",
+     "digest": "sha256:460f7e2596897c3303791a72ae171841ca55231077f866180c771401a480fe99",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "87816d42a54f31d0e1165477ddbb96d4a3ec97f11554864bb8931626f48f7db3",
+     "compressed": 858623283,
+     "unpacked": 2790528702,
+     "layers": 17
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "environment copies only",
+    "canary_counts": {
+     "env_sha": 2,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:8c4071ec1b7ff23009b572515d7eb4f10216d3b5c8b9c3c955f9274413b16109",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/batched-eval-parity",
@@ -102,10 +473,69 @@
    "checked_copy_vs_4_1_0": [
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "batched-eval-parity",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:batched-eval-parity-environment-6bc3dbb355c127cd@sha256:f00c28880710dbdac7aad68507784627015429a5dcc68ff7c3ba991affad9e98",
+     "digest": "sha256:f00c28880710dbdac7aad68507784627015429a5dcc68ff7c3ba991affad9e98",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "7cb5c6013ae44ce054170432a50d3de91000344f58f7c690695aecf054867093",
+     "compressed": 85857489,
+     "unpacked": 250882961,
+     "layers": 11
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:batched-eval-parity-verifier-7edd2e50cb11f316@sha256:6b04e77601123a97056a3163716fa768811364ed70a1b18877eb30b8c6ec8bd4",
+     "digest": "sha256:6b04e77601123a97056a3163716fa768811364ed70a1b18877eb30b8c6ec8bd4",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "aa476f8b5daf2ac60b27704a3bf823893ec9a4d833560d50b015a99624332f50",
+     "compressed": 191689361,
+     "unpacked": 561692652,
+     "layers": 12
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "environment copies only",
+    "canary_counts": {
+     "env_sha": 17,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:75aa17c7ae108855cf6fc86387a5e1c05ce2fd32625af39535b6390e258b12fe",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/pretrain-shard-corruption",
@@ -117,10 +547,76 @@
    "checked_copy_vs_4_1_0": [
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "pretrain-shard-corruption",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:pretrain-shard-corruption-environment-754d6171fa653e79@sha256:ff18338c6eeb85fc2dcc4b4d1f36d1946d8b328953318de7671943319fed8be7",
+     "digest": "sha256:ff18338c6eeb85fc2dcc4b4d1f36d1946d8b328953318de7671943319fed8be7",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "d66afea36509981df19f2237fcdccf64cf7c228cc5a0b5f4e20ffd9f3c972b48",
+     "compressed": 340756271,
+     "unpacked": 1136009238,
+     "layers": 18
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:pretrain-shard-corruption-verifier-63039e393d0ade2c@sha256:336d1e81ebfa73fc34df74663de0647530018f0514de573b5ef344cccf1ec456",
+     "digest": "sha256:336d1e81ebfa73fc34df74663de0647530018f0514de573b5ef344cccf1ec456",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "bc54b28ed6495824a0ddbcd5d5c0839c94f8fd99ddb58b90b5dfa31e11f37bad",
+     "compressed": 387646768,
+     "unpacked": 1295662967,
+     "layers": 11
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "environment copies only",
+    "canary_counts": {
+     "env_sha": 8,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "needs a look",
+    "near_copy_look": [],
+    "git_dirs": [
+     "app/.git"
+    ],
+    "not_opened": [],
+    "pass": 6,
+    "package_digest": "sha256:8af52917fd976e328805a0d68319d49b4510e9834eb27003f02bd491e85501c6",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [
+     {
+      "item": "app/.git",
+      "ruling": "not a withholding hit (coordinator ruling, 2026-11-14): built by the environment's own Dockerfile; every object loose and opened; no solution or test content (RECORDINGS.md, Task 2b)"
+     }
+    ],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/gsea-proteomics",
@@ -133,10 +629,69 @@
     "only in the checked copy: LICENSE.md",
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "gsea-proteomics",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:gsea-proteomics-environment-7a4fe4d83a65de6a@sha256:e400f648619756dc7a25d7e47027e191ac5e3c83d46b0329cd3e4fb0f892e4da",
+     "digest": "sha256:e400f648619756dc7a25d7e47027e191ac5e3c83d46b0329cd3e4fb0f892e4da",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "8e647842d496dd16036c312500eea31c1c4339b75a56f9d19eb4c2dc7dc85838",
+     "compressed": 357682402,
+     "unpacked": 733407209,
+     "layers": 9
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:gsea-proteomics-verifier-6456628be60114b7@sha256:43e108555adb2bc0a74a2a8c02b069829d5b06bf4149ea652dd967939709259a",
+     "digest": "sha256:43e108555adb2bc0a74a2a8c02b069829d5b06bf4149ea652dd967939709259a",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "c7977f6510654821791c9c60958545b81c0422d49dbfdc63f12d030c19ca8f71",
+     "compressed": 142240619,
+     "unpacked": 404075416,
+     "layers": 10
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "not found",
+    "canary_counts": {
+     "env_sha": 0,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 6,
+    "package_digest": "sha256:e35f61b7e319fa7eaabaf52636dd2ec0b102bd16e69a13665d1c19d92b7b510e",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/lake-temp-glm",
@@ -148,10 +703,69 @@
    "checked_copy_vs_4_1_0": [
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "lake-temp-glm",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:lake-temp-glm-environment-436200176fce4cae@sha256:8f1f182ad639a1d3a4dd445f3a0b254f2b242c4f81b32d7d24cf46f4e1b7d79b",
+     "digest": "sha256:8f1f182ad639a1d3a4dd445f3a0b254f2b242c4f81b32d7d24cf46f4e1b7d79b",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "be505154254a77fae67cfe3efd9b4cb81701451395c6d264661c27bb6e78f6a5",
+     "compressed": 438779949,
+     "unpacked": 1463466346,
+     "layers": 10
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:lake-temp-glm-verifier-c6d51e4e676e0651@sha256:496fb5526ea1e26019b9d92d0a7d06427a5067216e4431619005d24f42a1353f",
+     "digest": "sha256:496fb5526ea1e26019b9d92d0a7d06427a5067216e4431619005d24f42a1353f",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "8b5d8a791836127b3e5fafd4adbc4a133b1602442f3ab606718a8069bb267854",
+     "compressed": 518884292,
+     "unpacked": 1693865559,
+     "layers": 14
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "not found",
+    "canary_counts": {
+     "env_sha": 0,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:b36250ebb7996d3695cb5227dbb64c8efb48c3986acb04aa11ec5df18b5ca9ee",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/sound-change-cascade",
@@ -163,10 +777,69 @@
    "checked_copy_vs_4_1_0": [
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "sound-change-cascade",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:sound-change-cascade-environment-a15c89a3496c7168@sha256:95bd365954dfecf3cc661853b0576473a85cf8bdf44eb01af64995e7de6cecc0",
+     "digest": "sha256:95bd365954dfecf3cc661853b0576473a85cf8bdf44eb01af64995e7de6cecc0",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "5cae47f3e1ff1370afa6639882d55af5147fd05b5bbc8d55558ff060255e0d48",
+     "compressed": 81929320,
+     "unpacked": 234007853,
+     "layers": 8
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:sound-change-cascade-verifier-198013e541645bef@sha256:8980723c9498d52e56a1f6d934924bb9e294f657961f4b5e5c81ddb6921aacf0",
+     "digest": "sha256:8980723c9498d52e56a1f6d934924bb9e294f657961f4b5e5c81ddb6921aacf0",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "d5f9aae3ee4ab0e4993bcf6e807ee75bee2c81900d542de34ca9bc0f9f4d9c0f",
+     "compressed": 143560775,
+     "unpacked": 407713355,
+     "layers": 10
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "environment copies only",
+    "canary_counts": {
+     "env_sha": 1,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:65d43e3fe13768e8983f31bf7b9d265d1a15c4d6a721e5cff469c39cbebf2367",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/hof-topology-interpenetration",
@@ -179,10 +852,69 @@
     "only in the checked copy: LICENSE.md",
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "hof-topology-interpenetration",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:hof-topology-interpenetration-environment-7f2225f69353e548@sha256:a758f32e5d39c06c65819d54622e0212c65f7a00191e32176612377cc3b97c1d",
+     "digest": "sha256:a758f32e5d39c06c65819d54622e0212c65f7a00191e32176612377cc3b97c1d",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "f0d95c50f4162fdf3713e9927305f6896585b52a5c517c4e4f8a418ca631024d",
+     "compressed": 61329513,
+     "unpacked": 172727263,
+     "layers": 5
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:hof-topology-interpenetration-verifier-19ef14306303fb31@sha256:cc54700dda4c50c330cc714b49143a8ee0e2f58999e5c24348f74f6582bf1b65",
+     "digest": "sha256:cc54700dda4c50c330cc714b49143a8ee0e2f58999e5c24348f74f6582bf1b65",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "47d4382f2e74865edcfcae5ad826f29c7e938760010cb345c0940c4d491a96bb",
+     "compressed": 141474046,
+     "unpacked": 404569964,
+     "layers": 9
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "not found",
+    "canary_counts": {
+     "env_sha": 0,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:46353b47672f2ac6c7e3cbf66a9cddc78c92d63e6bf4c5ffe1baca67c1c08bd0",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/shadow-relay",
@@ -195,10 +927,76 @@
     "only in the checked copy: environment/.dockerignore",
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "shadow-relay",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:shadow-relay-environment-0d9ab3daf6e5bf73@sha256:584cd120342b153054ca2d87a420fe4ba987f46ed02f8f444354e75119cdb928",
+     "digest": "sha256:584cd120342b153054ca2d87a420fe4ba987f46ed02f8f444354e75119cdb928",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "d6b8d733e7b470a34063b10675244a1cdd4454168ec81054089670303067821e",
+     "compressed": 106631726,
+     "unpacked": 294295084,
+     "layers": 12
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:shadow-relay-verifier-fd968360a09d7e0b@sha256:864d9d5dc76698a788ed746d370a4242709325573d7b185d519d3f093a2e8add",
+     "digest": "sha256:864d9d5dc76698a788ed746d370a4242709325573d7b185d519d3f093a2e8add",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "b15d85762a7abde116be7461216f005021fda3e97f511745e9389997fe70a1d1",
+     "compressed": 184057916,
+     "unpacked": 524783014,
+     "layers": 12
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "not found",
+    "canary_counts": {
+     "env_sha": 0,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "needs a look",
+    "near_copy_look": [],
+    "git_dirs": [
+     "app/.git"
+    ],
+    "not_opened": [],
+    "pass": 6,
+    "package_digest": "sha256:baf97deb06f62f91235d01d72ce34187f8147c726c60f961bb486d9e1252b1da",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [
+     {
+      "item": "app/.git",
+      "ruling": "not a withholding hit (coordinator ruling, 2026-11-14): built by the environment's own Dockerfile; every object loose and opened; no solution or test content (RECORDINGS.md, Task 2b)"
+     }
+    ],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/rs-archive-clone",
@@ -211,10 +1009,69 @@
     "only in the checked copy: .gitignore",
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "rs-archive-clone",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:rs-archive-clone-environment-98d75e09a2f0b502@sha256:396a2f9f0af2079eac7a61f38cec875b2002663e04c77bfee5b2252d0b8b5c1c",
+     "digest": "sha256:396a2f9f0af2079eac7a61f38cec875b2002663e04c77bfee5b2252d0b8b5c1c",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "3073a3562ca77021cc521af3c3e333a5be09f8782a8dde05fc46bf076b1557c4",
+     "compressed": 51633275,
+     "unpacked": 139365646,
+     "layers": 7
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:rs-archive-clone-verifier-f7356117c1694f91@sha256:a890aca2de72a12ba5ed879fb79a72c27204c00513edcf9128f28e8679088190",
+     "digest": "sha256:a890aca2de72a12ba5ed879fb79a72c27204c00513edcf9128f28e8679088190",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "661545ac305d1c06251a9745d38c586223c048d1a50d79a7b0c6b70935f32343",
+     "compressed": 264104520,
+     "unpacked": 750476998,
+     "layers": 8
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "not found",
+    "canary_counts": {
+     "env_sha": 0,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:3ce4ecae3481bd5177dc33eeb057fe1486ac4050016fe0ce765cde3f0d2138bf",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/retro-console-soc",
@@ -227,10 +1084,69 @@
     "task.toml differs",
     "only in the checked copy: THIRD_PARTY_NOTICES"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "retro-console-soc",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:retro-console-soc-environment-6ab33aade245cc0c@sha256:11b017483cf6fa17cc217940e75e121a63f17a5623fc963dc114b89c4a427ad0",
+     "digest": "sha256:11b017483cf6fa17cc217940e75e121a63f17a5623fc963dc114b89c4a427ad0",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "ae024c10f5a602a0c5268b271c52ed5c90e7d5f04fd357d6bab002104dc9eefc",
+     "compressed": 519100447,
+     "unpacked": 1482835148,
+     "layers": 5
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:retro-console-soc-verifier-0d742888c434aa43@sha256:359a891415a23f45a852e36096fb2aa8f8dccb399cef27ff440ae73b6b70e81a",
+     "digest": "sha256:359a891415a23f45a852e36096fb2aa8f8dccb399cef27ff440ae73b6b70e81a",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "c7b002649d65180d72806dbc72be0d406a5be473f6d05ca38cb48e761ef0917b",
+     "compressed": 633752426,
+     "unpacked": 1806044681,
+     "layers": 7
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "not found",
+    "canary_counts": {
+     "env_sha": 0,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 5,
+    "package_digest": "sha256:79361cf9b5f7af1966a1707a21e5b4528c6f638ababe8710e7b99cb7766e3046",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   },
   {
    "name": "terminal-bench/roy-polymorph-cn",
@@ -243,12 +1159,71 @@
     "only in the checked copy: LICENSE.md",
     "task.toml differs"
    ],
-   "overlay_digest": null,
+   "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
    "cap": null,
    "extra_hosts": null,
-   "oracle_evidence": null
+   "oracle_evidence": {
+    "oracle_first_pass": [
+     {
+      "label": "roy-polymorph-cn",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ]
+   },
+   "images": {
+    "agent": {
+     "ref": "harborframework/terminal-bench:roy-polymorph-cn-environment-7505caee8b2d7b43@sha256:ec42a0858ef13b6da622e83e8e8c39610acd28d0045a3e462406a9a65fb93d0e",
+     "digest": "sha256:ec42a0858ef13b6da622e83e8e8c39610acd28d0045a3e462406a9a65fb93d0e",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "83f2d636174c997be4a1ce09e9eab8ede2fa0a4c51d7ed6438a55a4fe0a64236",
+     "compressed": 300199498,
+     "unpacked": 903080981,
+     "layers": 10
+    },
+    "verifier": {
+     "ref": "harborframework/terminal-bench:roy-polymorph-cn-verifier-b68c10c0bc6f102f@sha256:4606480cae2b2681421d1787c3b877f01a3328db44a4ab6488e2065244bbb052",
+     "digest": "sha256:4606480cae2b2681421d1787c3b877f01a3328db44a4ab6488e2065244bbb052",
+     "digest_matches": true,
+     "pull": "pinned",
+     "image_id": "2d9b758a4731eae99617022772ced4f241fbb29854eccb7f0d27d09692570206",
+     "compressed": 169266864,
+     "unpacked": 502308112,
+     "layers": 11
+    }
+   },
+   "withholding": {
+    "withheld": true,
+    "canary": "not found",
+    "canary_counts": {
+     "env_sha": 0,
+     "name_only": 0,
+     "other": 0
+    },
+    "near_copy": "clean",
+    "near_copy_look": [],
+    "git_dirs": [],
+    "not_opened": [],
+    "pass": 6,
+    "package_digest": "sha256:358642adec89de562eb01a0e543d8da3bacf60d3fb591cef9eec7920830926be",
+    "layers_withheld": true,
+    "large_text": [],
+    "rulings": [],
+    "unruled": [],
+    "verdict": "withheld"
+   }
   }
  ],
  "recompute": "digests: $LH/hvenv/bin/python -I -c 'import sys; from pathlib import Path; from harbor.publisher.packager import Packager; [print(p, \"sha256:\" + Packager.compute_content_hash(Path(p))[0]) for p in sys.argv[1:]]' <task dir>... (each a 4.1.0 or 4.0.0 package unpacked, or a checked copy under harbor-framework/terminal-bench/tasks); packages: the hub's public storage, path packages/terminal-bench/<task>/<hex digest>/dist.tar.gz, read with the publishable key that ships in the harbor package (not copied here)",
- "pending": "overlay_digest, cap, extra_hosts and oracle_evidence are filled by the plan's Task 2 oracle runs (five oracle and five do-nothing runs per task under the final policy), which were not run in the recording rounds; null means not yet measured"
+ "pending": "images and withholding come from image_measure.json (`image_check.py tasks`), with the coordinator's rulings beside any item that needs a look. overlay_digest is the SHA-256 of the two agent-phase keys as written by oracle_check.sh with D3's list as drafted for the oracle passes (Task 3 freezes the ladder's list; a different list gives a different digest). oracle_evidence holds the first pass (2026-11-14, one reference and one untouched run per label, load not controlled; per-trial records in oracle_first_pass.json); the second pass (five and five in a quiet window under the final policy) adds its own key and is the only one that qualifies a task. cap and extra_hosts stay null until Task 3; null means not yet set"
 }
