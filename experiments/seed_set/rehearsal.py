@@ -264,6 +264,7 @@ def withheld_run(root, s):
     outside = Path(load(root / "study.json")["outside"])  # the trees must be where the sandbox sees them
     w = layout.Study(s.runtime, outside / "w-work", outside / "w-pools", root / "w-results", s.tasks_file,
                      s.criterion, root / "w-state")
+    rules.record_freeze(w)  # every start checks the freeze on its own ledger
     tranche("smoke")
     spec = layout.load_arms(w)["implement_check_repair"]
     fix = ladder.fix_commits(layout.task_rows(w))[WITHHELD_TASK]
