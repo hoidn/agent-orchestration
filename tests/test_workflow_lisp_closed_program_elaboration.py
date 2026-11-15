@@ -500,8 +500,9 @@ def test_nested_loop_continues_keep_the_nearest_loop_target(tmp_path: Path) -> N
 
 _PHASE_TARGET_SOURCE = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "TARGET")
   (defmodule cp/closed_elaboration)
+  (import std/phase :only (with-phase))
   (export run)
   (defpath WorkReportTarget
     :kind relpath :under "artifacts/work" :must-exist false)

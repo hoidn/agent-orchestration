@@ -231,7 +231,7 @@ def _hidden_macro_files(root, kind):
             "stable_command": ["python", "probe.py"], "closure": ["probe.py"]}}))
         entry = "command_checks"
     else:
-        source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule main) (export generated) (defrecord ImplementationSummary (report String))
           (emit-provider-workflow generated)
           (defmacro emit-provider-workflow (name)
