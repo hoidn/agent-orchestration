@@ -686,6 +686,7 @@ TOKEN_INCOMPLETE = "an incomplete scan of token_scan.py"
 RUNTIME_MATCH = "a match of the runtime check in the attempt's containers"
 RUNTIME_INCOMPLETE = "an incomplete scan of the runtime check in the attempt's containers"
 REFUSED_AT_LAUNCH = "refused at launch"
+SMOKE_FAILED = "a failed smoke check"  # the smoke's start, when a person's Smoke read row says fail (D7.1)
 
 
 def tranche_event(root, kind, **fields):
@@ -1484,6 +1485,16 @@ def this_label():
     return hashlib.sha256(manifest.MANIFEST.read_bytes()).hexdigest()
 
 
+def fail_smoke(root):
+    """A Smoke read row that says fail: a person read the smoke's checks (D7.1). The smoke's start becomes a stop
+    with the cause SMOKE_FAILED, never scored."""
+    for a in attempts(root):
+        if a["kind"] == "smoke" and a["settled"] and a["settled"]["class"] != "stop":
+            with _Lock(root):
+                _write_json(root / "slots" / a["id"] / "settled.json",
+                            {**a["settled"], "class": "stop", "stop": SMOKE_FAILED, "reward": None})
+
+
 def ledger_labels(ctx):
     """The ledger's text, and the labels its `Configuration label` rows name with this checkout's own."""
     text = ledger_text(ctx)
@@ -1939,6 +1950,7 @@ class Tranche:
             return None, self.end("schedule", "the schedule is done")
         why = hold(left[0], *ledger_labels(self.ctx))
         if why == "a failed smoke":
+            fail_smoke(self.root)
             self.stop(why)
             return None, None
         return (left[0], None) if why is None else (None, why)

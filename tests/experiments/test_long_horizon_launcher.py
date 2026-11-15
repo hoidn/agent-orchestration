@@ -1745,12 +1745,17 @@ def test_after_the_smoke_read_the_pilot_s_block_runs_three_together_and_waits_fo
         0, True, ["high", "low", "medium"], {"rs-archive-clone"}, True)
 
 
-def test_a_failed_smoke_stops_the_tranche(rig):
+def test_a_failed_smoke_stops_the_tranche_and_its_start_is_a_stop_never_scored(rig):
+    """D7.1: a person reads the smoke's checks and writes the Smoke read row; on `fail` the launcher stops the tranche
+    and gives the smoke's start the cause the readout reads, "a failed smoke check"."""
     r = rig()
     r.launch()
     r.ledger("Smoke read", f"{r.label} fail")
     code, out, err = r.launch()
-    assert ([e["reason"] for e in r.events() if e["event"] == "stop"], len(r.attempts())) == (["a failed smoke"], 1)
+    start = _export(r)["starts"][0]
+    assert ([e["reason"] for e in r.events() if e["event"] == "stop"], len(r.attempts()),
+            [start[k] for k in ("class", "stop_cause", "reward")]) == (
+        ["a failed smoke"], 1, ["stop", "a failed smoke check", None])
 
 
 # The schedule (D7.3, D7.4).

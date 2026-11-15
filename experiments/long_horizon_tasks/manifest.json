@@ -170,7 +170,7 @@
   "experiments/long_horizon_tasks/image_check.py": "9199275d8eff303372c2c18b850354e09baa5fac97068d21eba9457829fee2da",
   "experiments/long_horizon_tasks/image_measure.json": "cc5423994452015aa5bca7c7d72651f6b1a71b2a15815b3f473262b91bdb5550",
   "experiments/long_horizon_tasks/ladder.json": "643e156bf03b7263880fd14ccc40895718274eab9e68ffad80fc83979358106d",
-  "experiments/long_horizon_tasks/ladder.py": "29e8ac3d939c4a8cc6cf3073dcdc6224f088dcce1d3bfff9db28685ab998f23e",
+  "experiments/long_horizon_tasks/ladder.py": "85b2e36f26955e6373ace5b57d8ec7c0fbc25753b4d4b3541afa5eeb1b494ba6",
   "experiments/long_horizon_tasks/live_probe.sh": "708a031ed471395076af931bac9fb156049112a5fcd97ef1e238ce0fec39291e",
   "experiments/long_horizon_tasks/make_allowlist.py": "b8264e22d96d00fb22cfe3acc2b6c5fefb9c37d4be2c7c6f271b4285acff0872",
   "experiments/long_horizon_tasks/manifest.py": "466fc31d67386000c1a0f4431087dff6a9c3994516639a4ba3e145daa3e9cd8f",
