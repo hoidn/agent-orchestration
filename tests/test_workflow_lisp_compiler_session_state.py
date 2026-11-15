@@ -372,6 +372,7 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
             "PendingParametricProcedureSpecialization", object()
         )
     }
+    state.retyped_specializations = frozenset({"specialization"})
 
     def state_snapshot() -> dict[str, object]:
         return {
@@ -413,6 +414,7 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
             "parametric_specialization_requests": dict(
                 state.parametric_specialization_requests
             ),
+            "retyped_specializations": state.retyped_specializations,
         }
 
     baseline = state_snapshot()
@@ -506,6 +508,7 @@ def test_typecheck_session_covers_all_fields_and_restores_nested_calls(
         "run_ref_metadata_by_name": {},
         "run_ref_metadata_by_expr_key": {},
         "parametric_specialization_requests": {},
+        "retyped_specializations": frozenset(),
     }
 
 

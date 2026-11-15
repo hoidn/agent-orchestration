@@ -363,8 +363,9 @@ every removed test is listed with the code it covered".
      fragment-identity projection have no caller in the package.
    - added 2026-11-13 (second batch): an empty `(list)` in a `match` arm,
      and a `list/map` with a `match` body used directly as an `if` condition
-     inside a loop body, each fail with `compiler_defect` (the staged-authoring
-     plan fixes both as its first task); a nested loop used directly as an
+     inside a loop body, each fail with `compiler_defect` (closed 2026-11-14 by
+     staged-authoring Task 0b; the first was a list in the `match` subject, not
+     the arm); a nested loop used directly as an
      operand fails with an internal `KeyError`, with or without a macro; an
      `Int` literal beyond 64 bits fails with `compiler_defect`; the `and`/`or`
      item above has its cause (the proof facts are lost when the condition is
@@ -482,6 +483,25 @@ every removed test is listed with the code it covered".
      `not`, a call) or one that reads a local, and two equal bound workflow
      references written at two sites (known rows `B7-macro-*`, `B7-free-*`,
      `B7-same-written` and `B7-same-ref` of the defect record).
+   - added 2026-11-14 (twelfth batch, from staged-authoring Task 0b; rows of
+     the defect record): in a procedure without effects, a `bind-proc` over one
+     of its parameters passed to a `ProcRef` parameter is refused by name
+     (`proc_ref_binding_parameter_unsupported`, row E8, the plan's D5): the
+     procedure is expanded where it is called and its parameters renamed, and
+     its specializations were made from the definition's names, so the fix is
+     in the bound-reference path beside rows `E23-*`, not local; a `let-proc`
+     written in a serial `list/map-effect` body is `proc_ref_unknown` (row
+     E7-local); a `match` arm whose value is its own binder, used as a value of
+     the union, fails the closed check with `compiler_defect` (row
+     match-arm-binder); from its review: a `let-proc` local that captures a
+     name bound to a generic call is refused `procedure_call_unknown` naming
+     the generated procedure (row let-proc-generic-capture); one that captures
+     the result of a procedure with an effect and calls one ends in
+     `compiler_defect` (row let-proc-effect-capture); a `match` subject that is
+     an `if` on a variant test reading the tested variant's field ends in
+     `compiler_defect` (row D20-subject-tag); from its re-review: in a subject
+     that lowers typed, an `if` on an `and` or `or` with a `let-proc` branch
+     ends in `compiler_defect` (row D20-let-proc-branch).
    The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
    (accepted 2026-11-13 after an independent review and one revision) orders
    this list by harm. By the owner's direction of 2026-11-13 it is cut to

@@ -1445,8 +1445,9 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   - a `match` subject holding a `cond` outside a `let-proc` local's body, pure or not, builds:
     directly, in a call argument, a variant field, a `let*` binding or body, an `if` branch or
     condition, an `and` operand or a macro expansion, and with it a `list/map` or
-    `list/map-effect` in the subject's argument (TD1; §16.3). A subject with a map and no `cond`
-    still ends in `compiler_defect`, and so do the other open subject shapes §16.3 lists;
+    `list/map-effect` in the subject's argument (TD1; §16.3). The open subject shapes §16.3
+    lists still end in `compiler_defect` (a subject with a map and no `cond` builds since the entry
+    below);
   - a `continue` value that is an `if` whose branch is an `if` or `cond` holding a command or an
     effectful call of a workflow, a `defproc` or a `let-proc` local is refused with
     `effect_not_permitted` (TD1, D19; §16.3);
@@ -1464,6 +1465,41 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   loop and map operand position holds the digests and refusal codes read on `main` before them,
   pins the digest of each program the fixes newly build, and runs a fixed sample of those against
   the value of its `let*`-bound spelling on `main` (`tests/test_workflow_lisp_td21_differential.py`).
+
+- **Staged-workflow authoring Task 0b, the defects the seeds meet.** Source the language admits
+  that stopped with `compiler_defect`, or was refused with `procedure_call_unknown` naming the
+  compiler's own specialization or with `list_empty_type_context_required`, now builds; two
+  refusals change code
+  ([staged-workflow authoring plan](../docs/plans/2026-11-13-staged-workflow-authoring-revisions-plan.md)):
+  - a `let*` in a pure `list/map` body whose value reads the map's binder, written there or put
+    there by a `match` in an `if`, `cond`, `and`, `or` or `not` condition, builds and runs in a loop
+    body, a parallel map body and a `match` arm there, as does a `let-proc` local in such a body
+    that captures the binder. In a loop that holds a command, a pure map body that passes the
+    binder to a `defproc`, a generic procedure, a `defun` or a `let-proc` local, or that holds a
+    `bind-proc` over the binder (row D29) or over another value, builds too, in an `if` condition
+    and as the `done` value; in an `if` condition also a body that reads a
+    field of the binder after a tag test or is a `match` on it (D1; frontend specification §10.3);
+  - a `match` whose subject holds a list (with `:of` or without) or a `list/map` outside every
+    `let-proc` form of the subject builds and runs as its `let*`-bound spelling, wherever the `match` is written (a
+    `defun` and a local's body included), also with an empty `(list)` in an arm whose position
+    states its type; `(match (mk (list)) …)`, before `list_empty_type_context_required`, is one of
+    them. A list in a `let-proc` form of the subject, the local's call included, keeps the program
+    it had. The open subject shapes §16.3 lists still end in `compiler_defect` (D2; §11, §16.3);
+  - a generic procedure called in a serial `list/map-effect` body or `:max`, before
+    `procedure_call_unknown` naming the compiler's specialization, builds and runs once per item;
+    a recursive one there is refused with `parametric_specialization_cycle`, the code it has
+    outside a map, instead. A `let-proc` local that captures a name bound to a generic call is
+    refused with `procedure_call_unknown` as before (D3; §10.3, §7.8);
+  - a `bind-proc` whose value reads a parameter of the procedure without effects it is written in,
+    passed to a `ProcRef` parameter, was `procedure_lowering_unresolved` and is
+    `proc_ref_binding_parameter_unsupported` (D5, not fixed; §7.8).
+
+  Every program that compiled before keeps its closed program, digest and identities, and its
+  recorded runs resume; a differential corpus test over these shapes, their neighbours and the
+  probe programs of the task's review and re-review holds the digests and refusal codes read on `main` before
+  the change, pins the outcome of each program that moved, and runs every newly built program
+  against the value of its `let*`-bound spelling, or of a spelling without the fixed form, on
+  `main` (`tests/test_workflow_lisp_staged_authoring_differential.py`).
 
 - **L, the typed list literal.** `(list :of T item…)` writes a list's item type, at every target,
   in every position; it was refused (`keyword_argument_invalid`). An empty `(list)` passed to a

@@ -47,7 +47,6 @@ No program, listed only (plan row id):
     | ---- | --------------------------------------------------------------------------------- |
     | A1   | missing prompt `input_file`: branch `fix/missing-prompt-file` carries its tests   |
     | E16  | bare `[Errno 2]` for a missing prompt file: the same branch                       |
-    | D14  | empty `(list)` in a `match` arm: not reproduced, no program                       |
     | D18  | provider extern used as a value in reached code: not re-run, no program           |
     | E3   | the `variant_ref_unproved` message: a message is not asserted                     |
     | E14  | `TimestampNs` documented as a type: closed by the documentation, no program       |
@@ -61,7 +60,14 @@ bound-value review) are in the Defect Table.
 Rows D5-binder-hidden, D5-binder-hidden-match, D5-if-whole and D5-if-whole-return, found by the review of
 TD2, D5-if-match and D20-map-argument, found by its re-review, D4-subject-match and D4-subject-loop, found by the
 differential corpus of TD1, and D4-subject-argument and D20-let-proc-subject, found by its second re-review, are
-not in it either. Rows D10-input-pure, D10-field, D10-field-pure, D10-literal-let, D10-literal-let-pure and D10-rebound-*
+not in it either. Row D14 has the program of finding T8.1 of the corpus rule ledger (a list in a `match` subject),
+which the Defect Table does not have; rows E7-local (a `let-proc` local written in a serial map body) and
+match-arm-binder (a `match` arm whose value is its binder) were found by Task 0b of the staged-authoring plan, and
+let-proc-generic-capture (a local capturing a generic call's result) and let-proc-effect-capture (a local
+capturing the result of a procedure with an effect and calling one) and D20-subject-tag (a `match` subject that is
+an `if` on a variant test) by its review, and D20-let-proc-branch (an `if` on an `and` or `or` with a `let-proc`
+branch, in a subject that lowers typed) by its re-review.
+Rows D10-input-pure, D10-field, D10-field-pure, D10-literal-let, D10-literal-let-pure and D10-rebound-*
 (the twelfth batch, found by the TD6 review and its fix round) are in the Defect Table.
 """
 
@@ -124,11 +130,10 @@ KNOWN: dict[str, tuple] = {
     "C1": value(7, "libw"),
     "D5-binder-hidden": NO_NARROWING, "D5-binder-hidden-match": NO_NARROWING,
     "D5-if-whole": NO_NARROWING, "D5-if-whole-return": NO_NARROWING, "D5-if-match": NO_NARROWING,
-    "D20-map-argument": NO_NARROWING,
     "D4-subject-match": NO_ELABORATION, "D4-subject-loop": NO_ELABORATION,
     "D4-subject-argument": OPERAND, "D20-let-proc-subject": OPERAND,
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
-    "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
+    "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE,
     "D12-entry": crash("CanonicalNameError", "workflow_lisp/closed/names.py:canonical_type_descriptor.<locals>.build"),
     "D12-literal": NO_ELABORATION,
     "D12-name": BINDER_OUT_OF_SCOPE,
@@ -136,6 +141,8 @@ KNOWN: dict[str, tuple] = {
     "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "match-arm-binder": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
+    "D20-subject-tag": BINDER_OUT_OF_SCOPE, "D20-let-proc-branch": OPERAND,
     "D10-input-pure": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "D10-field": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
     "D10-field-pure": crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
@@ -153,7 +160,7 @@ KNOWN: dict[str, tuple] = {
     "D25-plain": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "D26": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D27": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._check_effect_node"),
-    "D28": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"), "D29": CAPTURED_COMMAND,
+    "D28": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"),
     "B7-free-eff": crash("ValueError", CAPTURE_REQUESTS + "register_request"), "B7-free-pure": CAPTURED_COMMAND,
     "B7-free-arg": crash("ValueError", CAPTURE_REQUESTS + "register_request"),
     "B7-same-written": refused("procedure_lowering_unresolved"), "B7-same-ref": refused("procedure_lowering_unresolved"),
@@ -172,8 +179,10 @@ KNOWN: dict[str, tuple] = {
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
     "E6": refused("name_unknown"),
-    "E7": refused("procedure_call_unknown"),
-    "E8": refused("procedure_lowering_unresolved"),
+    "E7-local": refused("proc_ref_unknown"),
+    "let-proc-generic-capture": refused("procedure_call_unknown"),
+    "let-proc-effect-capture": crash("ValueError", "workflow_lisp/closed/build.py:Builder.call"),
+    "E8": refused("proc_ref_binding_parameter_unsupported"),
     "E9": refused("procedure_call_unknown"), "E9-local": refused("procedure_call_unknown"),
     "E11": refused("workflow_signature_mismatch"),
     "E12": BUILDS,
@@ -257,6 +266,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D12-literal": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
     "D12-name": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D13": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
+    "D14": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"),
     "D19": ("crash", "SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
     "D20": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D21": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"),
@@ -266,6 +276,9 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D23-macro": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
     "D24": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "match-arm-binder": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
+    "D20-subject-tag": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D20-let-proc-branch": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D10-input-pure": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "D10-field": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
     "D10-field-pure": ("crash", "ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
@@ -294,6 +307,9 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "E4": ("refused", "variant_tag_union_mismatch"),
     "E6": ("refused", "name_unknown"),
     "E7": ("refused", "procedure_call_unknown"),
+    "E7-local": ("refused", "proc_ref_unknown"),
+    "let-proc-generic-capture": ("refused", "procedure_call_unknown"),
+    "let-proc-effect-capture": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder.call"),
     "E8": ("refused", "procedure_lowering_unresolved"),
     "E9": ("refused", "procedure_call_unknown"),
     "E9-local": ("refused", "procedure_call_unknown"),
@@ -405,6 +421,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D12-name": None,
     "D13": ("refused", "pure_expr_overflow"),
     "D13-folded": ("refused", "pure_expr_overflow"),
+    "D14": ("value", 1),
     "D15": ("builds",),
     "D16": ("refused", "proc_ref_literal_required"),
     "D17-effect": ("value", 2, "m", "m"),
@@ -420,6 +437,9 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D23-macro": ("value", 705),
     "D24": None,
     "D25": None,
+    "match-arm-binder": ("value", 5),
+    "D20-subject-tag": ("value", 4),
+    "D20-let-proc-branch": ("value", 2),
     "D10-input-pure": ("value", 2),
     "D10-field": ("value", 3, "add"),
     "D10-field-pure": ("value", 2),
@@ -458,6 +478,9 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "E6": ("value", 2),
     "E6-uncalled": ("builds",),
     "E7": ("value", 2, "g", "g"),
+    "E7-local": ("value", 2),
+    "let-proc-generic-capture": ("value", 6, "g"),
+    "let-proc-effect-capture": ("value", 6, "q", "q"),
     "E8": ("value", 3),
     "E9": ("value", 1),
     "E9-local": ("value", 5),
@@ -503,6 +526,7 @@ TYPECHECK_BOUNDARY = "2026-11-13, Task TP1: a typecheck failure is reported as c
 AMENDED: dict[str, tuple[tuple | None, str]] = {
     "D9-ref": (None, "2026-11-13, coordinator ruling: D9-ref's remaining outcome is E9, entered as E9-local"),
     "D22": (KNOWN["D22"], TYPECHECK_BOUNDARY),
+    "E8": (KNOWN["E8"], "2026-11-14, staged-authoring Task 0b: D5 of that plan, not fixed, refused by name"),
 }
 AMENDED_WANTED: dict[str, tuple[tuple | None, str]] = {}
 
@@ -847,7 +871,7 @@ ROWS: dict[str, Row] = {
                     f"() -> Int (let* ((tmp (step 3)) (r (let* ((tmp (step 1))) {D7_LOOP}))) (+ tmp r))", STEP, CHK),
     "D7-hoisted": row(value(2, *D7_RUNS),
                       f"() -> Int (let* ((tmp0 (step 3)) (tmp (step 1))) (+ tmp0 {D7_LOOP}))", STEP, CHK),
-    # Task 0b of the staged-authoring plan removes D8, E7 and E8.
+    # Task 0b of the staged-authoring plan fixed D8 (its D1) and E7 (its D3); E8 (its D5) is refused by name.
     "D8": row(value(1), "((u U)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (= (list/length "
               "(list/map ((v (list u u))) (match v ((A a) a.n) ((B b) 0)))) 2) (done 1) (continue (+ s 1))))",
               U, inputs=U_IS_A_3),
@@ -874,6 +898,9 @@ ROWS: dict[str, Row] = {
     "D12-declared": row(BUILDS, "() -> Int 1", *D12),
     "D13": row(refused("pure_expr_overflow"), "() -> Int 9223372036854775808"),
     "D13-folded": row(refused("pure_expr_overflow"), "() -> Int (+ 9223372036854775807 1)"),
+    # Finding T8.1 of the corpus rule ledger: a list in a `match` subject (the design's D2 of staged authoring).
+    "D14": row(value(1), "() -> Int (match (variant V HAS :xs (list 1)) ((HAS h) 1) ((NO n) 0))",
+               "(defunion V (HAS (xs List[Int])) (NO (k Int)))"),
     # Regression pins: closed, or not reproduced in the planner's shape.
     "D15": row(BUILDS, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (done (list/length "
                f'(list/map-effect ((r (list "a" "b"))) :max 2 :parallel 2 :workspace r {E("p", 1, "Int")}))))'),
@@ -957,6 +984,23 @@ ROWS: dict[str, Row] = {
                ":leading (+ b 1)))) (hook 5)))",
                "(defproc add-leading ((leading Int) (value Int)) -> Int (+ leading value))"),
     "D23": row(value(34), "((n Int)) -> Int (both n)", D23_BOTH, inputs=("n=3",)),
+    # Found by Task 0b of the staged-authoring plan: a `match` arm whose value is its own binder, the variant it
+    # narrowed to, used as a value of the union; the closed check refuses its type. `(variant V NO :k o.k)` builds.
+    "match-arm-binder": row(value(5), "((v V)) -> Int (let* ((w (match v ((HAS h) (variant V NO :k 2)) ((NO o) o)))) "
+               "(match w ((HAS h) 0) ((NO o) o.k)))", "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+               inputs=('v={"variant":"NO","k":5}',)),
+    # Found by the review of Task 0b: a `match` subject that is an `if` on a variant test reading a field of the
+    # tested variant in a branch. Bound with `let*` first, it builds. With a list in the call of a `let-proc` local
+    # in that branch it ends in another key, NO_NARROWING's.
+    "D20-subject-tag": row(value(4), "((u U)) -> Int (match (if (= u.variant A) (variant V NO :k (+ u.n 1)) "
+                           "(variant V NO :k 0)) ((HAS h) 0) ((NO o) o.k))", U,
+                           "(defunion V (HAS (xs List[Int])) (NO (k Int)))", inputs=U_IS_A_3),
+    # Found by the re-review of Task 0b: in a subject that lowers in its typechecked form (here for the list), an
+    # `if` whose condition is an `and` or an `or` and whose branch is a `let-proc` form. Without the list it
+    # builds; bound with `let*` first, it builds; on `main` it crashed at `_infer_expr_type` (NO_NARROWING).
+    "D20-let-proc-branch": row(value(2), "((n Int)) -> Int (match (if (and (> n 0) (> n -1)) "
+                               "(let-proc ((f ((k Int)) -> Shape (mkshape k))) (f 2)) "
+                               f"(mkshape (list/length (list 1)))) {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
     "D23-macro": row(value(705), "((n Int)) -> Int (both n)", D23_MACRO,
                      "(defproc both ((n Int)) -> Int (+ (with-loop n 5) (* 100 (with-loop n 7))))", inputs=("n=3",)),
 
@@ -982,6 +1026,17 @@ ROWS: dict[str, Row] = {
                        "(defproc fw ((p ProcRef[Int -> Int]) (x Int)) -> Int (let* ((g p)) (g x)))"),
     "E7": row(value(2, "g", "g"), "() -> Int (list/length (list/map-effect ((x (list 1 2))) :max 2 (gstep x)))",
               f"(defproc gstep :forall (T) ((v T)) -> T (let* ((x {E('g', 1, 'Int')})) v))"),
+    "E7-local": row(value(2), "() -> Int (list/length (list/map-effect ((x (list 1 2))) :max 2 "
+                    "(let-proc ((h ((t Int)) -> Int (+ t 1))) (h x))))"),
+    # Found by the review of Task 0b of the staged-authoring plan: a local that captures a name bound to a generic
+    # call; the capture's call, already renamed to its specialization, is typed again and refused naming that name.
+    "let-proc-generic-capture": row(value(6, "g"), "() -> Int (let* ((a (gstep 5))) (let-proc ((h ((x Int)) -> Int "
+                                    "(+ a x))) (h 1)))",
+                                    f"(defproc gstep :forall (T) ((v T)) -> T (let* ((x {E('g', 1, 'Int')})) v))"),
+    # Found by the same review: a local that captures the result of a procedure with an effect and calls one.
+    "let-proc-effect-capture": row(value(6, "q", "q"), "() -> Int (let* ((a (plain 5))) (let-proc ((h ((x Int)) -> "
+                                   "Int (+ a (plain x)))) (h 1)))",
+                                   f"(defproc plain ((x Int)) -> Int (let* ((seen {E('q', 1, 'Int')})) x))"),
     "E8": row(value(3), "() -> Int (outer 2)", AP, ADD,
               "(defproc outer ((k Int)) -> Int (apply1 (bind-proc (proc-ref add) :n k) 1))"),
     "E9": row(value(1), E9_RUN, AP, E9_H, inputs=("n=1",)),
@@ -1367,6 +1422,18 @@ def test_no_control_is_a_known_row():
     controls = {control for group in CONTROLS.values() for control in group}
 
     assert (controls - set(WANTED), controls & set(KNOWN)) == (set(), set())
+
+
+def test_no_id_is_written_twice_in_one_table():
+    """A table literal keeps the last of two equal ids without a word, as when two branches add one id."""
+    import ast
+    from collections import Counter
+
+    tables = (node for node in ast.walk(ast.parse(Path(__file__).read_text(encoding="utf-8")))
+              if isinstance(node, ast.Dict))
+    counts = (Counter(key.value for key in table.keys if isinstance(key, ast.Constant)) for table in tables)
+
+    assert {key for count in counts for key, times in count.items() if times > 1} == set()
 
 
 def test_every_key_of_the_pairing_tables_is_a_row():
