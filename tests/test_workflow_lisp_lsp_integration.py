@@ -21,11 +21,14 @@ from tests.test_workflow_lisp_lsp_stdio import (
     _LspProcess,
     _initialize_request,
 )
+from tests.source_edits import replace_exact
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 CALLABLE_ROOT = FIXTURES / "modules" / "valid" / "callables"
+# The same modules at 2.35, for the completion details that depend on the target (Task 4b).
+CALLABLE_235_ROOT = FIXTURES / "modules" / "valid" / "callables_235"
 IMPORTED_SELECTOR_SOURCE = FIXTURES / "cli" / "imported_selector.orc"
 STDLIB_CALLER_SOURCE = (
     FIXTURES / "valid" / "lsp_stdlib_improve_caller.orc"
@@ -234,17 +237,20 @@ def _frozen_form_completion_items() -> list[dict[str, object]]:
     ]
 
 
-def _fixture_workspace(tmp_path: Path) -> tuple[Path, Path, dict[str, object]]:
+def _fixture_workspace(
+    tmp_path: Path, callables: Path = CALLABLE_ROOT
+) -> tuple[Path, Path, dict[str, object]]:
     workspace = (tmp_path / "workspace").resolve()
     workspace.mkdir()
-    shutil.copytree(CALLABLE_ROOT / "neurips", workspace / "neurips")
+    shutil.copytree(callables / "neurips", workspace / "neurips")
     config_root = workspace / "config"
     prompt_root = workspace / "prompts"
     config_root.mkdir()
     prompt_root.mkdir()
     imported_selector = workspace / "imported_selector.orc"
     imported_selector.write_text(
-        IMPORTED_SELECTOR_SOURCE.read_text(encoding="utf-8").replace(
+        replace_exact(
+            IMPORTED_SELECTOR_SOURCE.read_text(encoding="utf-8"),
             "  (defmodule imported_selector)\n",
             (
                 "  (defmodule imported_selector)\n"
@@ -1646,7 +1652,8 @@ def test_import_time_ordinary_stdout_cannot_precede_protocol_frames(
 def test_real_stdio_recovery_to_full_transition_and_cleanup_write_nothing(
     tmp_path: Path,
 ) -> None:
-    workspace, entry_path, options = _fixture_workspace(tmp_path)
+    # Below 2.39 a procedure's completion detail names its declared effects (Task 4b).
+    workspace, entry_path, options = _fixture_workspace(tmp_path, CALLABLE_235_ROOT)
     original_text = entry_path.read_text(encoding="utf-8")
     before = _tree_snapshot(workspace)
     process = _LspProcess(workspace)
@@ -1785,7 +1792,8 @@ def test_real_stdio_recovery_to_full_transition_and_cleanup_write_nothing(
             ),
         )
 
-        broken_text = original_text.replace(
+        broken_text = replace_exact(
+            original_text,
             "(proc.build-checks report_path)",
             "(proc.build-checks)",
         )
@@ -2229,9 +2237,11 @@ def test_real_stdio_changed_helper_save_invalidates_importer_without_watcher(
         )
         assert helper_initial_diagnostics["params"]["diagnostics"]
 
-        changed_helper = helper_text.replace(
+        changed_helper = replace_exact(
+            helper_text,
             "provider-attempt",
             "provider-attempt-renamed",
+            count=3,
         )
         _change(
             process,

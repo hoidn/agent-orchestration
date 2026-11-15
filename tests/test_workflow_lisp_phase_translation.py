@@ -147,7 +147,7 @@ def test_typecheck_rejects_phase_target_outside_with_phase() -> None:
 
 def test_typecheck_rejects_invalid_phase_context_record() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(INVALID_CONTEXT_FIXTURE)
+        _compile_module(INVALID_CONTEXT_FIXTURE)
 
     _assert_diagnostic_code(excinfo, "phase_context_invalid")
 
@@ -471,9 +471,10 @@ def test_typecheck_rejects_non_implementation_attempt_provider_result_inside_wit
 
 
 def test_typecheck_phase_translation_fixture_keeps_internal_union_and_externs() -> None:
-    typed_workflow = _typecheck_fixture(VALID_FIXTURE)[0]
+    typed_workflow = _compile_module(VALID_FIXTURE).typed_workflows[0]
 
-    assert typed_workflow.definition.name == "run-implementation-attempt"
+    # The module-graph route names a workflow by its module.
+    assert typed_workflow.definition.name == "neurips_implementation_attempt::run-implementation-attempt"
     assert [param_name for param_name, _ in typed_workflow.signature.params] == ["phase-ctx", "inputs"]
     assert typed_workflow.signature.return_type_ref.name == "ImplementationAttemptSurfaceResult"
     assert typed_workflow.typed_body.type_ref == typed_workflow.signature.return_type_ref
