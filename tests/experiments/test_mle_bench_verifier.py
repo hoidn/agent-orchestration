@@ -266,6 +266,8 @@ def test_the_benchmarks_own_grade_csv_gives_the_same_reward_file_as_the_stand_in
     real = subprocess.run([str(MLE_VENV / "bin" / "python"), "-I", str(KIT / "verifier" / "grade_submission.py")],
                           env=env, capture_output=True, text=True, timeout=300)
     assert real.returncode == 0, real.stderr
+    graded = any((tree / "opt" / "mle-bench" / "mlebench" / "__pycache__").glob("grade.*.pyc"))
+    assert graded == (case != "malformed")  # the copy graded it; a file pandas cannot read never reaches the grader
     logs = tree / "logs" / "verifier"
     assert json.loads((logs / "reward.json").read_text()) == stand_in[1]
     assert _passed(json.loads((logs / "ctrf.json").read_text())) == _passed(stand_in[2])
@@ -292,7 +294,7 @@ LOWER = [0.1, 0.2, 0.2, 0.3]  # best first, lower is better
     (0.2, LOWER, True, 75.0),
     (0.05, LOWER, True, 100.0),
     (0.4, LOWER, True, 0.0),
-    (0.8, HIGHER, True, 25.0),  # the same numbers read the other way: beats or ties only 0.9
+    (0.85, HIGHER, True, 25.0),  # the same numbers read the other way: beats or ties only 0.9
 ])
 def test_the_percentile_is_the_share_of_the_leaderboard_beaten_or_tied_in_the_metrics_direction(
         grading, score, scores, lower, expected):
