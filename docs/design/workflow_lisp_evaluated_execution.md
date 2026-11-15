@@ -2,7 +2,10 @@
 
 ## Metadata
 
-- **Status:** current execution contract. Target 2.35 admits commands, portable
+- **Status:** current execution contract. One source target, 2.40, is admitted;
+  the targets named below record when each capability arrived
+  ([targets and identity](../../specs/versioning.md#targets-and-identity)).
+  Target 2.35 admits commands, portable
   composed providers without context capture, calls/captures and path-mode run
   references. Target 2.36 adds bounded W3; 2.37 adds bounded parallel map
   (§11), qualified through the public command line with stand-ins and run once with
@@ -19,7 +22,8 @@
   runtime or coordinator.
 - **Current limits:** old executable entries and old-profile resume are retired
   before writes; source compilation/import/tooling requires every module to
-  target 2.35 or newer; evaluated `resume --force-restart` refuses with
+  target 2.40, and a run recorded at 2.35–2.39 is read-only
+  (`run_target_retired`); evaluated `resume --force-restart` refuses with
   `evaluated_execution_unavailable`. Evaluated LSP F2 is **OPEN_NOT_WAIVED**.
   No current claim establishes universal admitted-program correctness or closes
   global Phase 6a/6b; the [plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
@@ -165,8 +169,7 @@ none admits any map body ([frontend specification §10.3](workflow_lisp_frontend
 run-ref/trial guard and its rejection of any nonempty effect summary. Other
 pure contexts, including source-module rules in admitted imported helpers,
 remain pure. Trials, bundle-mode references and effectful E1 children remain
-excluded. Definitions originating at 2.35–2.38 retain their versioned
-semantics (§13); no pre-floor helper is admitted through placement analysis.
+excluded. No older-target helper is admitted through placement analysis.
 
 This placement is implemented and exercised through the public entries:
 the parent/child admission matrix with a 2.24 and a 2.35 child, real
@@ -406,13 +409,13 @@ same order. The table form is the one representation of the first release.
 
 ### 4.2.1 Supplied compiled imports and source ownership
 
-An explicit compiled import at target 2.35 supplies the selected producer's
+An explicit compiled import supplies the selected producer's
 complete `TypedProgram`: native bodies/signatures, transitive definitions,
 type environments, externs, configuration, logical asset base and digests of
 the exact source bytes its producer consumed. Before publishing catalogs,
 validate the program's own target, each `module_type_envs` target and the
-transitive `imported_programs` closure against the supported 2.35–2.40 source
-range. A current outer target does not admit a pre-floor embedded module.
+transitive `imported_programs` closure against the admitted source target,
+2.40. A current outer target does not admit an embedded module at another target.
 Opaque dependencies supply no typed-body authority and fail the
 missing-snapshot precondition. No old-source analysis or emitter is retained.
 Typed snapshot state is not reconstructed from pickle/capsule persistence.
@@ -426,7 +429,7 @@ lowering or comparing diagnostic provenance. The map stays transient; a
 typed-only producer that never made a flat bundle may leave it empty.
 
 A decoded bundle can be paired explicitly only with its matching complete
-admitted snapshot. A pre-2.35 snapshot refuses with `target_dsl_unsupported`;
+admitted snapshot. A snapshot at another target refuses with `target_dsl_unsupported`;
 saved historical bundle readability does not authorize executable pairing.
 Missing/incomplete or structurally mismatched pairing is refused
 before call admission with `compiled_workflow_source_required`, naming the
@@ -1561,16 +1564,16 @@ The exact evaluated selector is
 These name the memo-backed run contract; the independent closed-artifact
 schema remains `workflow-lisp/closed-program/1`, representation `table/1`.
 The closed artifact's top-level `target` records the entry source target, also
-recorded in the build manifest. It must be a string registered for evaluated
-execution, including `"2.35"`, `"2.36"`, bounded `"2.37"`/`"2.38"`, `"2.39"` and `"2.40"`;
+recorded in the build manifest. It must be a readable label: the current
+`"2.40"`, which every fresh build writes, or one of `"2.35"`–`"2.39"`, which
+the checker still reads for recorded runs;
 it is not a representation version.
 The [versioning contract](../../specs/versioning.md) owns per-target admission.
-The separate internal path-mode run-reference target remains `2.35`. Target registration
-preserves read-back equality and the runtime/profile contracts here. Retargeting
-source from 2.35 to 2.36 changes the program digest when the rebuild is valid
-after required source-caller migration; retained-run resume then refuses
-`resume_program_changed`. An invalid rebuild preserves the earlier compile
-refusal instead. Both refuse before evidence writes without conversion.
+The separate internal path-mode run-reference target remains `2.35` (a wire
+value, not a label). Read-back equality and the runtime/profile contracts here
+are unchanged. A run at a 2.35–2.39 label refuses `run_target_retired` before
+any rebuild or evidence write, so a retarget of its source is never compiled
+against it.
 The [W3 contract](workflow_lisp_write_once.md#9-targets-and-compatibility)
 adds local hooks and graph-selected `std/improve` at 2.36 without changing this
 runtime profile. The [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md)
@@ -3153,9 +3156,8 @@ code to its rule here.
   Recovery is promised only for an exact qualified family in the retirement
   closeout; availability of a complete old checkout is not recovery evidence.
   Package/interpreter identity remains real; do not normalize pins or artifacts.
-- An evaluated module may import admitted modules at 2.35 or newer, subject to
-  target-direction limits and their definition-origin contracts. Every
-  transitive source/typed-program module meets that floor. Typed signatures,
+- An evaluated module imports modules at its own target, 2.40. Every
+  transitive source/typed-program module declares it. Typed signatures,
   effects and bodies feed closed compilation directly, without a flat emitter.
 - Explicit `kind=compiled` imports remain `.orc`-only and use selected typed
   snapshots, existing manifest/export/configuration validation, and source/config
