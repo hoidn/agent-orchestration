@@ -120,7 +120,9 @@ def public_case(root, *, mode="success", attempts=2):
         if source.is_file():
             shutil.copyfile(source, directory / source.name)
     source = directory / "main.orc"
-    source.write_text(source.read_text().replace(":materialization-attempts 2", f":materialization-attempts {attempts}"))
+    # The recorded fixture stays at 2.39 (R5); a public run compiles its 2.40 copy (the one-target cut).
+    text = source.read_text().replace('(:target-dsl "2.39")', '(:target-dsl "2.40")', 1)
+    source.write_text(text.replace(":materialization-attempts 2", f":materialization-attempts {attempts}"))
     binary = root / "bin/codex"
     binary.parent.mkdir()
     binary.write_text(f"#!{sys.executable}\n" + (repo / "tests/fixtures/providers/fake_phased_interactive.py").read_text())

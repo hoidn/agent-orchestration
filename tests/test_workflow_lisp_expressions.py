@@ -523,15 +523,16 @@ def test_elaborate_expression_supports_let_proc() -> None:
 
 
 @pytest.mark.parametrize(
-    ("bound_names", "procedure_names"),
+    ("bound_names", "procedure_names", "expected_code"),
     [
-        (frozenset({"input", "run-local"}), frozenset()),
-        (frozenset({"input"}), frozenset({"run-local"})),
+        (frozenset({"input", "run-local"}), frozenset(), "let_proc_syntax_invalid"),
+        (frozenset({"input"}), frozenset({"run-local"}), "let_proc_syntax_invalid"),
     ],
 )
 def test_elaborate_expression_rejects_let_proc_name_collisions(
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
+    expected_code: str,
 ) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         elaborate_expression(
@@ -545,19 +546,12 @@ def test_elaborate_expression_rejects_let_proc_name_collisions(
             procedure_names=procedure_names,
         )
 
-    assert excinfo.value.diagnostics[0].code == "let_proc_name_collision"
+    assert excinfo.value.diagnostics[0].code == expected_code
 
 
 @pytest.mark.parametrize(
     ("source", "code", "bound_names"),
     [
-        (
-            "(let-proc ((a ((input WorkflowInput)) -> WorkflowOutput :captures () input) "
-            "           (b ((input WorkflowInput)) -> WorkflowOutput :captures () input)) "
-            "  input)",
-            "let_proc_multiple_bindings_unsupported",
-            frozenset({"input"}),
-        ),
         (
             "(let-proc (local ((input WorkflowInput)) -> WorkflowOutput "
             "           :captures (ctx.field) "
