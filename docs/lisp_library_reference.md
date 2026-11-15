@@ -41,10 +41,15 @@ bytes. Execution pins reached command implementations under the
 **Availability:** the canonical
 [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc)
 is frozen at target 2.35, the text its recorded results name. This release
-refuses it with `workflow_execution_target_retired`; the commands of this
-section run on the release tagged `v0.2.1`. The test suite keeps the same text
-with the 2.40 header at `tests/fixtures/workflow_lisp/current_examples/best_of_n.orc`.
-It implements candidates serially using
+refuses it with `workflow_execution_target_retired`; the operating recipe
+linked below runs on the release tagged `v0.2.1`. **What runs on this release**
+is the copy the test suite keeps at
+`tests/fixtures/workflow_lisp/current_examples/best_of_n.orc`: the same text
+with the 2.40 header and nothing else changed. It compiles here with the same
+provider bindings (the command below), and the suite runs it through the public
+command line with stand-in providers
+(`tests/test_workflow_evaluated_consumers.py`). No copy is maintained under
+`workflows/examples/`. It implements candidates serially using
 `list/map-effect` with a maximum of eight, then asks a judge to select one.
 
 | Surface | Inputs | Output and behavior |
@@ -63,7 +68,8 @@ and CLIs must be available. The source's model and effort choices belong to this
 example, rather than a library default. No external prompt or command manifest
 is needed.
 
-Complete canonical module:
+Complete canonical module, with the frozen file's header; with
+`(:target-dsl "2.40")` in its place it is the text this release compiles:
 
 ```lisp
 (workflow-lisp
@@ -142,12 +148,15 @@ baseline, and passes the clone paths in `repos`. The
 shows clone preparation, typed JSON inputs, compile, dry-run, execution, resume
 and report from the shared candidate working root. Its input task must describe
 a real change in the chosen base repository; the shown `calc.py` task is an
-illustration. For source/binding verification alone:
+illustration. On this release, put the 2.40 copy's path in the recipe's
+`SOURCE` and its directory in `SOURCE_ROOT`; the recipe is written for the
+frozen file and was not rerun with real providers at 2.40. For source/binding verification alone, on this
+release:
 
 ```bash
-python -m orchestrator compile experiments/orc_vs_single_call/workflows/best_of_n.orc \
+python -m orchestrator compile tests/fixtures/workflow_lisp/current_examples/best_of_n.orc \
   --entry-workflow best_of_n::best-of-n \
-  --source-root experiments/orc_vs_single_call/workflows \
+  --source-root tests/fixtures/workflow_lisp/current_examples \
   --provider-externs-file experiments/orc_vs_single_call/workflows/best_of_n.providers.json
 ```
 
