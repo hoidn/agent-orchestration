@@ -561,6 +561,13 @@ def _slots_file(root, ladder, prior):
     _write_json(root / "passthrough" / "slots.json", {"total_usd": total, "total_requests": None, "slots": slots})
 
 
+def _next_index(root):
+    """One more than every index claimed so far, under slots/ and refused/ (a refused launch keeps its index, so an
+    index is never reused; Task 8 part A M4)."""
+    names = [p.name for d in (root / "slots", root / "refused") if d.is_dir() for p in d.iterdir()]
+    return 1 + max((int(n[:3]) for n in names if n[:3].isdigit()), default=0)
+
+
 def reserve(root, entry, ladder, prior):
     """Claim an attempt for `entry` (round, task, effort, kind) under the lock if it fits: the new attempt, or Full.
     Its directory is claimed by mkdir; its fake token goes into the slots file before the lock is let go."""
@@ -571,7 +578,7 @@ def reserve(root, entry, ladder, prior):
             return Full("240 starts")
         if round(committed + reservation, 6) > ladder["ceiling"]["total_usd"]:
             return Full("does not fit")
-        index = len(list((root / "slots").iterdir())) + 1
+        index = _next_index(root)
         name = f"{index:03d}-r{entry['round']}-{entry['task']}-{entry['effort']}"
         (root / "slots" / name).mkdir(mode=0o700)  # the claim: a second claimant fails here
         attempt = {**entry, "id": name, "index": index, "cap_usd": cap(ladder, entry["task"]),
