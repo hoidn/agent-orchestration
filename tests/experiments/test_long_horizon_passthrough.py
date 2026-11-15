@@ -493,6 +493,40 @@ CONTENT = [
     ("a tool named by a list", _request(tools=[{"name": ["Bash"], "input_schema": SCHEMA}]), "tool not allowed"),
     ("a cache mark on a tool", _request(tools=[{"name": "Bash", "input_schema": SCHEMA,
                                                "cache_control": {"type": "ephemeral"}}]), "tool not allowed"),
+    ("a tool of another configuration", _request(tools=[{"name": "Write", "input_schema": SCHEMA}]),
+     "tool not allowed"),
+    ("trailing data after the value", json.dumps(_request()).encode() + b" x", "request malformed"),
+    ("two JSON values", json.dumps(_request()).encode() * 2, "request malformed"),
+    ("a duplicate key two levels down", _json_bytes(
+        '{"model": "MODEL", "max_tokens": 10, "stream": true, "output_config": {"effort": "low", "effort": "high"}, '
+        '"messages": []}'), "request malformed"),
+    ("a duplicate key in a tool", _json_bytes(
+        '{"model": "MODEL", "max_tokens": 10, "stream": true, "output_config": {"effort": "low"}, "messages": [], '
+        '"tools": [{"name": "Bash", "name": "WebFetch", "input_schema": {}}]}'), "request malformed"),
+    ("a byte that is not UTF-8", json.dumps(_request()).encode().replace(b"hello", b"hel\xfflo"), "request malformed"),
+    ("an array", b"[]", "field not allowed"),
+    ("a string", b'"x"', "field not allowed"),
+    ("null", b"null", "field not allowed"),
+    ("a service tier", _with(service_tier="priority"), "field not allowed"),
+    ("a temperature", _with(temperature=1), "field not allowed"),
+    ("a model with a date", _with(model=MODEL + "-20990101"), "model not allowed"),
+    ("a model in capitals", _with(model=MODEL.upper()), "model not allowed"),
+    ("a model in a list", _with(model=[MODEL]), "model not allowed"),
+    ("no model", {k: v for k, v in _request().items() if k != "model"}, "model not allowed"),
+    ("effort max", _with(output_config={"effort": "max"}), "field not allowed"),
+    ("no effort", _with(output_config={}), "field not allowed"),
+    ("output_config as a string", _with(output_config="low"), "field not allowed"),
+    ("max_tokens as a float", _with(max_tokens=10.0), "field not allowed"),
+    ("max_tokens of zero", _with(max_tokens=0), "field not allowed"),
+    ("lists nested past the parser's limit", json.dumps(_request()).encode().replace(
+        b'"hello"', b"[" * 100_000 + b"]" * 100_000), "request malformed"),
+    ("objects nested past the parser's limit", json.dumps(_request()).encode().replace(
+        b'"hello"', b'{"a": ' * 100_000 + b"1" + b"}" * 100_000), "request malformed"),
+    ("an integer of 5,000 digits", json.dumps(_request()).encode().replace(b'"hello"', b"1" * 5000),
+     "request malformed"),
+    ("max_tokens of 4,000 digits", _json_bytes(
+        '{"model": "MODEL", "max_tokens": ' + "9" * 4000 + ', "stream": true, "output_config": {"effort": "low"}, '
+        '"messages": []}'), "field not allowed"),
 ]
 REFUSALS = [
     ("an unknown token", "lh-fake-unknown", _request(), MESSAGES, "POST", "unknown token"),
@@ -1291,27 +1325,108 @@ def test_a_log_row_holding_the_token_keeps_its_numbers_only_and_stops_the_tranch
 
 # --- the request line and headers ------------------------------------------------------------------------
 
-LINES = [
-    ("an extra query", "POST /v1/messages?beta=true&x=1 HTTP/1.1", "path not allowed"),
-    ("another letter case", "POST /V1/messages?beta=true HTTP/1.1", "path not allowed"),
-    ("the absolute form", "POST http://api.anthropic.com/v1/messages?beta=true HTTP/1.1", "path not allowed"),
-    ("a doubled slash", "POST //v1/messages?beta=true HTTP/1.1", "path not allowed"),
-    ("HTTP/1.0", "POST /v1/messages?beta=true HTTP/1.0", "path not allowed"),
-    ("CONNECT", "CONNECT api.anthropic.com:443 HTTP/1.1", "path not allowed"),
-    ("a lower-case method", "post /v1/messages?beta=true HTTP/1.1", "path not allowed"),
-    ("an unknown method", "BREW /v1/messages?beta=true HTTP/1.1", "path not allowed"),
-    ("a malformed line", "POST /v1/messages?beta=true HTTP/1.1 extra", "request malformed"),
-    ("a line that is not HTTP", "hello", "request malformed"),
+# --- negative cases: framing, headers and bodies outside the recorded shape, and the bounds -------------------
+
+BODY = json.dumps(_request(stream=False)).encode()  # an admitted request, answered by a plain 200
+LINE = f"POST {MESSAGES} HTTP/1.1"
+
+
+def _framed(line=LINE, headers=None, body=BODY):
+    return _raw(_headers(BODY) if headers is None else headers, body, line=line)
+
+
+def _length(value):
+    kept = [(k, v) for k, v in _headers(BODY) if k != "content-length"]
+    return [*kept, ("content-length", value)] if value is not None else kept
+
+
+def _send(sock, data):
+    """Send `data`, close the sending side, and read every byte back until the passthrough closes."""
+    reply = b""
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(WAIT)
+        client.connect(str(sock))
+        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+            client.sendall(data)
+            client.shutdown(socket.SHUT_WR)
+        with contextlib.suppress(TimeoutError, ConnectionResetError):
+            while chunk := client.recv(65536):
+                reply += chunk
+    return reply
+
+
+def _outcomes(reply):
+    """Each answer in a raw reply, in order: a refusal's reason, another answer's status code, or "cut" for a
+    reply that is not a whole answer; [] when the connection was closed with no answer."""
+    found = []
+    while reply:
+        head, end, rest = reply.partition(b"\r\n\r\n")
+        lines = head.split(b"\r\n")
+        sizes = [int(line.split(b":", 1)[1]) for line in lines[1:] if line.lower().startswith(b"content-length:")]
+        if not end or not lines[0].startswith(b"HTTP/1.1 ") or len(sizes) != 1 or len(rest) < sizes[0]:
+            return [*found, "cut"]
+        status, body, reply = lines[0].split(b" ")[1].decode(), rest[:sizes[0]], rest[sizes[0]:]
+        found.append(_error(body)[1].removeprefix("lh-passthrough: ") if status == "403" else status)
+    return found
+
+
+FRAMING = [
+    ("GET", _framed(line=f"GET {MESSAGES} HTTP/1.1"), ["path not allowed"]),
+    ("PUT", _framed(line=f"PUT {MESSAGES} HTTP/1.1"), ["path not allowed"]),
+    ("HEAD", _framed(line=f"HEAD {MESSAGES} HTTP/1.1"), ["path not allowed"]),
+    ("CONNECT", _framed(line="CONNECT api.anthropic.com:443 HTTP/1.1"), ["path not allowed"]),
+    ("a lower-case method", _framed(line=f"post {MESSAGES} HTTP/1.1"), ["path not allowed"]),
+    ("an unknown method", _framed(line=f"BREW {MESSAGES} HTTP/1.1"), ["path not allowed"]),
+    ("another query", _framed(line="POST /v1/messages?beta=false HTTP/1.1"), ["path not allowed"]),
+    ("an extra query", _framed(line="POST /v1/messages?beta=true&x=1 HTTP/1.1"), ["path not allowed"]),
+    ("no query", _framed(line="POST /v1/messages HTTP/1.1"), ["path not allowed"]),
+    ("a trailing slash", _framed(line="POST /v1/messages/?beta=true HTTP/1.1"), ["path not allowed"]),
+    ("another letter case", _framed(line="POST /V1/messages?beta=true HTTP/1.1"), ["path not allowed"]),
+    ("a doubled slash", _framed(line="POST //v1/messages?beta=true HTTP/1.1"), ["path not allowed"]),
+    ("a percent-encoded letter", _framed(line="POST /v1/m%65ssages?beta=true HTTP/1.1"), ["path not allowed"]),
+    ("a percent-encoded query", _framed(line="POST /v1/messages%3Fbeta=true HTTP/1.1"), ["path not allowed"]),
+    ("the absolute form", _framed(line="POST http://api.anthropic.com/v1/messages?beta=true HTTP/1.1"),
+     ["path not allowed"]),
+    ("HTTP/1.0", _framed(line=f"POST {MESSAGES} HTTP/1.0"), ["path not allowed"]),
+    ("HTTP/2.0", _framed(line=f"POST {MESSAGES} HTTP/2.0"), ["request malformed"]),
+    ("HTTP/0.9", _framed(line=f"POST {MESSAGES}"), ["request malformed"]),
+    ("an unknown version", _framed(line=f"POST {MESSAGES} HTTP/1.2"), ["path not allowed"]),
+    ("a version that is not HTTP", _framed(line=f"POST {MESSAGES} FTP/1.1"), ["request malformed"]),
+    ("a malformed line", _framed(line=f"POST {MESSAGES} HTTP/1.1 extra"), ["request malformed"]),
+    ("a line that is not HTTP", _framed(line="hello"), ["request malformed"]),
+    ("two content-length headers", _framed(headers=[*_headers(BODY), ("content-length", str(len(BODY)))]),
+     ["header repeated"]),
+    ("no content-length", _framed(headers=_length(None)), ["request malformed"]),
+    ("a length that is not a number", _framed(headers=_length("ten")), ["request malformed"]),
+    ("a negative length", _framed(headers=_length("-1")), ["request malformed"]),
+    ("a length with a sign", _framed(headers=_length(f"+{len(BODY)}")), ["request malformed"]),
+    ("a length with a leading zero", _framed(headers=_length(f"0{len(BODY)}")), ["request malformed"]),
+    ("a superscript digit as the length", _framed(headers=_length("\u00b2")), ["request malformed"]),
+    ("a length of eleven digits", _framed(headers=_length("1" * 11)), ["request malformed"]),
+    ("a length above the body limit", _framed(headers=_length(str(64 << 20 | 1))), ["request too large"]),
+    ("transfer-encoding chunked", _framed(headers=[*_headers(BODY), ("transfer-encoding", "chunked")]),
+     ["header not allowed"]),
+    ("transfer-encoding identity", _framed(headers=[*_headers(BODY), ("Transfer-Encoding", "identity")]),
+     ["header not allowed"]),
+    ("transfer-encoding without a length", _framed(headers=[*_length(None), ("transfer-encoding", "chunked")]),
+     ["header not allowed"]),
+    ("a body shorter than its length", _framed(body=BODY[:-10]), ["request malformed"]),
+    ("no body after a length", _framed(body=b""), ["request malformed"]),
+    ("a body longer than its length", _framed(headers=_length(str(len(BODY) - 1))), ["request malformed"]),
+    ("junk after the body", _framed() + b"junk\r\n\r\n", ["200", "request malformed"]),
+    ("a forbidden request after the body", _framed() + _framed(line=f"GET {MESSAGES} HTTP/1.1"),
+     ["200", "path not allowed"]),
+    ("an unknown token's request after the body", _framed() + _raw(_headers(BODY, token="lh-fake-unknown"), BODY),
+     ["200", "unknown token"]),
 ]
 
 
-@pytest.mark.parametrize("case,line,reason", LINES, ids=[c[0] for c in LINES])
-def test_a_request_line_other_than_the_recorded_one_is_refused_in_the_one_form(short, stub, inproc, case, line,
-                                                                              reason):
+@pytest.mark.parametrize("case,data,outcomes", FRAMING, ids=[c[0] for c in FRAMING])
+def test_a_malformed_line_or_framing_is_refused_or_closed_and_never_reaches_the_upstream(short, stub, inproc, case,
+                                                                                       data, outcomes):
     upstream, upstream_log = stub("normal")
     sock, _ = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
-    body = json.dumps(_request()).encode()
-    assert (_reason(_exchange(sock, _raw(_headers(body), body, line=line))), _stub_rows(upstream_log)) == (reason, [])
+    assert (_outcomes(_send(sock, data)), len(_stub_rows(upstream_log))) == (outcomes, outcomes.count("200"))
 
 
 def _replaced(name, value):
@@ -1323,20 +1438,26 @@ def _added(*pairs):
 
 
 HEADERS = [
-    ("two content-length headers", lambda h: [*h, next(p for p in h if p[0] == "content-length")], "header repeated"),
     ("two authorization headers", _added(("Authorization", "Bearer lh-fake-a")), "header repeated"),
-    ("transfer-encoding", _added(("transfer-encoding", "chunked")), "header not allowed"),
+    ("no authorization", lambda h: [(k, v) for k, v in h if k != "authorization"], "unknown token"),
+    ("a Basic scheme", _replaced("authorization", "Basic bGgtZmFrZS1hOg=="), "unknown token"),
+    ("a lower-case scheme", _replaced("authorization", "bearer lh-fake-a"), "unknown token"),
+    ("no scheme", _replaced("authorization", "lh-fake-a"), "unknown token"),
+    ("two spaces after the scheme", _replaced("authorization", "Bearer  lh-fake-a"), "unknown token"),
+    ("an unknown token", _replaced("authorization", "Bearer lh-fake-unknown"), "unknown token"),
     ("x-api-key", _added(("x-api-key", "sk-made-up")), "header not allowed"),
     ("a cookie", _added(("cookie", "a=b")), "header not allowed"),
     ("an unrecorded header", _added(("x-probe", "echo")), "header not allowed"),
     ("expect 100-continue", _added(("expect", "100-continue")), "header not allowed"),
     ("an unrecorded beta flag", _added(("anthropic-beta", "files-api-2025-04-14")), "header not allowed"),
+    ("an unrecorded flag among recorded ones", _added(("anthropic-beta", "oauth-2025-04-20,files-api-2025-04-14")),
+     "header not allowed"),
+    ("an empty beta flag", _added(("anthropic-beta", "oauth-2025-04-20,")), "header not allowed"),
     ("another API version", _added(("anthropic-version", "2024-01-01")), "header not allowed"),
     ("another client", _added(("user-agent", "curl/8.0")), "header not allowed"),
-    ("a length with a leading zero", lambda h: _replaced("content-length", "0" + dict(h)["content-length"])(h),
-     "request malformed"),
-    ("a superscript digit as the length", _replaced("content-length", "\u00b2"), "request malformed"),
     ("a value that is not ASCII", _added(("x-claude-code-session-id", "\u00e9")), "request malformed"),
+    ("a NUL in a value", _added(("x-claude-code-session-id", "s\x00s")), "request malformed"),
+    ("a folded header line", _added(("x-app", "cli\r\n folded")), "request malformed"),
     ("headers above 32 KiB", _added(("x-claude-code-session-id", "s" * 40000)), "request too large"),
     ("a header line above 64 KiB", _added(("x-claude-code-session-id", "s" * 70000)), "request too large"),
     ("more than 100 headers", _added(*[(f"x-stainless-{i}", "x") for i in range(101)]), "request too large"),
@@ -1471,6 +1592,72 @@ def test_connections_beyond_the_cap_are_refused_until_one_closes(short, stub, in
         except (OSError, http.client.HTTPException):  # refused at once while the idle ones are still counted
             return False
     assert (over, _eventually(served)) == ("too many connections", True)
+
+
+def test_connections_beyond_the_cap_are_refused_while_an_admitted_request_completes(short, canned, inproc,
+                                                                                    monkeypatch):
+    monkeypatch.setattr(passthrough, "MAX_CONNECTIONS", 2)
+    gate, responses = _gated(0)
+    upstream = canned(*responses)
+    sock, _ = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    admitted = []
+    thread = threading.Thread(target=lambda: admitted.append(_post(sock, "lh-fake-a", _request(stream=False))[0]))
+    thread.start()
+    _eventually(lambda: upstream.received)  # the admitted request is in flight, its answer held
+    with socket.socket(socket.AF_UNIX) as idle:
+        idle.connect(str(sock))  # the second connection; connections are accepted in order
+        over = _reason(_exchange(sock, b"", timeout=10))
+    gate.set()
+    thread.join(WAIT)
+    assert (over, admitted) == ("too many connections", [200])
+
+
+def _descriptors():
+    return len(os.listdir("/proc/self/fd"))
+
+
+def test_after_200_connections_opened_and_closed_its_open_descriptors_are_back_to_where_they_started(short, stub,
+                                                                                                   inproc):
+    """In this process: passthrough.py's own process is not dumpable, so its /proc/<pid>/fd cannot be read."""
+    upstream, _ = stub("normal")
+    sock, _ = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    refused = _raw(_headers(BODY, token="lh-fake-unknown"))
+
+    def cycle(i):
+        with socket.socket(socket.AF_UNIX) as client:
+            client.connect(str(sock))
+            if i % 2:  # every other one sends a refused head and leaves without reading the refusal
+                client.sendall(refused)
+
+    def settled(count):
+        deadline = time.monotonic() + WAIT
+        while _descriptors() != count and time.monotonic() < deadline:
+            time.sleep(0.1)
+        return _descriptors()
+    cycle(0), cycle(1), _post(sock, "lh-fake-a", _request(stream=False))  # the log and the meter have been used
+    time.sleep(1)
+    before = _descriptors()
+    for i in range(200):
+        cycle(i)
+    assert settled(before) == before
+
+
+def test_after_every_negative_case_a_recorded_request_is_admitted_and_metered_and_nothing_failed_unhandled(short,
+                                                                                                          stub):
+    upstream, upstream_log = stub("normal")
+    proc, sock, state, out = _start(short, _slots(short / "slots.json", {"a": _slot("lh-fake-a", cap_usd=10.0)},
+                                                  total_usd=10.0), *_rehearsal(short, upstream))
+    body = json.dumps(_request()).encode()
+    rows = [(case, data, outcomes) for case, data, outcomes in FRAMING]
+    rows += [(case, _raw(change(_headers(body)), body), [reason]) for case, change, reason in HEADERS]
+    rows += [(case, _raw(_headers(b), b), [reason]) for case, b, reason in
+             ((c, b if isinstance(b, bytes) else json.dumps(b).encode(), r) for c, b, r in CONTENT)]
+    wrong = [case for case, data, outcomes in rows if _outcomes(_send(sock, data)) != outcomes]
+    status = _post(sock, "lh-fake-a", _request(stream=False))[0]
+    text = out.read_text()
+    assert (wrong, status, _rows(state)[-1]["usd"] > 0, len(_stub_rows(upstream_log)),
+            "Traceback" in text or "lh-passthrough: error" in text, proc.poll()) == (
+        [], 200, True, sum(o.count("200") for _, _, o in rows) + 1, False, None)
 
 
 def _gated(more):
