@@ -22,6 +22,11 @@
   study.py ledger                                         calls reserved and made, and the events
   study.py resume-after-limit --reset T --five-hour P --weekly P --read-at T   reopen starts a usage limit closed
 
+`candidates`, `settle`, `pool`, `judge`, `summarize` and `probe` run one at a time per study (`study.lock` beside the
+ledger, so ruling R3's two units in flight hold across processes), and each starts by removing every credential
+copy in the work and pool roots' private homes that no live unit holds, printing the paths (review3 X5). A
+launched unit's whole process tree dies with its launcher however the launcher ends (`reaper.py`).
+
 Run every command from the frozen runtime (`cd <runtime> && PYTHONPATH=$PWD python -m experiments.seed_set.study
 --runtime $PWD ...`): the freeze refuses study or harness modules loaded from anywhere else, and a task list
 outside the runtime. Every harness step is the harness's own. Every provider start passes `rules.enforce` (freeze, smoke pass, chosen

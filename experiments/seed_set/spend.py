@@ -7,8 +7,8 @@ It holds starts and events. Every provider start goes through `reserve` before i
 - the tranche must be authorized in the plan's ledger (`CAPS`; the seed evaluation and its extension are not,
   and refuse whatever the environment says) and named exactly by `$SEED_SET_AUTHORIZED_TRANCHE`;
 - no `stop` event may be in the ledger (a stop rule fired: nothing more starts), and no `pause` event after the
-  last `resume` (a usage limit closed all starts: `resume_after_limit` reopens them after the vendor's named reset,
-  with the owner's meter reading; coordinator ruling R2, 2026-11-14);
+  last `resume` (a usage limit, or a unit settled above its worst case, closed all starts: `resume_after_limit`
+  reopens them after the vendor's named reset, with the owner's meter reading; coordinator ruling R2, 2026-11-14);
 - the model must be one of the two exact Claude IDs (no fallback, no alias, never Fable);
 - the unit (a candidate run's records directory, or `<pool>#<judge>`) must not be in the ledger already: a unit
   is launched once, never retried or relaunched;
