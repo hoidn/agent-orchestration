@@ -483,8 +483,15 @@ CONTENT = [
      "provider-side tool refused"),
     ("a tool without a schema", _request(tools=[{"name": "Bash"}]), "provider-side tool refused"),
     ("an unrecorded tool name", _request(tools=[{"name": "WebFetch", "input_schema": SCHEMA}]), "tool not allowed"),
-    ("an unrecorded tool key", _request(tools=[{"name": "Bash", "input_schema": SCHEMA, "defer_loading": True}]),
+    ("an unrecorded tool key", _request(tools=[{"name": "Bash", "input_schema": SCHEMA, "strict": True}]),
      "tool not allowed"),
+    ("a key recorded on another tool only", _request(tools=[{"name": "Bash", "input_schema": SCHEMA,
+                                                             "defer_loading": True}]), "tool not allowed"),
+    ("an unrecorded schema key", _request(tools=[{"name": "Bash", "input_schema": {**SCHEMA, "$defs": {}}}]),
+     "tool not allowed"),
+    ("a tool named by a list", _request(tools=[{"name": ["Bash"], "input_schema": SCHEMA}]), "tool not allowed"),
+    ("a cache mark on a tool", _request(tools=[{"name": "Bash", "input_schema": SCHEMA,
+                                               "cache_control": {"type": "ephemeral"}}]), "tool not allowed"),
 ]
 REFUSALS = [
     ("an unknown token", "lh-fake-unknown", _request(), MESSAGES, "POST", "unknown token"),
@@ -672,15 +679,17 @@ def test_the_log_row_keeps_the_requests_beta_flags_cache_marks_and_tools_and_the
     upstream = canned(_http(200, headers, json.dumps(_message(USAGE)).encode()))
     sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
     hour, five = {"type": "ephemeral", "ttl": "1h"}, {"type": "ephemeral"}
-    request = _request(stream=False, tools=[{"name": "Bash", "input_schema": SCHEMA, "cache_control": five},
+    request = _request(stream=False, tools=[{"name": "Bash", "input_schema": SCHEMA},
                                             {"name": "Read", "input_schema": SCHEMA}])
     request.update(system=[{"type": "text", "text": "s", "cache_control": hour}],
-                   messages=[{"role": "user", "content": [{"type": "text", "text": "x", "cache_control": hour}]}])
+                   messages=[{"role": "user", "content": [{"type": "text", "text": "x", "cache_control": hour},
+                                                          {"type": "text", "text": "y", "cache_control": five}]}])
     _post(sock, "lh-fake-a", request)
     row = _rows(state)[0]
     assert ({k: row[k] for k in ("beta", "cache_marks", "tools", "header_names")}, row["headers"]) == (
         {"beta": "oauth-2025-04-20,extended-cache-ttl-2025-04-11",
-         "cache_marks": ["tools.0:unset", "system.0:1h", "messages.0.content.0:1h"], "tools": ["Bash", "Read"],
+         "cache_marks": ["system.0:1h", "messages.0.content.0:1h", "messages.0.content.1:unset"],
+         "tools": ["Bash", "Read"],
          "header_names": ["content-type", "anthropic-ratelimit-unified-status", "x-vendor-other", "content-length",
                           "connection"]},
         {"anthropic-ratelimit-unified-status": "allowed"})
@@ -1042,7 +1051,7 @@ def probe(short):
     kit = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%H", "--", str(KIT)], capture_output=True,
                          text=True).stdout.strip()
     ledger = short / "ledger.md"
-    ledger.write_text(f"| 2026-11-14 | Live probe approved by the coordinator at `{kit[:8]}` |\n")
+    ledger.write_text(f"| 2026-11-14 | live probe approved by the coordinator at `{kit}` |\n")
     env = {"PATH": f"{NO_PROVIDER}:/usr/bin:/bin", "HOME": str(lh / "home"), "LH": str(lh), "LH_PYTHON": sys.executable,
            "LH_PROBE_COMMIT": kit, "LH_PROBE_STATE": str(short / "probe-state"),
            "LH_TRANSCRIPTS": str(lh / "transcripts"), "LH_PROBE_LEDGER": str(ledger)}
@@ -1051,7 +1060,7 @@ def probe(short):
         env_run = {**env, "LH_PROBE_STAND_IN": scenario, **extra}
         return subprocess.run(["bash", str(PROBE), str(lh / "recordings" / out)], env=env_run,
                               capture_output=True, text=True, timeout=600)
-    run.lh, run.state, run.ledger = lh, short / "probe-state", ledger
+    run.lh, run.state, run.ledger, run.kit = lh, short / "probe-state", ledger, kit
     return run
 
 
@@ -1122,10 +1131,20 @@ def test_a_body_larger_than_the_limit_is_refused_unread(short, stub, inproc):
             _stub_rows(upstream_log)) == ("403", True, "request too large", [])
 
 
-def test_a_probe_without_an_approval_row_for_its_commit_in_the_ledger_is_refused(probe):
-    probe.ledger.write_text("| 2026-11-14 | Live probe approved by the coordinator at `00000000` |\n")
+APPROVAL_ROWS = [
+    ("another commit", lambda kit: f"| d | live probe approved at `{'0' * 40}` |\n"),
+    ("the commit's first eight characters", lambda kit: f"| d | live probe approved at `{kit[:8]}` |\n"),
+    ("another phrase", lambda kit: f"| d | Live probe approved at `{kit}` |\n"),
+    ("the phrase and the commit on two rows", lambda kit: f"| d | live probe approved |\n| d | `{kit}` |\n"),
+    ("two approval rows", lambda kit: f"| d | live probe approved at `{kit}` |\n" * 2),
+]
+
+
+@pytest.mark.parametrize("case,rows", APPROVAL_ROWS, ids=[case for case, _ in APPROVAL_ROWS])
+def test_a_probe_without_exactly_one_approval_row_naming_its_full_commit_is_refused(probe, case, rows):
+    probe.ledger.write_text(rows(probe.kit))
     result = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
-    assert (result.returncode, "no approval row" in result.stderr, probe.state.exists()) == (3, True, False)
+    assert (result.returncode, "'live probe approved'" in result.stderr, probe.state.exists()) == (3, True, False)
 
 
 def test_a_start_that_fails_before_the_passthrough_listens_claims_nothing(probe):
@@ -1291,12 +1310,17 @@ def test_the_committed_allowlist_is_what_the_request_fixtures_give():
 FILL = {"accept": "application/json", "connection": "keep-alive", "host": "relay:8080"}
 
 
+def _recorded_tool(name, keys, schema_keys):
+    return {**{key: "d" for key in keys}, "name": name, "input_schema": {key: {} for key in schema_keys}}
+
+
 def _recorded_request(shape):
-    """A request in a recorded shape: its headers (a value for each the cutter dropped), body fields and tools."""
-    body = {"model": shape["model"], "max_tokens": shape["max_tokens"], "stream": shape["stream"],
-            "output_config": {"effort": shape["effort"]}, "system": [], "messages": [{"role": "user", "content": "x"}],
-            "tools": [{"name": name, "description": "d", "input_schema": SCHEMA} for name in shape["tools"]],
-            **{key: {} for key in shape["other_params"]}}
+    """A request in a recorded shape: its headers (a value for each the cutter dropped), its recorded body keys
+    and its tools with their recorded keys."""
+    body = {**{key: {} for key in shape["body_keys"]}, "model": shape["model"], "max_tokens": shape["max_tokens"],
+            "stream": shape["stream"], "output_config": {"effort": shape["effort"]}, "system": [],
+            "messages": [{"role": "user", "content": "x"}],
+            "tools": list(map(_recorded_tool, shape["tools"], shape["tool_keys"], shape["input_schema_keys"]))}
     data = json.dumps(body).encode()
     headers = {**{k: v or FILL.get(k, "x") for k, v in shape["headers"].items() if k != "x-api-key"},
                "authorization": "Bearer lh-fake-a", "content-length": str(len(data))}

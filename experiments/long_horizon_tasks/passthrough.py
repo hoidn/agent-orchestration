@@ -18,8 +18,9 @@ Then, holding the slot (one request in flight per slot; a second waits for the f
 "slot busy" after the wait): the body, read within its time ("request timed out"), is strict JSON (UTF-8, no
 duplicate key at any depth, no NaN: "request malformed"); its top-level keys are recorded ("field not
 allowed"); `model` is the exact id ("model not allowed"); `stream`, `max_tokens` and the effort hold recorded
-values ("field not allowed"); every tool has the recorded keys, a recorded name and an `input_schema`, and no
-`type` ("provider-side tool refused" for a tool with a `type` or without a schema, else "tool not allowed");
+values ("field not allowed"); every tool has an `input_schema` and no `type` ("provider-side tool refused"), a
+recorded name, and only the keys recorded for that name in its definition and its schema's top level ("tool not
+allowed");
 nothing in it asks the vendor to fetch (a `source` that is not base64, text or content, or a `file_id`:
 "field not allowed"); the slot's and the tranche's request counts and priced caps hold, counted with every
 earlier request of the slot metered ("slot cap reached", "tranche total reached").
@@ -41,9 +42,10 @@ size in bytes), flagged, and closes starts ("usage incomplete"). Prices are `pri
 The vendor's answers, recorded before the response is passed on: a 429 closes starts ("usage limit" with its
 `anthropic-ratelimit-unified-reset` when `anthropic-ratelimit-unified-status` is `rejected`, else "vendor 429"
 with no reset); a 401 stops the tranche; with --stop-on-non-200 (the live probe's) any status but 200 stops
-it. Paid extra usage (PAID_USAGE: a status other than allowed on a response that is not a 429, overage in use,
-or overage allowed; and each --paid-usage HEADER=VALUE) stops it, and that response is not passed on: the
-client gets the 403 form with "tranche stopped", while the answer is still read and metered. After the body:
+it. Paid extra usage (PAID_USAGE: on any response, overage in use or overage allowed; on a response that is not
+a 429, a unified status present and other than allowed; and each --paid-usage HEADER=VALUE) stops it, and that
+response is not passed on: the client gets the 403 form with "tranche stopped", while the answer is still read
+and metered. After the body:
 a response naming another model stops it. Starts are the launcher's: `close_starts` is a record.
 
 State, in DIR (mode 700, this user's; the output file belongs there too):
@@ -277,7 +279,10 @@ def _value_reason(headers):
 def _tool_reason(tool):
     if not isinstance(tool, dict) or "type" in tool or not isinstance(tool.get("input_schema"), dict):
         return "provider-side tool refused"
-    if set(tool) - set(ALLOW["tool_keys"]) or tool.get("name") not in ALLOW["tool_names"]:
+    name = tool.get("name")
+    if not isinstance(name, str) or name not in ALLOW["tool_keys"]:
+        return "tool not allowed"
+    if set(tool) - set(ALLOW["tool_keys"][name]) or set(tool["input_schema"]) - set(ALLOW["input_schema_keys"][name]):
         return "tool not allowed"
     return None
 

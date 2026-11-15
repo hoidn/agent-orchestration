@@ -3,11 +3,11 @@
 # scratch task, one after another at effort low, medium and high, in the ladder's configuration (CLI 2.1.311 in
 # the task container, token mode with a fake token per session, the relay as base URL, the deny list, the
 # recordings' allowlist, model claude-haiku-5-5, verification off), through passthrough.py on the owner's
-# subscription token. It runs only under the coordinator's approval row in the plan's ledger: a line of the
-# plan that holds "live probe", "approv" and the first 8 or more characters of the kit's commit (the last commit
-# that changed this directory; the row itself is committed after it).
+# subscription token. It runs only under the coordinator's approval row in the plan's ledger: exactly one line of
+# the plan holds both the exact phrase "live probe approved" and the kit's commit in full (40 hex characters; the
+# kit's commit is the last commit that changed this directory, and the row itself is committed after it).
 #
-#   LH_PROBE_SPEND_AUTHORIZED=yes LH_PROBE_COMMIT=<the approval row's commit> LH_TOKEN_FILE=<path> \
+#   LH_PROBE_SPEND_AUTHORIZED=yes LH_PROBE_COMMIT=<the kit's last commit> LH_TOKEN_FILE=<path> \
 #     live_probe.sh OUT                                                   (the probe: subscription usage)
 #   LH_PROBE_SPEND_AUTHORIZED=yes LH_PROBE_COMMIT=<the kit's commit> LH_PROBE_STAND_IN=<stub_api.py scenario> \
 #     LH_PROBE_STATE=<dir> LH_TRANSCRIPTS=<dir> [LH_PROBE_LEDGER=<file>] live_probe.sh OUT
@@ -18,7 +18,8 @@
 # switch, whose canary stands for the token.
 #
 # Refuses (exit 3) before anything starts: without LH_PROBE_SPEND_AUTHORIZED=yes; a kit commit other than
-# LH_PROBE_COMMIT; no approval row for it in the ledger (the plan; LH_PROBE_LEDGER in a stand-in run only); for the
+# LH_PROBE_COMMIT; no single approval row for it in the ledger, or more than one (the plan; LH_PROBE_LEDGER in a
+# stand-in run only); for the
 # probe, a kit with uncommitted changes or no LH_TOKEN_FILE; for a stand-in run, a token file, or no LH_PROBE_STATE
 # or LH_TRANSCRIPTS (a stand-in run never reads the agents' transcripts); no provider guard; a scratch task off the
 # recordings' allowlist; an existing OUT; a probe that has run. Its state directory ($HOME/.local/state/lh-probe
@@ -60,7 +61,9 @@ LH=${LH:-$HOME/lh-cache}
 NO_PROVIDER=$REPO/experiments/thread_m/no_provider
 [ -x "$NO_PROVIDER/claude" ] || refuse "no provider guard at $NO_PROVIDER"
 KIT_COMMIT=$(git -C "$REPO" log -1 --format=%H -- "$HERE")
-[ "$KIT_COMMIT" = "${LH_PROBE_COMMIT:-}" ] || refuse "the kit's commit is not LH_PROBE_COMMIT, the approval row's commit"
+APPROVAL="LH_PROBE_COMMIT must be the kit's last commit (git log -1 --format=%H -- $HERE), and exactly one ledger row must hold that full 40-character hash and the exact phrase 'live probe approved'"
+[[ $KIT_COMMIT =~ ^[0-9a-f]{40}$ ]] || refuse "no 40-character commit for the kit; $APPROVAL"
+[ "$KIT_COMMIT" = "${LH_PROBE_COMMIT:-}" ] || refuse "LH_PROBE_COMMIT is not the kit's commit $KIT_COMMIT; $APPROVAL"
 LEDGER=$REPO/docs/plans/2026-11-13-long-horizon-task-family-and-seed-plan.md
 if [ -n "${LH_PROBE_STAND_IN:-}" ]; then
   [ -z "${LH_TOKEN_FILE:-}" ] || refuse "a stand-in run never names a token file"
@@ -71,8 +74,8 @@ else
   [ -z "$(git -C "$REPO" status --porcelain -- "$HERE")" ] || refuse "the kit has uncommitted changes"
   STATE=$HOME/.local/state/lh-probe TRANSCRIPTS=${LH_TRANSCRIPTS:-$HOME/.claude/projects} CREDENTIAL=live
 fi
-grep -i 'live probe' "$LEDGER" 2>/dev/null | grep -i 'approv' | grep -q "${KIT_COMMIT:0:8}" ||
-  refuse "no approval row for ${KIT_COMMIT:0:8} in $LEDGER"
+ROWS=$( { grep -F -- "$KIT_COMMIT" "$LEDGER" 2>/dev/null || true; } | { grep -cF 'live probe approved' || true; })
+[ "$ROWS" = 1 ] || refuse "$ROWS approval rows for $KIT_COMMIT in $LEDGER; $APPROVAL"
 OUT=$(realpath -m "$1")
 [ ! -e "$OUT" ] || refuse "$OUT exists"
 TASK=$LH/scratch/recording-task

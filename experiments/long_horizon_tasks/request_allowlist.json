@@ -1,5 +1,5 @@
 {
- "source": "make_allowlist.py over fixtures/requests (CLI 2.1.311 recordings); regenerate when fixtures change",
+ "source": "make_allowlist.py over fixtures/requests/t2a-*.json (CLI 2.1.311, Task 2a); regenerate when they change",
  "method": "POST",
  "path": "/v1/messages?beta=true",
  "headers": [
@@ -15,7 +15,6 @@
   "host",
   "user-agent",
   "x-app",
-  "x-claude-code-agent-id",
   "x-claude-code-session-id",
   "x-stainless-arch",
   "x-stainless-lang",
@@ -38,7 +37,6 @@
   ]
  },
  "anthropic_beta": [
-  "advanced-tool-use-2025-11-20",
   "claude-code-20250219",
   "context-management-2025-06-27",
   "effort-2025-11-24",
@@ -68,7 +66,6 @@
  "effort": [
   "high",
   "low",
-  "max",
   "medium"
  ],
  "max_tokens_max": 128000,
@@ -76,25 +73,54 @@
   false,
   true
  ],
- "tool_names": [
-  "Agent",
-  "Bash",
-  "DeferredToolPlaceholder",
-  "Edit",
-  "ListAgents",
-  "Read",
-  "ReportFindings",
-  "ScheduleWakeup",
-  "Skill",
-  "ToolSearch",
-  "Workflow",
-  "Write"
- ],
- "tool_keys": [
-  "cache_control",
-  "description",
-  "input_schema",
-  "name"
- ],
- "tool_keys_recorded": false
+ "tool_keys": {
+  "Bash": [
+   "description",
+   "input_schema",
+   "name"
+  ],
+  "DeferredToolPlaceholder": [
+   "defer_loading",
+   "description",
+   "input_schema",
+   "name"
+  ],
+  "Edit": [
+   "description",
+   "input_schema",
+   "name"
+  ],
+  "Read": [
+   "description",
+   "input_schema",
+   "name"
+  ]
+ },
+ "input_schema_keys": {
+  "Bash": [
+   "$schema",
+   "additionalProperties",
+   "properties",
+   "required",
+   "type"
+  ],
+  "DeferredToolPlaceholder": [
+   "properties",
+   "type"
+  ],
+  "Edit": [
+   "$schema",
+   "additionalProperties",
+   "properties",
+   "required",
+   "type"
+  ],
+  "Read": [
+   "$schema",
+   "additionalProperties",
+   "properties",
+   "required",
+   "type"
+  ]
+ }
 }
