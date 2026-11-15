@@ -44,6 +44,7 @@ from tests.test_workflow_lisp_closed_program_check import (
     _run_ref_tree,
 )
 from orchestrator.contracts.closed_program.check import validate
+from orchestrator.contracts.closed_program.targets import CURRENT_TARGET_DSL_VERSION
 
 
 def _command_then_coordinator_program(root: Path):
@@ -55,6 +56,7 @@ def _command_then_coordinator_program(root: Path):
     assert command_effect["k"] == "perform"
 
     tree, run_ref, original_config = _run_ref_tree()
+    tree["target"] = CURRENT_TARGET_DSL_VERSION  # a run the release continues (the rule holds at 2.40)
     tree["configuration"]["commands"] = deepcopy(
         command_program.tree["configuration"]["commands"]
     )

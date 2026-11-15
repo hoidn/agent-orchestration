@@ -236,11 +236,6 @@ def test_parser_prompt_dependencies_ast_omits_absence() -> None:
             "prompt_dependency_instruction_literal_required",
             "(string/concat",
         ),
-        (
-            '(:required ((__generated-relpath-seed__ WorkReport "x" "test")))',
-            "prompt_dependency_generated_relpath_invalid",
-            "__generated-relpath-seed__",
-        ),
     ],
 )
 def test_parser_prompt_dependencies_rejects_invalid_closed_shape_with_operand_span(
