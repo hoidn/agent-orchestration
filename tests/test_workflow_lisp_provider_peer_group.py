@@ -18,7 +18,7 @@ def test_public_run_reports_provider_peer_member_count_and_bounds(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule grt/entry)",
                 "  (export run)",
                 "  (defworkflow run () -> String",

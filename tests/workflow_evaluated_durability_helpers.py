@@ -198,7 +198,7 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text("5", encoding="ut
 '''
 
 SOURCE = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run () -> Int
     (command-result first :argv ("python" "probe.py") :returns Int)))

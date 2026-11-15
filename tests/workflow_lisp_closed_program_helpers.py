@@ -4,14 +4,14 @@ import re
 from pathlib import Path
 from typing import Mapping
 
-from orchestrator.workflow_lisp import syntax
+from orchestrator.contracts.closed_program.targets import CURRENT_TARGET_DSL_VERSION
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.workflows import PromptExtern
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "closed_program"
-TARGET = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+TARGET = CURRENT_TARGET_DSL_VERSION
 BOUNDARIES = {
     name: ExternalToolBinding(
         name=name,

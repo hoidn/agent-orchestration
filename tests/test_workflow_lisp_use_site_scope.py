@@ -337,24 +337,22 @@ def test_match_arm_bound_capture_survives_shadow_and_runs_scrutinee_once(
         (
             """(let* ((state (record Payload :value a))
                        (hook (bind-proc (proc-ref add) :fixed state.value)))
-                 (loop/recur :max 1 :state (loop-state (value Int 100))
-                   :on-exhausted 42 (fn (state) (done (hook 1)))))""",
+                 (loop/recur ((state (loop-state (value Int 100)))) :max 1
+                   :on-exhausted 42 (done (hook 1))))""",
             8,
         ),
         (
-            """(loop/recur :max 2 :state (record Payload :value a) :on-exhausted 42
-                 (fn (state)
-                   (let* ((hook (bind-proc (proc-ref add) :fixed state.value)))
-                     (if (< state.value 10)
-                       (continue (record Payload :value 20))
-                       (let* ((state (record Payload :value 100))) (done (hook 1)))))))""",
+            """(loop/recur ((state (record Payload :value a))) :max 2 :on-exhausted 42
+                 (let* ((hook (bind-proc (proc-ref add) :fixed state.value)))
+                   (if (< state.value 10)
+                     (continue (record Payload :value 20))
+                     (let* ((state (record Payload :value 100))) (done (hook 1))))))""",
             21,
         ),
         (
-            """(loop/recur :max 1 :state (record Payload :value a) :on-exhausted 42
-                 (fn (state)
-                   (let* ((hook (bind-proc (proc-ref add) :fixed state.value)))
-                     (let* ((state (record Payload :value 200))) (done (hook 1))))))""",
+            """(loop/recur ((state (record Payload :value a))) :max 1 :on-exhausted 42
+                 (let* ((hook (bind-proc (proc-ref add) :fixed state.value)))
+                   (let* ((state (record Payload :value 200))) (done (hook 1)))))""",
             8,
         ),
     ),

@@ -4,8 +4,6 @@
   (defmodule cp/local_proc_specializations)
   (export run)
   (defproc apply-int ((hook ProcRef[Int -> Int]) (value Int)) -> Int
-    :effects ()
-    :lowering inline
     (hook value))
   (defworkflow run ((choice Bool) (input Int)) -> Int
     (let* ((v 7))
