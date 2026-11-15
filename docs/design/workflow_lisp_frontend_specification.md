@@ -1363,15 +1363,37 @@ gives a reference to the rest.
   `bind-proc`. A later binding of a name that a bound value reads does not
   change the value.
 
-Two `bind-proc` forms over one procedure are two specializations when they
-bind different literals, names or field reads, also in two expansions of one
-macro. A bound value of another kind, such as `(workflow-ref w)` or the
-computed `(+ k 1)`, is identified by its source position, so two such forms
-written at two places are two specializations. Open defect (rows `B7-chain`,
-`B7-ref`, `B7-deep`, `B7-let` and `B7-int` of the defect record,
+Whether two `bind-proc` forms over one procedure are two specializations
+depends on how their bound values are identified:
+
+- A bound value that is a literal is identified by its value, a name by the
+  name, and a field read by its name and fields. Two forms that bind
+  different literals, names or field reads are two specializations, also in
+  two expansions of one macro.
+- Another bound value is identified by its source position. Two forms
+  written at two places are two specializations.
+- A bound value made only of literals, operator applications other than
+  `and`, `or` and `not`, `(workflow-ref w)`, enum members, records, variants
+  and lists is identified by its position and by its content. Two expansions
+  of one macro template have one position, and they are two specializations
+  when such values differ: `(+ k 0)` expanded with 1 and with 7,
+  `(record Box :n k)`, `(workflow-ref w)`.
+- A bound value that holds anything else (a name or a field read inside a
+  larger value, an `if`, a `let*`, a `match`, a loop, a call, or `and`, `or`,
+  `not`) is identified by its position alone.
+
+Open defect (rows of the defect record,
 `tests/test_workflow_lisp_defect_backlog.py`): two expansions of one macro
-template have one source position, share one specialization, and both use the
-value of the first expansion.
+template whose bound values are of this last kind and differ share one
+specialization. The program then uses the value of the first expansion (rows
+`B7-macro-if-pure`, `B7-macro-not-pure`, `B7-macro-and-pure`,
+`B7-macro-record-call-pure`, `B7-macro-record-map-pure`; finding `T9.19`) or
+stops with `compiler_defect` (rows `B7-macro-if`, `B7-macro-let`,
+`B7-macro-match`, `B7-macro-loop`, `B7-macro-or`, `B7-macro-defun`,
+`B7-free-eff`, `B7-free-pure`, `B7-free-arg`). The
+[versioning](../../specs/versioning.md) entry on bound values (exceptions to
+target stability) says what a run recorded before the content was part of the
+identity meets at `resume`.
 
 **`let-proc`** defines procedures that are local to one expression.
 
@@ -1503,14 +1525,17 @@ that has no row yet; the ledger gives the smallest program of each finding.
 | `T9.7` | A `ProcRef` parameter as the `base` of `bind-proc` | `proc_ref_literal_required` at the definition | - |
 | `T9.8` | A `ProcRef` parameter read in a `local-body` of its procedure | `procedure_call_unknown` at the definition | - |
 | `D10`, `D10-R1`, `D11`, `D11-R1`, `D11-R2`, `D11-R5` | A `local-body` calls or passes an outer `let*` name bound to a reference or to a `bind-proc` | `compiler_defect` | write `(proc-ref …)` in the `local-body`; call the bound name in `body` |
-| `E8`, `D25`, `T9.5` | In a `defproc`, a `bind-proc` or a local whose bound or captured value is not a literal or a name bound to a literal: a parameter of the procedure, a computed value, a field of a record | called by name: `compiler_defect`; passed to a procedure that has no effect: `procedure_lowering_unresolved`; with an effect in the procedure or in the local: `compiler_defect` when the procedure is called with a literal argument, a build when it is called with a workflow input | the same form in a workflow body; a literal, or a name bound to a literal; a local passed to a procedure that has an effect |
+| `E8`, `D25`, `D25-plain`, `T9.5` | In a `defproc`, a `bind-proc` or a local whose bound or captured value is not a literal or a name bound to a literal: a parameter of the procedure, a computed value, a field of a record | called by name: `compiler_defect`; passed to a procedure that has no effect: `procedure_lowering_unresolved`; with an effect in the procedure or in the local: `compiler_defect` when the procedure is called with a literal argument, a build when it is called with a workflow input | the same form in a workflow body; a literal, or a name bound to a literal; a local passed to a procedure that has an effect |
 | `D24` | In a workflow, a local whose body is a loop that reads a field of a captured `let*` record | `compiler_defect` | - |
 | `E23-local`, `E23-input` | `bind-proc` written as an argument binds a value that reads a name: a name, a field read, a computed value | `name_unknown` | bind the `bind-proc` with `let*`, then pass the name |
 | `E26`, `T9.17` | A `bind-proc` whose bound value holds an effect, passed to a procedure that has no effect: written as the argument (`E26`) or through a `let*` name (`T9.17`) | `procedure_call_unknown` | bind the effect's result with `let*` first; call the result by name |
 | `T9.10` | In a `defproc` with an `:effects` restriction, a `bind-proc` whose bound value is a command or a call of a procedure that has effects | builds and runs the effect: it is not counted against the restriction | with the effect's result bound by `let*` first, the effect is counted (`procedure_effect_ceiling_exceeded`) |
 | `T9.2` | `bind-proc` written as an argument binds a value of the wrong type | `pure_expr_operand_type_mismatch` or `compiler_defect`, not `proc_ref_binding_type_invalid` | bound with `let*`, the form gives `proc_ref_binding_type_invalid` |
 | `T9.14` | `bind-proc` binds a `let*` name that holds a reference to a `ProcRef` parameter, and the result is passed | `procedure_call_unknown` | write `(proc-ref …)` as the value; call the result by name |
-| `B7-same-written` | Two equal `bind-proc` forms over a `(workflow-ref w)`, written at two places and passed to one procedure | `procedure_lowering_unresolved` | - |
+| `B7-same-written`, `B7-same-ref` | Two equal `bind-proc` forms over one `(workflow-ref w)`, written at two places and passed to one procedure | `procedure_lowering_unresolved` | the two forms made by two expansions of one macro |
+| `B7-macro-if-pure`, `B7-macro-not-pure`, `B7-macro-and-pure`, `B7-macro-record-call-pure`, `B7-macro-record-map-pure`, `T9.19` | Two expansions of one macro template whose bound values differ and hold an `if`, `not`, `and`, a function call, a `list/map` or a name inside a larger value; the procedure has no effect | builds; both expansions use the value of the first | a bound value made only of literals, other operators, `(workflow-ref w)`, enum members, records, variants and lists |
+| `B7-macro-if`, `B7-macro-let`, `B7-macro-match`, `B7-macro-loop`, `B7-macro-or`, `B7-macro-defun`, `B7-free-eff`, `B7-free-pure`, `B7-free-arg` | Two such expansions where the procedure calls a workflow (an `if`, a `let*`, a `match`, a loop, `or`, a function call in the bound value); two expansions whose bound value reads a `let*` name of the template, or of the caller when the procedure calls a workflow | `compiler_defect` | - |
+| `D26`, `D28`, `D29` | A `bind-proc` that binds a record to a procedure that reads it and calls a workflow; one name bound in two `let*` scopes, each bound by a `bind-proc` over a procedure that calls a workflow; a `bind-proc` in the body of a pure `list/map` whose bound value reads the item | `compiler_defect` | - |
 | `E9`, `E9-local` | A pure procedure or local whose body is a loop, passed to a pure procedure that calls it | `procedure_call_unknown` | call it by name |
 | `T9.1` | A local that captures an effect's result, called by name inside an operand of an operator, in an `if` condition or in the body of a `list/map-effect`; a `let*` that binds a `bind-proc` whose bound value holds an effect, written inside an operand of an operator or as the body of a `list/map-effect` | `compiler_defect`; for the local in the condition `proc_ref_literal_required` | the local: bind the call with `let*` first, and in a map body pass the local with `proc-ref`. The `bind-proc`: bind the effect's result with `let*` first, or write its `let*` around the operator |
 | `T9.18` | In a loop body, a `let*`-bound `bind-proc` whose bound value holds an effect, called in the `done` value or nested in an operand of the `continue` value | `procedure_lowering_unresolved` | bind the effect's result with `let*` first |
