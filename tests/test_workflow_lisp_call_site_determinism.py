@@ -73,9 +73,8 @@ def _one_chain(invoke: str, depth: int = 2) -> str:
             + f"  (defworkflow run ((input Box)) -> Box\n    (invoke {_chain('left', depth)} input)))\n")
 
 
-def _workflow_ref_macro(body: str, target: str = "2.40", definitions: str = "") -> str:
-    head = replace_exact(HEAD, '"2.40"', f'"{target}"')
-    return (head + WORKFLOWS + definitions
+def _workflow_ref_macro(body: str, definitions: str = "") -> str:
+    return (HEAD + WORKFLOWS + definitions
             + f"  (defworkflow run ((n Int)) -> {'List[Int]' if 'list/map' in body else 'Int'}\n"
             f"    (let* ((input (record Box :n n))) {body})))\n")
 
@@ -132,8 +131,6 @@ PROGRAMS = {
         "(+ (invoke one) (* 10 (invoke two)))"), "((n Int)) -> Int", "() -> Int"), ({}, 21)),
     "macro-generic": (_pure("  (defproc ident :forall (T) ((x T)) -> T x)\n  (defmacro same (x) (ident x))\n",
         '(let* ((s (same "text")) (a (same n))) (+ a 1))'), ({"n": 3}, 4)),
-    # A macro over a procedure specialized by a `WorkflowRef` (2.39 and later): each expansion keeps its workflow.
-    "workflow-ref-macro-2.39": (_workflow_ref_macro(A_THEN_B, "2.39"), ({"n": 3}, 203103)),
     "workflow-ref-macro": (_workflow_ref_macro(A_THEN_B), ({"n": 3}, 203103)),
     "workflow-ref-macro-reversed": (_workflow_ref_macro(
         "(let* ((b (cw c2 input)) (a (cw c1 input))) (+ a.n (* 1000 b.n)))"), ({"n": 3}, 203103)),
@@ -176,7 +173,7 @@ PROGRAMS = {
                 "(ap hook input)))\n" for name in ("pk", "pq"))), ({"n": 3}, 111105)),
 }
 SWEEP = ("two-provider-chains", "one-chain", "one-chain-adding", "three-levels-adding", "two-chains-adding",
-         "macro-local", "macro-local-captured", "macro-proc-ref", "macro-generic", "workflow-ref-macro-2.39",
+         "macro-local", "macro-local-captured", "macro-proc-ref", "macro-generic", "workflow-ref-macro",
          "workflow-ref-macro-three", "workflow-ref-macro-in-procedure", "inlined-two-equal-locals",
          "inlined-macro-same-arguments", "inlined-two-locals", "bound-value-macro", "bound-workflow-ref-macro",
          "written-if-twice")

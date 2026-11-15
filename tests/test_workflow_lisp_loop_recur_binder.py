@@ -279,8 +279,9 @@ def run() -> int:
 '''
 PINNED_EMITTED_TEXT = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.39")
+  (:target-dsl "2.40")
   (defmodule py/count)
+  (import std/host :as _import0)
   (export run)
   (defworkflow run () -> Int
     (let* ((_loop (loop/recur :max 3 :state 0 :on-exhausted (let* ((_exhausted0 _loop0)) _exhausted0) (fn (_loop0) (if (= _loop0 2) (done _loop0) (continue (+ _loop0 1)))))))

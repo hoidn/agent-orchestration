@@ -2216,25 +2216,16 @@ def _compile_q1_identity_at_target(target_dsl: str):
 def test_q1_prompt_fragment_identity_and_carrier_bytes_are_frozen_for_current_targets(
     tmp_path: Path,
 ) -> None:
-    prompt_220 = _compile_q1_identity_at_target("2.40")
-    prompt_221 = _compile_q1_identity_at_target("2.36")
-    projection_bytes_220 = json.dumps(
-        prompt_220.canonical_identity_projection,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
-    projection_bytes_221 = json.dumps(
-        prompt_221.canonical_identity_projection,
+    prompt = _compile_q1_identity_at_target("2.40")
+    projection_bytes = json.dumps(
+        prompt.canonical_identity_projection,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
     ).encode("utf-8")
 
-    assert projection_bytes_220 == _FROZEN_Q1_IDENTITY_BYTES
-    assert projection_bytes_221 == _FROZEN_Q1_IDENTITY_BYTES
-    assert prompt_220.compiled_prompt_fragment_identity == _FROZEN_Q1_IDENTITY
-    assert prompt_221.compiled_prompt_fragment_identity == _FROZEN_Q1_IDENTITY
+    assert projection_bytes == _FROZEN_Q1_IDENTITY_BYTES
+    assert prompt.compiled_prompt_fragment_identity == _FROZEN_Q1_IDENTITY
 
 
 def test_q2_prompt_fragment_identity_adds_output_role_to_every_declaration_slot_only() -> None:

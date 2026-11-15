@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import UsesCommandEffect
 from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
 from tests.workflow_evaluated_totality_helpers import _public_run
@@ -105,16 +104,8 @@ def _run(root: Path, probes: dict[str, Path], monkeypatch: pytest.MonkeyPatch):
     return result.exit_code, dict(result.workflow_outputs), _log(probes["probe_check"])
 
 
-def _rejection(root: Path, probes: dict[str, Path]) -> tuple[str, Path, int, str]:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(root, probes=probes)
-    diagnostic = excinfo.value.diagnostics[0]
-    return diagnostic.code, Path(diagnostic.span.start.path), diagnostic.span.start.line, diagnostic.message
 
 
-def _wrapper_line(root: Path) -> int:
-    lines = (root / "grt" / "entry.orc").read_text(encoding="utf-8").splitlines()
-    return next(number for number, line in enumerate(lines, start=1) if "(defproc check-wrap" in line)
 
 
 # Current imported-effect semantics.
@@ -141,19 +132,6 @@ def test_wrapper_result_as_match_subject_or_let_binding_returns_the_command_valu
     probes = _wrapper_project(tmp_path, body=body)
 
     assert _run(tmp_path, probes, monkeypatch) == (0, {"text": "ok:alpha"}, ["alpha"])
-
-
-def test_wrapper_declaring_no_effects_is_rejected_naming_the_missing_effect(tmp_path: Path) -> None:
-    probes = _wrapper_project(tmp_path, body="tail", lib=LIB_235, entry=UNDECLARED_ENTRY_235)
-
-    code, path, line, message = _rejection(tmp_path, probes)
-
-    assert (code, path, line, "uses-command(probe_check)" in message) == (
-        "procedure_effect_mismatch",
-        tmp_path / "grt" / "entry.orc",
-        _wrapper_line(tmp_path),
-        True,
-    )
 
 
 def _improve_project(root: Path) -> dict[str, Path]:

@@ -37,7 +37,6 @@ from orchestrator.workflow_lisp.reader import (
     read_sexpr_text,
 )
 from orchestrator.workflow_lisp.effects import render_effect_set, unresolved_effect_calls
-from orchestrator.workflow_lisp.syntax import target_dsl_supports_effect_ceilings
 from orchestrator.workflow_lisp.repl_inspect import (
     COVERAGE, EXCLUSIONS, browse_module, inspect_name, source_name,
 )
@@ -351,7 +350,7 @@ def _dispatch(session: ReplSession, line: str) -> bool:
             typed, _, _ = typecheck_repl_expression(remainder, session.module, session.captured)
             print(f"type: {render_type_ref(typed.type_ref)}")
             pending = unresolved_effect_calls(typed.effect_summary, session.module.typed_program.procedures)
-            if target_dsl_supports_effect_ceilings(session.module.typed_program.target) and pending:
+            if pending:
                 print(f"effects: incomplete ({', '.join(pending)}); known {render_effect_set(typed.effect_summary.transitive_effects)}")
             else:
                 print(f"effects: {render_effect_set(typed.effect_summary.transitive_effects)}")

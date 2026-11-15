@@ -174,56 +174,16 @@ def test_nested_direct_loops_use_the_innermost_zero_based_command_index(tmp_path
     _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
-def test_imported_helper_without_own_loop_resets_loop_index_before_dispatch(tmp_path: Path) -> None:
-    helper = tmp_path / "src" / "r12" / "helper.orc"
-    helper.parent.mkdir(parents=True)
-    helper.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-          (defmodule r12/helper) (export log-index)
-          (defproc log-index ((label String)) -> Int
-            :effects ((uses-command emit)) :lowering inline
-            (command-result emit :argv ("python" "probe.py" label "${loop.index}") :returns Int)))
-''',
-        encoding="utf-8",
-    )
-    source = _write_entry(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule r12/entry) (import r12/helper :as helper :only (log-index))
-      (export run)
-      (defworkflow run () -> Int
-        (loop/recur :max 1 :state (loop-state (outer Int 0)) :on-exhausted 99
-          (fn (outer_state)
-            (let* ((inside (loop/recur :max 1 :state (loop-state (inner Int 0)) :on-exhausted 99
-                             (fn (inner_state)
-                               (let* ((value (helper.log-index "imported"))) (done value))))))
-              (done inside))))))
-''')
-    _write_probe(tmp_path)
-
-    result = _run_entry(tmp_path, source, _write_boundaries(tmp_path))
-
-    _assert_undefined_before_dispatch(tmp_path, result)
 
 
-_EDGE_DEFINITIONS = {
-    "private": '''(defproc isolated () -> Int
-      :effects ((uses-command emit)) :lowering private-workflow
-      (command-result emit :argv ("python" "probe.py" "${loop.index}") :returns Int))''',
-    "native": '''(defworkflow isolated () -> Int
-      (command-result emit :argv ("python" "probe.py" "${loop.index}") :returns Int))''',
-}
-_EDGE_CALLS = {"private": "(isolated)", "native": "(call isolated)"}
+_NATIVE_EDGE = '''(defworkflow isolated () -> Int
+      (command-result emit :argv ("python" "probe.py" "${loop.index}") :returns Int))'''
+_NATIVE_ARGV_EDGE = '''(defworkflow isolated ((label String)) -> Int
+      (command-result emit :argv ("python" "probe.py" "native" "${inputs.label}") :returns Int))'''
 
 
-def _edge_entry(edge: str, definitions: str, call: str, inputs: str = "") -> str:
-    """The private edge at 2.35 (its lowering mode is Task 4b's); the native edge at the current target."""
-    if edge == "private":
-        return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule r12/entry) (export run)
-      {definitions}
-      (defworkflow run ({inputs}) -> Int
-        (loop/recur :max 1 :state (loop-state (i Int 0)) :on-exhausted 99
-          (fn (state) (let* ((result {call})) (done result))))))
-'''
+def _edge_entry(definitions: str, call: str, inputs: str = "") -> str:
+    """An entry that calls the native edge once inside a loop."""
     return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule r12/entry) (export run)
       {definitions}
@@ -231,21 +191,10 @@ def _edge_entry(edge: str, definitions: str, call: str, inputs: str = "") -> str
         (loop/recur ((state (loop-state (i Int 0)))) :max 1 :on-exhausted 99
           (let* ((result {call})) (done result)))))
 '''
-_EDGE_ARGV_DEFINITIONS = {
-    "private": '''(defproc isolated ((label String)) -> Int
-      :effects ((uses-command emit)) :lowering private-workflow
-      (command-result emit :argv ("python" "probe.py" "private" "${inputs.label}") :returns Int))''',
-    "native": '''(defworkflow isolated ((label String)) -> Int
-      (command-result emit :argv ("python" "probe.py" "native" "${inputs.label}") :returns Int))''',
-}
 
 
-@pytest.mark.parametrize("edge", ("private", "native"), ids=("private-procedure", "native-workflow"))
-def test_private_and_native_helpers_receive_their_exact_input_argv(
-    tmp_path: Path, edge: str
-) -> None:
-    invoke = "(isolated label)" if edge == "private" else "(call isolated :label label)"
-    source = _write_entry(tmp_path, _edge_entry(edge, _EDGE_ARGV_DEFINITIONS[edge], invoke, "(label String)"))
+def test_private_and_native_helpers_receive_their_exact_input_argv(tmp_path: Path) -> None:
+    source = _write_entry(tmp_path, _edge_entry(_NATIVE_ARGV_EDGE, "(call isolated :label label)", "(label String)"))
     _write_probe(tmp_path)
     inputs = _write_inputs(tmp_path, {"label": "payload"})
 
@@ -254,15 +203,12 @@ def test_private_and_native_helpers_receive_their_exact_input_argv(
     )
 
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "argv.jsonl").read_bytes() == f'["{edge}", "payload"]\n'.encode()
+    assert (tmp_path / "argv.jsonl").read_bytes() == b'["native", "payload"]\n'
     _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
-@pytest.mark.parametrize("edge", ("private", "native"), ids=("private-procedure", "native-workflow"))
-def test_private_and_native_edges_reset_loop_index_before_dispatch(
-    tmp_path: Path, edge: str
-) -> None:
-    source = _write_entry(tmp_path, _edge_entry(edge, _EDGE_DEFINITIONS[edge], _EDGE_CALLS[edge]))
+def test_private_and_native_edges_reset_loop_index_before_dispatch(tmp_path: Path) -> None:
+    source = _write_entry(tmp_path, _edge_entry(_NATIVE_EDGE, "(call isolated)"))
     _write_probe(tmp_path)
 
     result = _run_entry(tmp_path, source, _write_boundaries(tmp_path))

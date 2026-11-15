@@ -56,7 +56,6 @@ from .procedures import (
     proc_ref_specialization_name,
     procedure_type_env_for,
 )
-from .syntax import target_dsl_supports_effect_ceilings
 from .phase import eligible_private_context_source_param_names
 from .procedure_refs import (
     BoundProcArg,
@@ -76,7 +75,6 @@ from .type_env import (
     substitute_type_params,
     type_refs_compatible,
 )
-from .syntax import target_dsl_supports_local_hook_inference
 from .typecheck_context import raise_error as _raise_error, refuse_effect_place_in
 from .typecheck_proofs import BindingIdentity, _allocate_binding_identity
 
@@ -226,14 +224,13 @@ def typecheck_procedure_definitions(
             ) or shared_union_field_capabilities
         extern_names = frozenset(externs.bindings_by_name)
         lexical_names = frozenset(value_env) - extern_names
-        w3 = target_dsl_supports_local_hook_inference(current_type_env.target_dsl_version)
         for extern_name, binding in externs.bindings_by_name.items():
             extern_type = current_type_env.resolve_type(
                 "Provider" if isinstance(binding, ProviderExtern) else "Prompt",
                 span=procedure_def.span,
                 form_path=procedure_def.form_path,
             )
-            if w3 and procedure_def.generated_local_procedure is not None:
+            if procedure_def.generated_local_procedure is not None:
                 value_env.setdefault(extern_name, extern_type)
             else:
                 value_env[extern_name] = extern_type
@@ -242,8 +239,8 @@ def typecheck_procedure_definitions(
         elif isinstance(procedure_def.body, SyntaxNode):
             body_expr = elaborate_expression(
                 procedure_def.body,
-                bound_names=lexical_names if w3 else frozenset(value_env),
-                extern_names=extern_names if w3 else frozenset(),
+                bound_names=lexical_names,
+                extern_names=extern_names,
                 procedure_names=frozenset(procedure_catalog.signatures_by_name),
                 function_names=(
                     frozenset()
@@ -591,18 +588,14 @@ def typecheck_procedure_call_expr(
                     span=arg_expr.span,
                     form_path=arg_expr.form_path,
                 )
-        pending_call = (
-            effect_summary_from_procedure_call(
-                callee_effects=(),
-                edge=ProcedureCallEdge(
-                    callee_name=expr.callee_name,
-                    span=expr.span,
-                    form_path=expr.form_path,
-                    expansion_stack=expr.expansion_stack,
-                ),
-            )
-            if target_dsl_supports_effect_ceilings(context.type_env.target_dsl_version)
-            else EMPTY_EFFECT_SUMMARY
+        pending_call = effect_summary_from_procedure_call(
+            callee_effects=(),
+            edge=ProcedureCallEdge(
+                callee_name=expr.callee_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
         )
         return typed_factory(
             expr=replace(expr, args=tuple(rewritten_args)),
@@ -1434,9 +1427,8 @@ def _typecheck_let_proc_expr_impl(
         name=generated_name,
         params=tuple(capture_signature_params) + residual_signature_params,
         return_type_ref=return_type_ref,
-        declared_effects=None if target_dsl_supports_effect_ceilings(type_env.target_dsl_version) else frozenset(),
-        requested_lowering_mode=(ProcedureLoweringMode.INLINE if target_dsl_supports_effect_ceilings(
-            type_env.target_dsl_version) else ProcedureLoweringMode.AUTO),
+        declared_effects=None,
+        requested_lowering_mode=ProcedureLoweringMode.INLINE,
         span=expr.binding.span,
         form_path=expr.binding.form_path,
         type_params=(),
@@ -1446,7 +1438,7 @@ def _typecheck_let_proc_expr_impl(
         name=generated_name,
         params=tuple(capture_params) + expr.binding.params,
         return_type_name=expr.binding.return_type_name,
-        declared_effects=None if target_dsl_supports_effect_ceilings(type_env.target_dsl_version) else frozenset(),
+        declared_effects=None,
         requested_lowering_mode=generated_signature.requested_lowering_mode,
         body=expr.binding.local_body,
         span=expr.binding.span,
@@ -1481,8 +1473,7 @@ def _typecheck_let_proc_expr_impl(
         generated_name,
         procedure_catalog=generated_catalog,
         target_dsl_version=type_env.target_dsl_version,
-        proc_ref_env=(session_state.proc_ref_value_env
-            if target_dsl_supports_local_hook_inference(type_env.target_dsl_version) else None),
+        proc_ref_env=session_state.proc_ref_value_env,
         compiler_session=compiler_session,
     ):
         _raise_error(
@@ -1494,14 +1485,13 @@ def _typecheck_let_proc_expr_impl(
         )
 
     local_value_env = {}
-    if target_dsl_supports_local_hook_inference(type_env.target_dsl_version):
-        from .workflows import ProviderExtern
+    from .workflows import ProviderExtern
 
-        for name, binding in getattr(extern_environment, "bindings_by_name", {}).items():
-            local_value_env[name] = type_env.resolve_type(
-                "Provider" if isinstance(binding, ProviderExtern) else "Prompt",
-                span=expr.binding.span, form_path=expr.binding.form_path,
-            )
+    for name, binding in getattr(extern_environment, "bindings_by_name", {}).items():
+        local_value_env[name] = type_env.resolve_type(
+            "Provider" if isinstance(binding, ProviderExtern) else "Prompt",
+            span=expr.binding.span, form_path=expr.binding.form_path,
+        )
     local_value_env.update(dict(capture_signature_params))
     local_value_env.update(dict(residual_signature_params))
     local_binding_env = dict(binding_env)
@@ -1616,13 +1606,7 @@ def _typecheck_let_proc_expr_impl(
         )
     finally:
         session_state.proc_ref_value_env = previous_proc_ref_env
-    retained_outer_body = (
-        typed_outer_body.expr
-        if target_dsl_supports_local_hook_inference(type_env.target_dsl_version)
-        else _retain_capture_metadata(
-            outer_body_expr, typed_outer_body.expr, procedure_catalog=generated_catalog,
-        )
-    )
+    retained_outer_body = typed_outer_body.expr
     session_state.let_proc_rewrite_results[id(original_expr)] = (original_expr, retained_outer_body)
     return replace(typed_outer_body, expr=retained_outer_body)
 
@@ -1780,9 +1764,8 @@ def _prepare_local_hook_call(call, bindings, *, creator, signature, recurse):
             previous = (session.workflow_signature, session.procedure_hidden_context_signature,
                         session.proc_ref_value_env, session.value_expr_env, session.pending_local_hook_preparer)
             local_signature = ProcedureSignature(name=name, params=tuple(local_env.items()),
-                return_type_ref=expected_return or returns[0], declared_effects=(None if target_dsl_supports_effect_ceilings(creator["type_env"].target_dsl_version) else frozenset()),
-                requested_lowering_mode=(ProcedureLoweringMode.INLINE if target_dsl_supports_effect_ceilings(
-                    creator["type_env"].target_dsl_version) else ProcedureLoweringMode.AUTO),
+                return_type_ref=expected_return or returns[0], declared_effects=None,
+                requested_lowering_mode=ProcedureLoweringMode.INLINE,
                 span=binding.span, form_path=binding.form_path, type_params=(), where_clauses=())
             session.workflow_signature = None
             session.procedure_hidden_context_signature = (
@@ -1880,8 +1863,6 @@ def _bind_captured_references(expr, *, type_env, value_env, binding_env, value_e
     Applied from the target where locals lower inline, to a local its `let-proc` body references; an earlier
     target, or a local never referenced, keeps the capture parameter and the identity it has. The copied
     reference must read the bindings the original read; where one would not, the local is left as it is."""
-    if not target_dsl_supports_effect_ceilings(type_env.target_dsl_version):
-        return expr
     if not _collect_proc_ref_use_spans(expr.body, authored_name=expr.binding.local_name):
         return expr
     held, read_names = [], []
@@ -1963,8 +1944,7 @@ def _typecheck_local_hook_group(expr, **creator):
                     params=(bound.residual_params if bound is not None else tuple(
                         (str(index), typ) for index, typ in enumerate(lexical_type.param_type_refs))),
                     return_type_ref=(bound.return_type_ref if bound is not None else lexical_type.return_type_ref),
-                    declared_effects=(None if target_dsl_supports_effect_ceilings(creator["type_env"].target_dsl_version) else frozenset()), requested_lowering_mode=(ProcedureLoweringMode.INLINE if target_dsl_supports_effect_ceilings(
-                        creator["type_env"].target_dsl_version) else ProcedureLoweringMode.AUTO),
+                    declared_effects=None, requested_lowering_mode=ProcedureLoweringMode.INLINE,
                     span=call.span, form_path=call.form_path, type_params=(), where_clauses=())
             prepared = _prepare_local_hook_call(call, pending,
                 creator=dict(creator, creator_proc_refs=creator_proc_refs, creator_values=creator_values),
@@ -1998,73 +1978,6 @@ def _typecheck_local_hook_group(expr, **creator):
     retained = typed.expr
     session.let_proc_rewrite_results[id(original_expr)] = (original_expr, retained)
     return replace(typed, expr=retained)
-
-
-def _retain_capture_metadata(source, typed, *, procedure_catalog):
-    """Keep the historical source tree, carrying only lexical capture facts."""
-    metadata_fields = {
-        "capture_origin", "binding_identity", "binding_identities",
-        "binding_capture_sources", "source_binding_identity",
-    }
-
-    def retain(original, checked):
-        if isinstance(original, TypeRef):
-            return original
-        if isinstance(original, tuple):
-            if not isinstance(checked, tuple) or len(original) != len(checked):
-                raise ValueError("capture metadata correspondence changed tuple topology")
-            return tuple(retain(a, b) for a, b in zip(original, checked, strict=True))
-        if not is_dataclass(original) or type(original).__module__ != NameExpr.__module__:
-            return original
-        if type(original) is not type(checked):
-            raise ValueError("capture metadata correspondence changed expression kind")
-        updates = {}
-        if isinstance(original, NameExpr) and original.name != checked.name:
-            raise ValueError("capture metadata correspondence changed value name")
-        for field in fields(original):
-            name = field.name
-            if name in metadata_fields:
-                updates[name] = getattr(checked, name)
-                continue
-            if isinstance(original, ProcedureCallExpr) and name == "args":
-                checked_args = checked.args
-                if len(original.args) != len(checked_args):
-                    signature = procedure_catalog.signatures_by_name.get(original.callee_name)
-                    if signature is None or len(signature.params) != len(original.args):
-                        raise ValueError("capture metadata lacks authored procedure parameter slots")
-                    retained = dict(checked.retained_reference_actuals)
-                    prior_retained = dict(original.retained_reference_actuals)
-                    new_retained = {k: v for k, v in retained.items() if k not in prior_retained}
-                    parameter_names = {name for name, _ in signature.params}
-                    if not set(new_retained).issubset(parameter_names):
-                        raise ValueError("capture metadata retained reference has no authored slot")
-                    residual = iter(checked_args)
-                    aligned = []
-                    for parameter_name, _ in signature.params:
-                        if parameter_name in new_retained:
-                            aligned.append(new_retained[parameter_name])
-                        else:
-                            try:
-                                aligned.append(next(residual))
-                            except StopIteration as error:
-                                raise ValueError("capture metadata is missing a residual argument") from error
-                    if next(residual, None) is not None:
-                        raise ValueError("capture metadata has an unmatched residual argument")
-                    checked_args = tuple(aligned)
-                updates[name] = retain(original.args, checked_args)
-                continue
-            if name == "retained_reference_actuals":
-                continue
-            original_value = getattr(original, name)
-            checked_value = getattr(checked, name)
-            if isinstance(original_value, tuple) or (
-                is_dataclass(original_value)
-                and type(original_value).__module__ == NameExpr.__module__
-            ):
-                updates[name] = retain(original_value, checked_value)
-        return replace(original, **updates)
-
-    return retain(source, typed)
 
 
 def _rewrite_local_proc_references(
@@ -2236,7 +2149,7 @@ def _expr_returns_local_proc_value(
                 visited_calls=visited_calls,
                 compiler_session=compiler_session,
             )
-            if target_dsl_supports_local_hook_inference(target_dsl_version) and procedure_catalog is not None:
+            if procedure_catalog is not None:
                 resolved = resolve_proc_ref_value(binding_expr,
                     procedure_catalog=procedure_catalog, proc_ref_env=local_proc_ref_env)
                 if resolved is None:
@@ -2385,7 +2298,7 @@ def _procedure_call_returns_local_proc_value(
     callee_value = proc_ref_env.get(expr.callee_name)
     if callee_value is not None:
         definition = procedure_catalog.definitions_by_name.get(callee_value.procedure_name)
-        if definition is None and target_dsl_supports_local_hook_inference(target_dsl_version):
+        if definition is None:
             return False
         signature_params = callee_value.signature_params
         bound_args = callee_value.bound_args

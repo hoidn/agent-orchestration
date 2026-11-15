@@ -230,10 +230,8 @@ def test_relocation_changes_only_physical_carrier(tmp_path):
         assert io.call(foo.owner, inner["frame"], foo).reader.workflow_path == _reader_path(selected["left"])
 
 
-@pytest.mark.parametrize("mode", ("inline", "private-workflow"))
-def test_original_procedure_snapshot_preserves_reader_decision(tmp_path, mode):
-    # The private-workflow case is the old lowering (Task 4b); the inline case is the current procedure.
-    target, lowering = ("2.35", " :lowering private-workflow") if mode == "private-workflow" else ("2.40", "")
+def test_original_procedure_snapshot_preserves_reader_decision(tmp_path):
+    target, lowering = "2.40", ""
     sources = {
         "lib/helper.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
@@ -252,36 +250,7 @@ def test_original_procedure_snapshot_preserves_reader_decision(tmp_path, mode):
     parent = io.call(checked.tree["entry"], outer["frame"], io.entry)
     inner, = _calls(checked.tree["definitions"][outer["callee"]]["body"])
     helper = io.call(outer["callee"], inner["frame"], parent)
-    expected = parent.reader.workflow_path if mode == "inline" else _reader_path(
-        imports["left"], "lib/helper")
-    assert helper.reader.workflow_path == expected
-
-
-def test_private_procedure_reference_uses_selected_typed_program_source(tmp_path):
-    sources = {
-        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-          (defmodule lib/helper) (export R ask) (defrecord R (n Int))
-          (defproc ask () -> R :effects ((uses-provider provider)) :lowering private-workflow
-            (provider-result provider :prompt prompt :inputs () :returns R)))''',
-        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-          (defmodule app/parent) (import lib/helper :as helper) (export run)
-          (defproc invoke ((hook ProcRef[ -> helper.R])) -> helper.R
-            :effects () :lowering inline (hook))
-          (defworkflow run () -> helper.R (invoke (proc-ref helper.ask))))''',
-        "lib/prompt.md": "PRIVATE HELPER\n"}
-    _, imports = _stages(tmp_path, sources, "app/parent.orc", "app/parent::run")
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule main) (export run) (defrecord R (n Int))
-      (defworkflow run () -> R (call parent)))'''
-    checked, io = _checked(_typed(tmp_path, source, {"parent": imports["left"]}))
-    activation = io.entry
-    for _ in range(3):
-        body = checked.tree["body"] if activation.owner == checked.tree["entry"] else checked.tree["definitions"][activation.owner]["body"]
-        call, = _calls(body)
-        activation = io.call(activation.owner, call["frame"], activation)
-    assert activation.reader.workflow_path.name == "helper.orc"
-    assert activation.reader.workflow_path == _reader_path(imports["left"], "lib/helper")
-    assert activation.reader.workflow_path != _reader_path(imports["left"])
+    assert helper.reader.workflow_path == parent.reader.workflow_path
 
 
 def test_build_result_delivers_carrier_bound_to_returned_readback(tmp_path):
@@ -333,32 +302,6 @@ def test_direct_typed_import_retains_selected_source_reader(tmp_path):
     checked, io = _checked(typed)
     call, = _calls(checked.tree["body"])
     assert io.call(checked.tree["entry"], call["frame"], io.entry).reader.workflow_path == path
-
-
-def test_iteration_override_uses_actual_private_reader(tmp_path):
-    sources = {
-        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-          (defmodule lib/helper) (export R ask) (defrecord R (n Int))
-          (defproc ask ((input R)) -> R :effects ((uses-provider provider)) :lowering inline
-            (provider-result provider :prompt prompt :inputs (input.n) :returns R)))''',
-        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-          (defmodule app/parent) (import lib/helper :as helper) (export run)
-          (defworkflow run ((input helper.R)) -> helper.R
-            (loop/recur :max 1 :state input
-              (fn (state) (let* ((asked (helper.ask state))) (done asked))))))''',
-        "lib/prompt.md": "PRIVATE HELPER\n"}
-    _, imports = _stages(tmp_path, sources, "app/parent.orc", "app/parent::run")
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule main) (export run) (defrecord R (n Int))
-      (defworkflow run ((input R)) -> R (call parent :input input)))'''
-    checked, io = _checked(_typed(tmp_path, source, {"parent": imports["left"]}))
-    outer, = _calls(checked.tree["body"])
-    parent = io.call(checked.tree["entry"], outer["frame"], io.entry)
-    inner, = _calls(checked.tree["definitions"][parent.owner]["body"])
-    helper = io.call(parent.owner, inner["frame"], parent)
-    expected = _reader_path(imports["left"], "lib/helper")
-    assert helper.reader.workflow_path == expected
-    assert helper.reader.workflow_path != parent.reader.workflow_path
 
 
 def _bound_typed(tmp_path):
@@ -460,32 +403,3 @@ def test_transitive_workflow_uses_current_typed_import(tmp_path):
         selected = io.call(parent.owner, child["frame"], parent)
         assert selected.reader.workflow_path == _reader_path(imports[side], "lib/helper")
     assert imports["left"].entry is imports["right"].entry is snapshot.entry
-
-
-@pytest.mark.parametrize("alias", (False, True))
-def test_parametric_forwarding_keeps_reference_created_in_parent_reader(tmp_path, alias):
-    body = "(let* ((alias hook)) (apply alias))" if alias else "(apply hook)"
-    helper = _write(tmp_path / "consumer" / "lib/helper.orc", f'''
-      (workflow-lisp (:language "0.1") (:target-dsl "2.35")
-        (defmodule lib/helper) (export outer apply)
-        (defproc apply :forall (T) ((hook ProcRef[() -> T])) -> T
-          :effects () :lowering inline (hook))
-        (defproc outer :forall (U) ((hook ProcRef[() -> U])) -> U
-          :effects () :lowering inline {body}))''')
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule main) (import lib/helper :as helper) (export run)
-      (defproc ask () -> Bool :effects ((uses-provider provider)) :lowering inline
-        (provider-result provider :prompt prompt :inputs () :returns Bool))
-      (defworkflow run () -> Bool
-        (loop/recur :max 1 :state false
-          (fn (state) (let* ((result (helper.outer (proc-ref ask)))) (done result))))))'''
-    typed = _typed(tmp_path, source, {})
-    helper.unlink()
-    checked, io = _checked(typed)
-    outer, = _calls(checked.tree["body"])
-    consumer = io.call(checked.tree["entry"], outer["frame"], io.entry)
-    assert consumer.reader.workflow_path == helper
-    assert consumer.references[("hook",)].workflow_path == io.entry.reader.workflow_path
-    forwarded, = _calls(checked.tree["definitions"][consumer.owner]["body"])
-    target = io.call(consumer.owner, forwarded["frame"], consumer)
-    assert target.references[("hook",)].workflow_path == io.entry.reader.workflow_path

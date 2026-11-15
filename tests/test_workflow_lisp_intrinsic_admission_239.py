@@ -8,11 +8,7 @@ from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow.evaluated.machine import evaluate_closed_program
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.expressions import (
-    GeneratedRelpathSeedExpr,
-    WithPhaseExpr,
-    elaborate_expression,
-)
+from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.syntax import (
     ExpansionFrame,
@@ -118,30 +114,7 @@ def test_target_239_refuses_direct_private_expansion_heads(expression: str) -> N
     assert diagnostic.span.start.path == "expression_test.orc"
 
 
-@pytest.mark.parametrize(
-    ("expression", "expected_type"),
-    (
-        ('(with-phase ctx implementation "body")', WithPhaseExpr),
-        (
-            '(__with-phase__ ctx implementation "body")',
-            WithPhaseExpr,
-        ),
-        (
-            '(__generated-relpath-seed__ MissingType "artifacts/out.md" "seed")',
-            GeneratedRelpathSeedExpr,
-        ),
-    ),
-)
-@pytest.mark.parametrize("target", ("2.38",))
-def test_targets_235_through_238_keep_existing_intrinsic_routes(
-    expression: str,
-    expected_type: type,
-    target: str,
-) -> None:
-    assert isinstance(_elaborate(expression, target), expected_type)
-
-
-@pytest.mark.parametrize("target", ("2.39", "2.40"))
+@pytest.mark.parametrize("target", ("2.40",))
 def test_completion_hides_private_and_fallback_heads_only_for_target_239(
     tmp_path: Path,
     target: str,
@@ -179,7 +152,7 @@ def test_target_239_refuses_bare_compatibility_heads() -> None:
         _elaborate('(with-phase ctx implementation "body")', "2.40")
 
     diagnostic = caught.value.diagnostics[0]
-    assert diagnostic.code == "stdlib_import_route_required"
+    assert diagnostic.code == "procedure_call_unknown"
     assert diagnostic.span.start.path == "expression_test.orc"
 
 

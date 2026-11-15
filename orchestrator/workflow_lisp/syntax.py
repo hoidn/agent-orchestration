@@ -17,7 +17,7 @@ import math
 import sys
 
 
-from orchestrator.contracts.closed_program.targets import AGENT_SESSIONS_MIN_TARGET_DSL_VERSION, EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION, PARALLEL_MAP_MIN_TARGET_DSL_VERSION, SUPPORTED_TARGET_DSL_VERSIONS, retired_target_migration, target_dsl_is_retired_label, target_dsl_supports_agent_sessions, target_dsl_supports_effect_ceilings, target_dsl_supports_parallel_map, target_dsl_uses_evaluated_execution
+from orchestrator.contracts.closed_program.targets import AGENT_SESSIONS_MIN_TARGET_DSL_VERSION, EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION, PARALLEL_MAP_MIN_TARGET_DSL_VERSION, SUPPORTED_TARGET_DSL_VERSIONS, retired_target_migration, target_dsl_is_retired_label, target_dsl_supports_agent_sessions, target_dsl_supports_parallel_map, target_dsl_uses_evaluated_execution
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .reader import exponent_float_literal
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
@@ -753,7 +753,3 @@ def unsupported_target_message(target: object) -> str:
 
     message = f"unsupported target DSL `{target}`"
     return f"{message}: {retired_target_migration(target)}" if target_dsl_is_retired_label(target) else message
-
-
-def target_dsl_supports_local_hook_inference(target_dsl_version: str) -> bool:
-    return target_dsl_version in SUPPORTED_TARGET_DSL_VERSIONS and tuple(map(int, target_dsl_version.split("."))) >= (2, 36)

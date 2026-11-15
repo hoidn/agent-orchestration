@@ -29,8 +29,6 @@ def _compile(path: Path, *, workspace: Path):
     )
 
 
-
-
 @pytest.mark.parametrize(
     "fixture_name",
     (
@@ -50,12 +48,6 @@ def test_current_pure_composition_normalizes_calls(tmp_path: Path, fixture_name:
         for workflow in compiled.typed_workflows
         for node in walk_expr(workflow.typed_body.expr)
     )
-
-
-
-
-
-
 
 
 def test_current_imported_nested_call_normalizes(
@@ -106,26 +98,6 @@ def test_current_imported_nested_call_normalizes(
     )
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_current_target_retains_selected_pure_callee_provenance(tmp_path: Path) -> None:
     compiled = _compile(
         CURRENT / "early_defun_rejection.orc",
@@ -141,8 +113,6 @@ def test_current_target_retains_selected_pure_callee_provenance(tmp_path: Path) 
     ]
 
     assert any(frame.procedure_name == 'early_defun_rejection::increment' for frame in frames)
-
-
 
 
 def test_current_target_materializes_uncalled_function_procedure_specializations(
@@ -194,11 +164,6 @@ def test_current_target_expands_selected_pure_hook_in_its_specialized_environmen
     state = StateManager(workspace=tmp_path, run_id="selected-pure-hook")
 
 
-
-
-
-
-
 def test_current_target_expands_selected_bind_proc_hook_with_runtime_residual(
     tmp_path: Path,
 ) -> None:
@@ -246,9 +211,6 @@ def test_current_target_expands_selected_bind_proc_hook_with_runtime_residual(
     # on the projection origins that do materialize its bound leading value.
 
     state = StateManager(workspace=tmp_path, run_id="selected-bound-pure-hook")
-
-
-
 
 
 def test_current_target_rechecks_uncalled_effectful_functions(tmp_path: Path) -> None:
@@ -333,34 +295,6 @@ def test_current_target_rechecks_uncalled_effectful_functions_in_linked_modules(
     assert excinfo.value.diagnostics[0].code == "pure_function_has_effect"
 
 
-def test_current_target_rechecks_uncalled_private_functions(tmp_path: Path) -> None:
-    source = tmp_path / "uncalled_private.orc"
-    source.write_text(
-        "\n".join(
-            (
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
-                "  (defrecord Box (value Int))",
-                "  (defproc private ((value Int)) -> Box",
-                "    :effects () :lowering private-workflow (record Box :value value))",
-                "  (defun uncalled ((value Int)) -> Box (private value))",
-                "  (defworkflow orchestrate ((value Int)) -> Int value))",
-            )
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(source, workspace=tmp_path)
-
-    assert excinfo.value.diagnostics[0].code == "pure_call_representation_unsupported"
-
-
-
-
-
-
 def test_current_target_reports_unrepresentable_selected_body_without_clone_crash(
     tmp_path: Path,
 ) -> None:
@@ -423,29 +357,3 @@ def test_current_target_rejects_effectful_selected_hook_in_pure_function(
         )
 
     assert excinfo.value.diagnostics[0].code == "pure_function_has_effect"
-
-
-def test_current_target_rejects_private_procedure_in_pure_function(
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "private_pure_call.orc"
-    source.write_text(
-        "\n".join(
-            (
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
-                "  (defrecord Box (value Int))",
-                "  (defproc private ((value Int)) -> Box",
-                "    :effects () :lowering private-workflow (record Box :value value))",
-                "  (defun wrapped ((value Int)) -> Box (private value))",
-                "  (defworkflow orchestrate ((value Int)) -> Box (wrapped value)))",
-            )
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(source, workspace=tmp_path)
-
-    assert excinfo.value.diagnostics[0].code == "pure_call_representation_unsupported"

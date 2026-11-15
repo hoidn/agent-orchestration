@@ -7,8 +7,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.cli.commands import repl as repl_cli
-from orchestrator.workflow.run_ref import config as run_ref_config
-from orchestrator.workflow_lisp import build, syntax
+from orchestrator.workflow_lisp import build
 from orchestrator.workflow_lisp.closed.build import Builder
 from orchestrator.workflow_lisp.closed.target import refuse_retired_entry_target
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
@@ -19,19 +18,7 @@ from orchestrator.workflow_lisp.syntax import build_syntax_module
 
 
 OLD_TARGETS = ("2.14", "2.34")
-ADMITTED_TARGETS = ("2.35", "2.38", "2.39", "2.40")
-
-
-@pytest.mark.parametrize(
-    "registry",
-    [
-        pytest.param(syntax.SUPPORTED_TARGET_DSL_VERSIONS, id="frontend"),
-        pytest.param(run_ref_config._SUPPORTED_TARGET_DSL_VERSIONS, id="run-ref-config"),
-    ],
-)
-def test_supported_target_registry_is_narrowed_to_235_through_240(registry) -> None:
-    assert registry == frozenset({"2.35", "2.36", "2.37", "2.38", "2.39", "2.40"})
-    assert run_ref_config._DEFAULT_TARGET_DSL_VERSION in registry
+ADMITTED_TARGETS = ("2.40",)
 
 
 def _source(

@@ -196,11 +196,6 @@ NESTED_HELPER = HELPER.replace("(export bump fetch Box)", "(export bump fetch Bo
   (defun bump''')
 
 
-OLDER_NESTED_HELPER = NESTED_HELPER.replace('(:target-dsl "TARGET")', '(:target-dsl "2.35")').replace(
-    "(defproc fetch ((n Int)) -> Box", "(defproc fetch ((n Int)) -> Box :effects ((uses-command fetch)) :lowering inline").replace(
-    "(defproc nested ((n Int)) -> Int", "(defproc nested ((n Int)) -> Int :effects ((runs-ref run)) :lowering inline").replace(
-    "(defproc peek ((n Int)) -> Int", "(defproc peek ((n Int)) -> Int :effects ((uses-provider providers.review)) :lowering inline")
-
 
 TRIAL_RUBRIC = PromptExtern(name="trial-rubric", asset_file="rubrics/trial.md")
 
@@ -217,9 +212,9 @@ def _confined(root: Path, *edits: tuple[str, str], extra: str = "", helper: str 
         prompt_externs={"prompts.base": PROMPTS["prompt"], "trial-rubric": TRIAL_RUBRIC}, workspace_root=root)
 
 
-def _refusal(root: Path, *edits: tuple[str, str], extra: str = "", helper: str | None = None) -> str:
+def _refusal(root: Path, *edits: tuple[str, str], extra: str = "") -> str:
     with pytest.raises(LispFrontendCompileError) as refused:
-        _confined(root, *edits, extra=extra, helper=helper)
+        _confined(root, *edits, extra=extra)
     return refused.value.diagnostics[0].code
 
 
@@ -291,8 +286,6 @@ def test_workflow_program_child_without_provider_admits_network_none(tmp_path):
 
 
 SHAPE_REFUSALS = {
-    "older-target": (('(:target-dsl "2.40")', '(:target-dsl "2.37")'),
-                     "run_ref_child_target_unavailable"),
     "mixed-program": (("(:workflow candidate-body)", '(:workflow candidate-body :path "c.orc" :entry run)'),
                       "run_ref_program_mode_invalid"),
     "string-name": (("(:workflow candidate-body)", '(:workflow "candidate-body")'), "run_ref_literal_required"),
@@ -326,7 +319,7 @@ SHAPE_REFUSALS = {
 def test_workflow_program_refuses_invalid_site(tmp_path, case):
     edit, code = SHAPE_REFUSALS[case]
 
-    assert _refusal(tmp_path, edit, helper=OLDER_NESTED_HELPER if case == "older-target" else None) == code
+    assert _refusal(tmp_path, edit) == code
 
 
 def test_workflow_program_headroom_boundary_is_admitted(tmp_path):

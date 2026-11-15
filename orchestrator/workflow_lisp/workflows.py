@@ -45,7 +45,7 @@ from .procedure_refs import ProcRefResolutionContext
 from .procedures import ProcedureCatalog
 from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
-from .syntax import ExpansionStack, SyntaxIdentifier, SyntaxFloat, SyntaxInt, SyntaxKeyword, SyntaxList, SyntaxNode, SyntaxString, SyntaxBool, WorkflowLispSyntaxModule, syntax_head, syntax_head_name, syntax_identifier, syntax_node_datum, syntax_resolved_name, target_dsl_uses_evaluated_execution, target_dsl_supports_local_hook_inference
+from .syntax import ExpansionStack, SyntaxIdentifier, SyntaxFloat, SyntaxInt, SyntaxKeyword, SyntaxList, SyntaxNode, SyntaxString, SyntaxBool, WorkflowLispSyntaxModule, syntax_head, syntax_head_name, syntax_identifier, syntax_node_datum, syntax_resolved_name, target_dsl_uses_evaluated_execution
 from .type_env import (
     FrontendTypeEnvironment,
     ListTypeRef,
@@ -2579,7 +2579,6 @@ def typecheck_workflow_definitions(
         }
         extern_names = frozenset(externs.bindings_by_name)
         lexical_names = frozenset(value_env) - extern_names
-        w3 = target_dsl_supports_local_hook_inference(type_env.target_dsl_version)
         for extern_name, binding in externs.bindings_by_name.items():
             if isinstance(binding, ProviderExtern):
                 value_env[extern_name] = PrimitiveTypeRef(name="Provider")
@@ -2589,8 +2588,8 @@ def typecheck_workflow_definitions(
         if isinstance(workflow_def.body, SyntaxNode):
             body_expr = elaborate_expression(
                 workflow_def.body,
-                bound_names=lexical_names if w3 else frozenset(value_env),
-                extern_names=extern_names if w3 else frozenset(),
+                bound_names=lexical_names,
+                extern_names=extern_names,
                 procedure_names=procedure_names,
                 function_names=function_names,
                 function_name_resolver=function_name_resolver,

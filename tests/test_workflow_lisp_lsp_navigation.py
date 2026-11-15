@@ -56,7 +56,6 @@ CALLABLE_HELPER = CALLABLE_ROOT / "neurips" / "helper.orc"
 CALLABLE_PROCEDURES = CALLABLE_ROOT / "neurips" / "procedures.orc"
 CALLABLE_TYPES = CALLABLE_ROOT / "neurips" / "types.orc"
 # The same modules at 2.35, for the completion rows that depend on the target (Task 4b).
-CALLABLE_235_ROOT = FIXTURES / "modules" / "valid" / "callables_235"
 L1_SYMBOLS_ROOT = (
     FIXTURES / "modules" / "valid" / "lsp_l1_symbols"
 )
@@ -239,11 +238,6 @@ def _completions(index: object, source_path: Path) -> tuple[object, ...]:
 @pytest.fixture(scope="module")
 def callable_result() -> LinkedStage3CompileResult:
     return _compile_callables(CALLABLE_ROOT)
-
-
-@pytest.fixture(scope="module")
-def callable_235_result() -> LinkedStage3CompileResult:
-    return _compile_callables(CALLABLE_235_ROOT)
 
 
 def _compile_callables(root: Path) -> LinkedStage3CompileResult:
@@ -2306,10 +2300,9 @@ def test_document_symbol_index_uses_projection_without_reading_or_parsing(
 
 
 def test_completion_preserves_exact_import_scope_spellings_and_namespaces(
-    callable_235_result: LinkedStage3CompileResult,
+    callable_result: LinkedStage3CompileResult,
 ) -> None:
-    # Below 2.39 completion lists every registered form head; 2.39 on hides the private and
-    # fallback heads (Task 4b).
+    # Completion hides the private (`__`) form heads.
     registry = import_module("orchestrator.workflow_lisp.form_registry")
     registered_form_heads = getattr(registry, "registered_form_heads", None)
     assert callable(registered_form_heads), "registered_form_heads is missing"
@@ -2357,8 +2350,8 @@ def test_completion_preserves_exact_import_scope_spellings_and_namespaces(
     }
 
     completions = _completions(
-        _build_index(callable_235_result),
-        (CALLABLE_235_ROOT / "neurips" / "entry.orc").resolve(),
+        _build_index(callable_result),
+        CALLABLE_ENTRY.resolve(),
     )
     kind_rank = {"procedure": 0, "workflow": 1, "form": 2}
     expected_order = tuple(
@@ -2371,6 +2364,7 @@ def test_completion_preserves_exact_import_scope_spellings_and_namespaces(
                 *(
                     (head, "form", head)
                     for head in registered_form_heads()
+                    if not head.startswith("__")
                 ),
             ),
             key=lambda row: (row[0], kind_rank[row[1]], row[2]),
@@ -2392,7 +2386,7 @@ def test_completion_preserves_exact_import_scope_spellings_and_namespaces(
         item.label
         for item in completions
         if item.kind == "form"
-    } == set(registered_form_heads())
+    } == {head for head in registered_form_heads() if not head.startswith("__")}
     assert "neurips/procedures::build-checks" not in callable_rows
     assert "procedures.build-checks" not in callable_rows
 

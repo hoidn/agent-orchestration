@@ -368,37 +368,15 @@ def test_provider_relations_visit_actual_fills_before_policy_operands(tmp_path):
     assert _effect_children(provider) == expected
 
 
-def _assert_native_literal_arguments(closed, type_name, keys):
-    from orchestrator.contracts.closed_program.sites import _ast_nodes
-
-    assert len(keys) == 1
-    assert keys[0][6] == []
-    assert keys[0][8]["params"] == [{"kind": "primitive", "name": type_name}]
-    calls = [node for node in _ast_nodes(closed.tree["body"]) if node["k"] == "call"]
-    expected = {"Bool": [True, False], "String": ["first", "second"]}
-    assert [call["args"][0]["v"] for call in calls] == expected[type_name]
-    (command,) = _commands(closed.tree)
-    assert command["argv_transport"] == [{"kind": "value"}]
-    (helper,) = closed.tree["definitions"].values()
-    assert command["argv"][0]["n"] == helper["params"][0][0]
-
-
 @pytest.mark.parametrize("type_name,arguments", [("Bool", ("true", "false")),
     ("String", ('"first"', '"second"'))])
-@pytest.mark.parametrize("mode", ["inline", "private-workflow"])
-def test_inline_literal_actuals_use_existing_tagged_value_key_rows(tmp_path, type_name, arguments, mode):
-    declaration = '(defproc helper ((argument ' + type_name + ')) -> Int '
-    if mode == "private-workflow":
-        declaration += ':effects ((uses-command echo)) :lowering private-workflow '
-    declaration += _command('argument') + ')'
+def test_inline_literal_actuals_use_existing_tagged_value_key_rows(tmp_path, type_name, arguments):
+    declaration = '(defproc helper ((argument ' + type_name + ')) -> Int ' + _command('argument') + ')'
     program = _compile(tmp_path,
         '(let* ((first (helper ' + arguments[0] + '))) (helper ' + arguments[1] + '))',
-        declarations=declaration, target="2.35" if mode == "private-workflow" else "TARGET")
+        declarations=declaration, target="TARGET")
     closed = build_closed_program(program)
     keys = [row["key"] for row in closed.tree["definitions"].values() if row["key"][2] == "helper"]
-    if mode == "private-workflow":
-        _assert_native_literal_arguments(closed, type_name, keys)
-        return
     assert len(keys) == 2
     assert all(any(row[0] == "argument" for row in key[6]) for key in keys)
     assert keys[0][:6] == keys[1][:6]

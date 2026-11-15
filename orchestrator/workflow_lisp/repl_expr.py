@@ -184,13 +184,12 @@ def typecheck_repl_expression(
     lexical_names = frozenset(values) - frozenset(externs)
     for name, binding in externs.items():
         values[name] = PrimitiveTypeRef("Provider" if isinstance(binding, ProviderExtern) else "Prompt")
-    w3 = syntax.target_dsl_supports_local_hook_inference(module.typed_program.target)
     session = CompilerSession()
     try:
         expr = expressions.elaborate_expression(
             node,
-            bound_names=lexical_names if w3 else frozenset(values),
-            extern_names=frozenset(externs) if w3 else frozenset(),
+            bound_names=lexical_names,
+            extern_names=frozenset(externs),
             procedure_names=frozenset(stage3.procedure_catalog.signatures_by_name),
             function_names=frozenset(context.function_catalog.signatures_by_name) if context else frozenset(),
             function_name_resolver=context.function_name_resolver if context else None,
@@ -238,10 +237,8 @@ def evaluate_repl_expression(
 ) -> tuple[EvaluatedValue, TypedExpr]:
     typed, captured_types, values = typecheck_repl_expression(line, module, captured)
     from .effects import unresolved_effect_calls
-    if typed.effect_summary.transitive_effects or (
-        syntax.target_dsl_supports_effect_ceilings(module.typed_program.target)
-        and unresolved_effect_calls(typed.effect_summary, module.typed_program.procedures)
-    ):
+    if typed.effect_summary.transitive_effects or unresolved_effect_calls(
+            typed.effect_summary, module.typed_program.procedures):
         raise ReplRefusal("repl_effect_refused", "REPL expressions must be pure")
     entry, builder = module.typed_program.entry, module.builder
     owner = module.build.program.tree["entry"]

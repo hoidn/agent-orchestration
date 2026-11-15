@@ -194,56 +194,6 @@ def test_captured_let_proc_calls_imported_workflow_after_readback(
     )
 
 
-def test_same_module_generic_specializations_execute_with_distinct_types(
-    tmp_path: Path,
-) -> None:
-    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
-
-    source_path = install(
-        tmp_path,
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-          (defmodule local_generic) (export run)
-          (defrecord Payload (count Int) (flag Bool))
-          (defrecord Result (number Int) (payload Payload))
-          (defproc identity :forall (T) ((value T)) -> T
-            :effects () :lowering private-workflow value)
-          (defworkflow run ((number Int) (payload Payload)) -> Result
-            (let* ((kept-number (identity number))
-                   (kept-payload (identity payload)))
-              (record Result :number kept-number :payload kept-payload))))''',
-    )
-    typed = compile_typed_program(
-        source_path,
-        entry_workflow="local_generic::run",
-        source_roots=(tmp_path,),
-        command_boundaries={},
-        workspace_root=tmp_path,
-    )
-    source_path.unlink()
-    program = ClosedProgram.from_artifact(build_closed_program(typed).artifact())
-    identities = [
-        definition
-        for definition in program.tree["definitions"].values()
-        if definition["key"][:3] == ["local_generic", "procedure", "identity"]
-    ]
-
-    assert len(identities) == 2
-    assert {
-        definition["key"][8]["params"][0]["name"]
-        for definition in identities
-    } == {"Int", "local_generic::Payload"}
-    result = evaluate_closed_program(
-        program,
-        {"number": 6, "payload": {"count": 4, "flag": True}},
-    )
-
-    assert result.json_value() == {
-        "number": 6,
-        "payload": {"count": 4, "flag": True},
-    }
-
-
-
 def test_imported_context_captures_execute_after_artifact_readback(tmp_path: Path) -> None:
     from orchestrator.workflow.evaluated.machine import evaluate_closed_program
 

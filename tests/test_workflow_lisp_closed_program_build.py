@@ -1356,45 +1356,6 @@ def _opaque_command_program(tmp_path, argument='"${inputs.root}:${loop.index}"',
     return _compile(tmp_path, body, declarations=declarations, params='(root Int)', target=target)
 
 
-def _assert_block_body_continuity(program, body, builder):
-    from dataclasses import replace
-    from orchestrator.workflow_lisp.build_manifest_io import _json_data
-    from orchestrator.workflow_lisp.wcc.hygiene import _free_names, _renamed
-    from orchestrator.workflow_lisp.wcc.model import WccNameAtom, WccBlock
-    from tests.test_workflow_lisp_closed_command_transport import (
-        _walk_wcc,
-    )
-
-    (block,) = [node for node in _walk_wcc(body) if isinstance(node, WccBlock)]
-    assert normalize_wcc_body_to_anf(body) == body
-    _assert_opaque_planning_continuity(program, builder)
-    state = next(node for node in _walk_wcc(block.body) if isinstance(node, WccNameAtom) and node.name == 'state')
-    renamed = _renamed(block, {'state': replace(state, name='retained-state')})
-    assert 'retained-state' in _free_names(renamed) and 'state' not in _free_names(renamed)
-    assert 'expr' not in _json_data(block)
-
-
-def test_opaque_normalized_child_inherits_loop_inputs_and_survives_anf_hygiene(tmp_path):
-    from orchestrator.workflow_lisp.closed.command_templates import _wcc_call_nodes
-    from tests.test_workflow_lisp_closed_command_requests import _prepared_entry
-    from tests.test_workflow_lisp_closed_command_transport import _commands
-
-    program = _opaque_command_program(tmp_path, local_command=True, target="2.35")
-    body, children, builder = _prepared_entry(program)
-    (child,) = children.values()
-    assert builder.definitions == {} and builder.run_ref_producers == []
-    assert len(list(_wcc_call_nodes(body))) == len(children) == 1
-    _assert_block_body_continuity(program, body, builder)
-    assert child.command_interface['decisions']
-    closed = build_closed_program(program)
-    restored = ClosedProgram.from_artifact(closed.artifact())
-    assert (restored.tree, restored.sites, restored.digest) == (closed.tree, closed.sites, closed.digest)
-    commands = _commands(closed.tree)
-    assert len(commands) == 2
-    slots = [[part['name'] for part in command['argv_transport'][0]['parts'] if part['kind'] == 'slot'] for command in commands]
-    assert slots == [[['input', 'root', 'root'], ['loop-index']], []]
-
-
 def test_opaque_child_decisions_and_body_integrity_are_prepared_before_parent_key(tmp_path, monkeypatch):
     from tests.test_workflow_lisp_closed_command_requests import _prepared_entry
     from tests.test_workflow_lisp_closed_preparation_integrity import (
@@ -1729,7 +1690,6 @@ def _assert_partial_operands(closed):
     assert {call['args'][0]['n'] for call in calls} == {'saved', 'other'}
 
 
-
 def _assert_partial_command(definition, label):
     (command,) = [node for node in _ast_nodes(definition['body'])
         if node.get('k') == 'perform' and node.get('class') == 'command']
@@ -1775,7 +1735,6 @@ def _assert_partial_constructors(bindings, input_wire):
     shadow_index = next(i for i, (_, value) in enumerate(bindings)
         if value.get('k') == 'lit' and value.get('v') == 9)
     assert max(constructor_indices) < shadow_index
-
 
 
 def test_constructor_memo_distinguishes_creation_runtime_from_shadow_literal_and_reuses_aliases(tmp_path, monkeypatch):
@@ -1916,19 +1875,6 @@ def _assert_distinct_capture_binding_roots(closed, call):
     assert roots[0]['k'] == roots[1]['k'] == 'name'
     assert roots[0]['n'] == roots[1]['n'] == closed.tree['params'][0][0]
     assert call['args'][0]['n'] != call['args'][1]['n']
-
-
-def _assert_opaque_planning_continuity(program, builder):
-    from orchestrator.workflow_lisp.closed.command_templates import _wcc_call_nodes
-    from tests.test_workflow_lisp_closed_command_transport import (
-        _planned, _scope_inputs, _without_authorized_annotations,
-    )
-
-    inputs, _ = _scope_inputs(program, builder)
-    neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
-    planned, _ = _planned(program)
-    assert _without_authorized_annotations(neutral) == _without_authorized_annotations(planned)
-    assert len(list(_wcc_call_nodes(neutral))) == len(list(_wcc_call_nodes(planned))) == 1
 
 
 def _assert_retained_runtime_proof_binding(before, after, name, expected):

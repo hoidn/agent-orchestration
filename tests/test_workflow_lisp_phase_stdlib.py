@@ -739,7 +739,7 @@ def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(path)
 
-    _assert_diagnostic_code(excinfo, "stdlib_import_route_required")
+    _assert_diagnostic_code(excinfo, "procedure_call_unknown")
 
 
 def test_typecheck_rejects_review_revise_loop_legacy_bridge_operands(tmp_path: Path) -> None:

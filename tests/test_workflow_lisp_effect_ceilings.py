@@ -106,26 +106,9 @@ def test_target_239_rejects_authored_lowering_with_expansion_location(tmp_path):
     assert diagnostic.expansion_stack[0].call_span.start.line == 7
 
 
-def test_target_239_inline_effectful_procedure_skips_legacy_lowering_analysis(
-    tmp_path, monkeypatch
-):
-    from orchestrator.workflow_lisp import procedure_specialization
+def test_target_239_inline_effectful_procedure_skips_legacy_lowering_analysis(tmp_path):
     from orchestrator.workflow_lisp.procedures import ProcedureLoweringMode
 
-    def unexpected_analysis(*args, **kwargs):
-        pytest.fail("target-2.39 procedures must bypass AUTO/private-workflow analysis")
-
-    monkeypatch.setattr(
-        procedure_specialization, "_procedure_private_boundary_valid", unexpected_analysis
-    )
-    monkeypatch.setattr(
-        procedure_specialization, "_procedure_private_body_valid", unexpected_analysis
-    )
-    monkeypatch.setattr(
-        procedure_specialization,
-        "_procedure_private_call_site_analysis",
-        unexpected_analysis,
-    )
     typed = _compile(
         tmp_path,
         '''(defproc leaf () -> Int
@@ -154,46 +137,10 @@ def test_target_239_inline_effectful_procedure_skips_legacy_lowering_analysis(
     assert any(procedure.transitive_effect_summary.transitive_effects for procedure in helpers)
 
 
-@pytest.mark.parametrize("target", ["2.38", "2.40"])
-def test_loop_call_private_override_respects_definition_origin(tmp_path, monkeypatch, target):
-    from orchestrator.workflow_lisp import procedure_specialization
-
-    checks = []
-    original_boundary = procedure_specialization._procedure_private_boundary_valid
-    original_body = procedure_specialization._procedure_private_body_valid
-
-    def counted_boundary(*args, **kwargs):
-        checks.append("boundary")
-        return original_boundary(*args, **kwargs)
-
-    def counted_body(*args, **kwargs):
-        checks.append("body")
-        return original_body(*args, **kwargs)
-
-    if target == "2.40":
-        def unexpected_analysis(*args, **kwargs):
-            pytest.fail("target-2.39 loop calls must bypass legacy private eligibility")
-
-        monkeypatch.setattr(
-            procedure_specialization, "_procedure_private_boundary_valid", unexpected_analysis
-        )
-        monkeypatch.setattr(
-            procedure_specialization, "_procedure_private_body_valid", unexpected_analysis
-        )
-    else:
-        monkeypatch.setattr(
-            procedure_specialization, "_procedure_private_boundary_valid", counted_boundary
-        )
-        monkeypatch.setattr(
-            procedure_specialization, "_procedure_private_body_valid", counted_body
-        )
-    effect_clauses = (
-        "" if target == "2.40" else ":effects ((uses-command probe)) :lowering inline"
-    )
+def test_loop_call_private_override_respects_definition_origin(tmp_path):
     typed = _compile(
         tmp_path,
-        f'''(defproc next-value () -> Int
-              {effect_clauses}
+        '''(defproc next-value () -> Int
               (command-result probe :argv ("python" "probe.py") :returns Int))''',
         '''(loop/recur ((state (loop-state (current Int 0)))) :max 1
              :on-exhausted state.current
@@ -201,82 +148,9 @@ def test_loop_call_private_override_respects_definition_origin(tmp_path, monkeyp
                (if (< updated 1)
                  (continue (loop-state :like state :current updated))
                  (done updated))))''',
-        target=target,
     )
 
-    checks.clear()
     build_closed_program(typed)
-
-    if target != "2.40":
-        assert checks
-
-
-@pytest.mark.parametrize("origin", ["2.35", "2.38"])
-def test_new_caller_preserves_imported_old_auto_and_private_identities(tmp_path, origin):
-    library = f'''(workflow-lisp (:language "0.1") (:target-dsl "{origin}")
-      (defmodule el1/lib) (export ChecksResult private-helper auto-helper)
-      (defrecord ChecksResult (value Int))
-      (defproc private-helper () -> ChecksResult
-        :effects ((uses-command probe)) :lowering private-workflow
-        (command-result probe :argv ("python" "probe.py") :returns ChecksResult))
-      (defproc auto-helper () -> ChecksResult
-        :effects ((uses-command probe)) :lowering auto
-        (command-result probe :argv ("python" "probe.py") :returns ChecksResult)))'''
-    sources = {"el1/lib.orc": library}
-    imports = "(import el1/lib :only (ChecksResult private-helper auto-helper))"
-    body = '''(let* ((private-result (private-helper))
-                     (automatic-first (auto-helper))
-                     (automatic-second (auto-helper)))
-                automatic-first.value)'''
-    old = _compile(
-        tmp_path / f"old-{origin}",
-        "",
-        body,
-        target=origin,
-        sources=sources,
-        imports=imports,
-    )
-    new = _compile(
-        tmp_path / f"new-{origin}",
-        "",
-        body,
-        sources=sources,
-        imports=imports,
-    )
-
-    for name, strategy in (("private-helper", "private-workflow"), ("auto-helper", "auto")):
-        old_proc = old.procedures[f"el1/lib::{name}"]
-        new_proc = new.procedures[f"el1/lib::{name}"]
-        assert old_proc.definition.effect_contract_target == origin
-        assert new_proc.definition.effect_contract_target == origin
-        assert old_proc.signature.requested_lowering_mode.value == strategy
-        assert (
-            new_proc.signature.requested_lowering_mode
-            == old_proc.signature.requested_lowering_mode
-        )
-        assert new_proc.resolved_lowering_mode == old_proc.resolved_lowering_mode
-        assert new_proc.generated_workflow_name == old_proc.generated_workflow_name
-
-
-def test_old_definition_origin_survives_new_caller_specialization(tmp_path):
-    lib = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
-      (defmodule el1/lib) (export forward)
-      (defproc forward ((hook ProcRef[() -> Int])) -> Int :effects () :lowering inline (hook)))'''
-    typed = _compile(tmp_path, '''(defproc helper () -> Int (command-result probe :argv ("python" "probe.py") :returns Int))''',
-        "(forward (proc-ref helper))", sources={"el1/lib.orc": lib}, imports="(import el1/lib :only (forward))")
-    specialized = [p for p in typed.procedures.values() if p.specialization
-        and p.specialization.base_name == "el1/lib::forward"]
-    assert specialized and all(p.definition.effect_contract_target == "2.38" for p in specialized)
-
-
-@pytest.mark.parametrize("target", ["2.37", "2.38"])
-def test_old_caller_refuses_new_definition_before_import_shortcuts(tmp_path, target):
-    lib = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
-      (defmodule el1/lib) (export helper) (defproc helper () -> Int 7))'''
-    with pytest.raises(LispFrontendCompileError) as caught:
-        _compile(tmp_path, "", target=target, imports="(import el1/lib :only (helper))",
-            sources={"el1/lib.orc": lib})
-    assert caught.value.diagnostics[0].code == "evaluated_execution_target_direction_invalid"
 
 
 def test_workflow_ceiling_resolves_alias_and_unused_workflow(tmp_path):
@@ -328,26 +202,6 @@ def test_named_wrapper_ceiling_uses_selected_callee_workflow(tmp_path):
       (defproc helper () -> Int :effects ((calls-workflow target))
         (let* ((box (invoke (workflow-ref target)))) box.n))''')
     assert build_closed_program(typed)
-
-
-def test_new_wrapper_uses_selected_workflow_of_a_235_definition(tmp_path):
-    from orchestrator.workflow_lisp.effects import CallsWorkflowEffect
-
-    library = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule el1/lib) (export Box invoke)
-      (defrecord Box (n Int))
-      (defproc invoke ((runner WorkflowRef[Int -> Box])) -> Box
-        :effects ((calls-workflow runner)) :lowering inline (call runner :n 7)))'''
-    typed = _compile(tmp_path, '''(defworkflow target ((n Int)) -> Box (record Box :n n))
-      (defproc helper () -> Int :effects ((calls-workflow target))
-        (let* ((box (invoke (workflow-ref target)))) box.n))''',
-        sources={"el1/lib.orc": library}, imports="(import el1/lib :only (Box invoke))")
-    assert build_closed_program(typed)
-    selected = [row for row in typed.procedures.values()
-        if getattr(row.specialization, "base_name", None) == "el1/lib::invoke"]
-    assert selected and all(row.definition.effect_contract_target == "2.35" for row in selected)
-    assert typed.procedures["el1/entry::helper"].transitive_effect_summary.transitive_effects == {
-        CallsWorkflowEffect(subject=("el1/entry::target",))}
 
 
 @pytest.mark.parametrize("permitted", ["allowed", "other"])

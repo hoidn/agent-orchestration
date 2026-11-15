@@ -34,9 +34,6 @@ COMPARISON = re.compile(
 
 # Row numbers are those of the stage 4 plan's difference table ("Where behavior depends on the target").
 ALLOWED = {
-    "orchestrator/cli/commands/repl.py": (  # 7
-        'if target_dsl_supports_effect_ceilings(session.module.typed_program.target) and pending:',
-    ),
     "orchestrator/contracts/closed_program/check.py": (  # 2, 4, 10, 14 (checker label gates, R14)
         'or not target_dsl_uses_evaluated_execution(target)):',
         'if not target_dsl_supports_parallel_map(self.tree["target"]):',
@@ -49,11 +46,6 @@ ALLOWED = {
     ),
     "orchestrator/contracts/closed_program/check_host_input.py": (  # 11 (checker label gate)
         "if checker.tree['target'] != '2.40':",
-    ),
-    "orchestrator/lsp/navigation.py": (  # 7, 8
-        'hide_private_forms = target_dsl_version_at_least(',
-        'FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION,',
-        'if procedure is not None and target_dsl_supports_effect_ceilings(',
     ),
     "orchestrator/prompt_scaffold_render.py": (  # 14
         '\'  (:target-dsl "2.27")\',',
@@ -91,76 +83,6 @@ ALLOWED = {
     ),
     "orchestrator/workflow_lisp/closed/target.py": (  # 2
         'major, minor = (int(part) for part in target.split("."))',
-    ),
-    "orchestrator/workflow_lisp/compiler.py": (  # 3, 7, 9
-        'return (target_dsl_supports_effect_ceilings(imported_target)',
-        'and not target_dsl_supports_effect_ceilings(source_target)) or (not target_dsl_supports_parallel_map(source_target)',
-        'and target_dsl_supports_parallel_map(imported_target))',
-        'w3 = target_dsl_supports_local_hook_inference(type_env.target_dsl_version)',
-        'inferred_contract = target_dsl_supports_effect_ceilings(type_env.target_dsl_version)',
-        'inferred_contract = target_dsl_supports_effect_ceilings(procedure.definition.effect_contract_target or "")',
-    ),
-    "orchestrator/workflow_lisp/expressions.py": (  # 3, 6, 8, 11
-        'if target_dsl_version_at_least(',
-        'FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION,',
-        'if target_dsl_supports_local_hook_inference(session_state.target_dsl_version or ""):',
-    ),
-    "orchestrator/workflow_lisp/form_registry.py": (  # 5, 8 (and the minimum check itself)
-        'FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION = "2.39"',
-        'return spec.min_target_dsl_version is None or target_dsl_version_at_least(',
-        'target = tuple(int(part) for part in target_dsl_version.split("."))',
-        'if spec is None or not _available_at_target(spec, target_dsl_version):',
-        'if _available_at_target(spec, target_dsl_version)',
-        'and _available_at_target(spec, target_dsl_version)',
-        'and _available_at_target(spec, target_dsl_version)',
-    ),
-    "orchestrator/workflow_lisp/functions.py": (  # 7
-        'and target_dsl_supports_effect_ceilings(target_dsl_version)):',
-        'if target_dsl_supports_effect_ceilings(target_dsl_version):',
-        'if (not target_dsl_supports_effect_ceilings(target_dsl_version or "")',
-    ),
-    "orchestrator/workflow_lisp/procedure_specialization.py": (  # 3, 7
-        'if preserve_inherited_bound_params or target_dsl_supports_local_hook_inference(type_env.target_dsl_version):',
-        'if not defer_lowering_resolution and not target_dsl_supports_effect_ceilings(',
-        'if bound_proc_ref is None or target_dsl_supports_local_hook_inference(type_env.target_dsl_version):',
-        'and target_dsl_supports_local_hook_inference(type_env.target_dsl_version)),',
-        'not target_dsl_supports_effect_ceilings(',
-        'if target_dsl_supports_effect_ceilings(',
-        'if target_dsl_supports_effect_ceilings(',
-    ),
-    "orchestrator/workflow_lisp/procedure_typecheck.py": (  # 3, 7
-        'w3 = target_dsl_supports_local_hook_inference(current_type_env.target_dsl_version)',
-        'if target_dsl_supports_effect_ceilings(context.type_env.target_dsl_version)',
-        'declared_effects=None if target_dsl_supports_effect_ceilings(type_env.target_dsl_version) else frozenset(),',
-        'requested_lowering_mode=(ProcedureLoweringMode.INLINE if target_dsl_supports_effect_ceilings(',
-        'declared_effects=None if target_dsl_supports_effect_ceilings(type_env.target_dsl_version) else frozenset(),',
-        'if target_dsl_supports_local_hook_inference(type_env.target_dsl_version) else None),',
-        'if target_dsl_supports_local_hook_inference(type_env.target_dsl_version):',
-        'if target_dsl_supports_local_hook_inference(type_env.target_dsl_version)',
-        'return_type_ref=expected_return or returns[0], declared_effects=(None if target_dsl_supports_effect_ceilings(creator["type_env"].target_dsl_version) else frozenset()),',
-        'requested_lowering_mode=(ProcedureLoweringMode.INLINE if target_dsl_supports_effect_ceilings(',
-        'if not target_dsl_supports_effect_ceilings(type_env.target_dsl_version):',
-        'declared_effects=(None if target_dsl_supports_effect_ceilings(creator["type_env"].target_dsl_version) else frozenset()), requested_lowering_mode=(ProcedureLoweringMode.INLINE if target_dsl_supports_effect_ceilings(',
-        'if target_dsl_supports_local_hook_inference(target_dsl_version) and procedure_catalog is not None:',
-        'if definition is None and target_dsl_supports_local_hook_inference(target_dsl_version):',
-    ),
-    "orchestrator/workflow_lisp/procedures.py": (  # 7
-        'if target_dsl_supports_effect_ceilings(procedure_def.effect_contract_target or ""):',
-        'enforce_ceiling = target_dsl_supports_effect_ceilings(',
-        'inferred_contract = target_dsl_supports_effect_ceilings(target_dsl_version)',
-    ),
-    "orchestrator/workflow_lisp/repl_expr.py": (  # 3, 7
-        'w3 = syntax.target_dsl_supports_local_hook_inference(module.typed_program.target)',
-        'syntax.target_dsl_supports_effect_ceilings(module.typed_program.target)',
-    ),
-    "orchestrator/workflow_lisp/repl_inspect.py": (  # 7
-        'if row.kind == "procedure" and typed is not None and target_dsl_supports_effect_ceilings(',
-    ),
-    "orchestrator/workflow_lisp/syntax.py": (  # 3
-        'return target_dsl_version in SUPPORTED_TARGET_DSL_VERSIONS and tuple(map(int, target_dsl_version.split("."))) >= (2, 36)',
-    ),
-    "orchestrator/workflow_lisp/workflows.py": (  # 3
-        'w3 = target_dsl_supports_local_hook_inference(type_env.target_dsl_version)',
     ),
 }
 

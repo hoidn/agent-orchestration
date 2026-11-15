@@ -9,12 +9,11 @@ from pathlib import Path
 from typing import Any, Literal
 from types import MappingProxyType
 
-from .contracts import derive_workflow_boundary_fields, is_transportable_result_type
+from .contracts import derive_workflow_boundary_fields
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY
-from .expression_traversal import _rebuild_with_replacements, is_pure_projection_expr, iter_child_exprs
+from .expression_traversal import _rebuild_with_replacements, iter_child_exprs
 from .expressions import (
-    AgentExpr,
     BindProcExpr,
     GeneratedRelpathSeedExpr,
     LoopStateSeedExpr,
@@ -48,20 +47,13 @@ from .procedures import (
     ProcedureLoweringMode,
     ProcedureParam,
     TypedProcedureDef,
-    _procedure_signature_local_type_bindings,
     parametric_specialization_name,
     proc_ref_specialization_name as proc_ref_call_specialization_name,
     procedure_type_env_for,
 )
 from .result_guidance import validate_result_guidance_example
-from .syntax import (
-    target_dsl_supports_effect_ceilings,
-    target_dsl_supports_local_hook_inference,
-)
-from .spans import SourceSpan
 from .type_env import (
     FrontendTypeEnvironment,
-    PathTypeRef,
     PrimitiveTypeRef,
     ProcRefTypeRef,
     RecordTypeRef,
@@ -69,7 +61,6 @@ from .type_env import (
     UnionTypeRef,
     VariantCaseTypeRef,
     WorkflowRefTypeRef,
-    ensure_no_type_params,
     render_type_ref,
     substitute_type_params,
 )
@@ -169,79 +160,6 @@ def materialized_specialization_rows(
             continue
         matches.append(candidate)
     return tuple(matches)
-
-
-def _procedure_private_boundary_valid(
-    procedure: TypedProcedureDef,
-    *,
-    type_env: FrontendTypeEnvironment,
-) -> bool:
-    """Return whether a procedure signature can become a private workflow."""
-
-    try:
-        for _, type_ref in (*procedure.signature.params, ("return", procedure.signature.return_type_ref)):
-            ensure_no_type_params(
-                type_ref,
-                span=procedure.definition.span,
-                form_path=procedure.definition.form_path,
-                expansion_stack=procedure.definition.expansion_stack,
-            )
-        return is_transportable_result_type(
-            procedure.signature.return_type_ref,
-            type_env=type_env,
-        ) and all(
-            is_transportable_result_type(type_ref, type_env=type_env)
-            for _, type_ref in procedure.signature.params
-        )
-    except (LispFrontendCompileError, TypeError):
-        return False
-
-
-def _procedure_private_body_valid(
-    procedure: TypedProcedureDef,
-    *,
-    typed_procedures_by_name: Mapping[str, TypedProcedureDef],
-    type_env: FrontendTypeEnvironment,
-    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-    workflow_signatures_by_name: Mapping[str, Any] | None = None,
-) -> bool:
-    """Return whether a procedure body exports only workflow-boundary values.
-
-    `workflow_signatures_by_name` optionally enables typing workflow `call`
-    let* bindings against the callee's return signature. Only the
-    iteration-scope promotion re-check inside procedure-call lowering threads
-    it; every other promotion site leaves it unset so existing non-loop procs
-    never change lowering mode (defproc lowering-mode contract,
-    docs/design/workflow_lisp_frontend_specification.md).
-    """
-
-    if procedure.signature.requested_lowering_mode is ProcedureLoweringMode.PRIVATE_WORKFLOW:
-        # Closed calls return evaluated values; the flat output-export seam is unused.
-        return True
-
-
-    current_type_env = (
-        procedure_type_envs.get(procedure.definition.name, type_env)
-        if procedure_type_envs is not None
-        else type_env
-    )
-    if procedure.signature.type_params:
-        # An unspecialized generic is a template: only its monomorphic
-        # specializations lower, and its signature may still hold applied
-        # unions whose payloads are type parameters.
-        return False
-
-    return _private_workflow_body_exports_step_backed_outputs(
-        procedure.typed_body.expr,
-        return_type_ref=procedure.signature.return_type_ref,
-        local_values=_procedure_signature_local_values(procedure, type_env=current_type_env),
-        local_type_bindings=_procedure_signature_local_type_bindings(procedure),
-        typed_procedures_by_name=typed_procedures_by_name,
-        type_env=current_type_env,
-        procedure_type_envs=procedure_type_envs,
-        active_procedures=frozenset({procedure.definition.name}),
-        workflow_signatures_by_name=workflow_signatures_by_name,
-    )
 
 
 def _private_workflow_result_type_for_expr(
@@ -416,473 +334,6 @@ def _private_workflow_result_type_for_expr(
     return None
 
 
-def _private_workflow_binding_local_value(
-    expr: Any,
-    *,
-    binding_name: str,
-    local_values: Mapping[str, Any],
-    local_type_bindings: Mapping[str, TypeRef],
-    typed_procedures_by_name: Mapping[str, TypedProcedureDef],
-    type_env: FrontendTypeEnvironment,
-    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-    active_procedures: frozenset[str],
-    workflow_signatures_by_name: Mapping[str, Any] | None = None,
-) -> Any | None:
-    """Return the step-backed local shape one private-workflow binding exports."""
-
-    from .closed.command_templates import is_inline_let_binding_expr
-
-    step_name = f"{binding_name}__{expr.step_name}" if isinstance(expr, CommandResultExpr) else binding_name
-    if is_inline_let_binding_expr(expr):
-        return _resolve_inline_expr_value(expr, local_values=local_values)
-    if isinstance(expr, WithPhaseExpr):
-        return _private_workflow_binding_local_value(
-            expr.body,
-            binding_name=binding_name,
-            local_values=local_values,
-            local_type_bindings=local_type_bindings,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures,
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        )
-    if isinstance(expr, ProcedureCallExpr):
-        callee_name = expr.callee_name
-        bound_proc_ref = local_values.get(callee_name)
-        if isinstance(bound_proc_ref, ResolvedProcRefValue):
-            callee_name = bound_proc_ref.call_target_name
-        callee = typed_procedures_by_name.get(callee_name)
-        if callee is None or callee.definition.name in active_procedures:
-            return None
-        child_locals = {
-            **dict(local_values),
-            **_procedure_signature_local_values(callee, type_env=(
-                procedure_type_envs.get(callee.definition.name, type_env)
-                if procedure_type_envs is not None else type_env
-            )),
-        }
-        child_local_types = _procedure_signature_local_type_bindings(callee)
-        for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
-            child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
-        if not _private_workflow_body_exports_step_backed_outputs(
-            callee.typed_body.expr,
-            return_type_ref=callee.signature.return_type_ref,
-            local_values=child_locals,
-            local_type_bindings=child_local_types,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=(
-                procedure_type_envs.get(callee.definition.name, type_env)
-                if procedure_type_envs is not None
-                else type_env
-            ),
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures | {callee.definition.name},
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        ):
-            return None
-        return _private_workflow_local_value_for_type(
-            callee.signature.return_type_ref,
-            step_name=binding_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    binding_type = _private_workflow_result_type_for_expr(
-        expr,
-        local_type_bindings=local_type_bindings,
-        typed_procedures_by_name=typed_procedures_by_name,
-        type_env=type_env,
-        workflow_signatures_by_name=workflow_signatures_by_name,
-    )
-    if binding_type is None:
-        return None
-    if isinstance(expr, MatchExpr):
-        if _control_binding_terminal_for_match_subject_impl(expr.subject, local_values=local_values) is None:
-            return None
-        if not _private_workflow_body_exports_step_backed_outputs(
-            expr,
-            return_type_ref=binding_type,
-            local_values=local_values,
-            local_type_bindings=local_type_bindings,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures,
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        ):
-            return None
-    elif isinstance(expr, LetStarExpr):
-        if not _private_workflow_body_exports_step_backed_outputs(
-            expr,
-            return_type_ref=binding_type,
-            local_values=local_values,
-            local_type_bindings=local_type_bindings,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures,
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        ):
-            return None
-    elif not isinstance(
-        expr,
-        (
-            CallExpr,
-            CommandResultExpr,
-            ProviderResultExpr,
-            RequestInputExpr,
-            AgentExpr,
-        ),
-    ):
-        return None
-    return _private_workflow_local_value_for_type(
-        binding_type,
-        step_name=step_name,
-        span=expr.span,
-        form_path=expr.form_path,
-    )
-
-
-def _private_workflow_local_value_for_type(
-    type_ref: TypeRef,
-    *,
-    step_name: str,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> Any | None:
-    """Build the local-value projection a structured step would expose."""
-
-
-    if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
-        output_refs = {
-            field.generated_name: f"root.steps.{step_name}.artifacts.{field.generated_name}"
-            for field in derive_workflow_boundary_fields(
-                type_ref,
-                generated_name="return",
-                source_path=("return",),
-                span=span,
-                form_path=form_path,
-            )
-        }
-        local_value = _build_output_step_local_value(output_refs)
-        if isinstance(type_ref, UnionTypeRef):
-            source = union_prompt_source_from_output_refs(
-                type_ref,
-                output_refs=output_refs,
-            )
-            if source is not None:
-                local_value["__typed_union_prompt_source__"] = source
-        return local_value
-    if isinstance(type_ref, (PathTypeRef, PrimitiveTypeRef)):
-        return f"root.steps.{step_name}.artifacts.return"
-    return None
-
-
-def _private_workflow_body_exports_step_backed_outputs(
-    expr: Any,
-    *,
-    return_type_ref: TypeRef,
-    local_values: Mapping[str, Any],
-    local_type_bindings: Mapping[str, TypeRef],
-    typed_procedures_by_name: Mapping[str, TypedProcedureDef],
-    type_env: FrontendTypeEnvironment,
-    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-    active_procedures: frozenset[str],
-    workflow_signatures_by_name: Mapping[str, Any] | None = None,
-) -> bool:
-    """Check that a private workflow body returns step-backed outputs."""
-
-
-    if is_pure_projection_expr(expr):
-        return True
-    if isinstance(
-        expr,
-        (
-            CommandResultExpr,
-            ProviderResultExpr,
-            RequestInputExpr,
-            CallExpr,
-            AgentExpr,
-        ),
-    ):
-        return True
-    if isinstance(expr, WithPhaseExpr):
-        return _private_workflow_body_exports_step_backed_outputs(
-            expr.body,
-            return_type_ref=return_type_ref,
-            local_values=local_values,
-            local_type_bindings=local_type_bindings,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures,
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        )
-    if isinstance(expr, ProcedureCallExpr):
-        callee_name = expr.callee_name
-        bound_proc_ref = local_values.get(callee_name)
-        if isinstance(bound_proc_ref, ResolvedProcRefValue):
-            callee_name = bound_proc_ref.call_target_name
-        callee = typed_procedures_by_name.get(callee_name)
-        if callee is None or callee.definition.name in active_procedures:
-            return False
-        child_locals = {
-            **dict(local_values),
-            **_procedure_signature_local_values(callee, type_env=(
-                procedure_type_envs.get(callee.definition.name, type_env)
-                if procedure_type_envs is not None else type_env
-            )),
-        }
-        child_local_types = _procedure_signature_local_type_bindings(callee)
-        for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
-            child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
-        return _private_workflow_body_exports_step_backed_outputs(
-            callee.typed_body.expr,
-            return_type_ref=callee.signature.return_type_ref,
-            local_values=child_locals,
-            local_type_bindings=child_local_types,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=(
-                procedure_type_envs.get(callee.definition.name, type_env)
-                if procedure_type_envs is not None
-                else type_env
-            ),
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures | {callee.definition.name},
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        )
-    if isinstance(expr, LetStarExpr):
-        child_locals = dict(local_values)
-        child_local_types = dict(local_type_bindings)
-        for binding_name, binding_expr in expr.bindings:
-            binding_value = _private_workflow_binding_local_value(
-                binding_expr,
-                binding_name=binding_name,
-                local_values=child_locals,
-                local_type_bindings=child_local_types,
-                typed_procedures_by_name=typed_procedures_by_name,
-                type_env=type_env,
-                procedure_type_envs=procedure_type_envs,
-                active_procedures=active_procedures,
-                workflow_signatures_by_name=workflow_signatures_by_name,
-            )
-            if binding_value is None:
-                return False
-            child_locals[binding_name] = binding_value
-            binding_type = _private_workflow_result_type_for_expr(
-                binding_expr,
-                local_type_bindings=child_local_types,
-                typed_procedures_by_name=typed_procedures_by_name,
-                type_env=type_env,
-                workflow_signatures_by_name=workflow_signatures_by_name,
-            )
-            if binding_type is not None:
-                child_local_types[binding_name] = binding_type
-        return _private_workflow_body_exports_step_backed_outputs(
-            expr.body,
-            return_type_ref=return_type_ref,
-            local_values=child_locals,
-            local_type_bindings=child_local_types,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures,
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        )
-    if isinstance(expr, MatchExpr):
-        return _match_outputs_are_step_backed(
-            expr,
-            return_type_ref=return_type_ref,
-            local_values=local_values,
-            local_type_bindings=local_type_bindings,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures,
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        )
-    if isinstance(expr, IfExpr):
-        return _private_workflow_body_exports_step_backed_outputs(
-            expr.then_expr,
-            return_type_ref=return_type_ref,
-            local_values=local_values,
-            local_type_bindings=local_type_bindings,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures,
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        ) and _private_workflow_body_exports_step_backed_outputs(
-            expr.else_expr,
-            return_type_ref=return_type_ref,
-            local_values=local_values,
-            local_type_bindings=local_type_bindings,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures,
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        )
-    if isinstance(expr, (NameExpr, FieldAccessExpr, EnumMemberExpr)):
-        return _inline_outputs_are_step_backed(
-            expr,
-            return_type_ref=return_type_ref,
-            local_values=local_values,
-        )
-    if isinstance(expr, RecordExpr):
-        return _record_outputs_are_step_backed(
-            expr,
-            return_type_ref=return_type_ref,
-            local_values=local_values,
-        )
-    if isinstance(expr, UnionVariantExpr):
-        return _union_variant_outputs_are_step_backed(
-            expr,
-            return_type_ref=return_type_ref,
-            local_values=local_values,
-
-        )
-    return False
-
-
-def _match_outputs_are_step_backed(
-    match_expr: MatchExpr,
-    *,
-    return_type_ref: TypeRef,
-    local_values: Mapping[str, Any],
-    local_type_bindings: Mapping[str, TypeRef],
-    typed_procedures_by_name: Mapping[str, TypedProcedureDef],
-    type_env: FrontendTypeEnvironment,
-    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-    active_procedures: frozenset[str],
-    workflow_signatures_by_name: Mapping[str, Any] | None = None,
-) -> bool:
-    """Return whether every match arm exports step-backed outputs."""
-
-    binding_terminal = _control_binding_terminal_for_inline_match_impl(
-        _resolve_inline_expr_value(match_expr.subject, local_values=local_values)
-    )
-    if binding_terminal is None:
-        return False
-    subject_type = _private_workflow_result_type_for_expr(
-        match_expr.subject,
-        local_type_bindings=local_type_bindings,
-        typed_procedures_by_name=typed_procedures_by_name,
-        type_env=type_env,
-        workflow_signatures_by_name=workflow_signatures_by_name,
-    )
-    return all(
-        _private_workflow_body_exports_step_backed_outputs(
-            arm.body,
-            return_type_ref=return_type_ref,
-            local_values=_control_match_arm_local_values_impl(
-                local_values=local_values,
-                binding_name=arm.binding_name,
-                binding_terminal=binding_terminal,
-                binding_type=(
-                    type_env.union_variant(
-                        subject_type,
-                        arm.variant_name,
-                        span=match_expr.subject.span,
-                        form_path=match_expr.subject.form_path,
-                    )
-                    if isinstance(subject_type, UnionTypeRef)
-                    else None
-                ),
-            ),
-            local_type_bindings=(
-                {
-                    **dict(local_type_bindings),
-                    arm.binding_name: type_env.union_variant(
-                        subject_type,
-                        arm.variant_name,
-                        span=match_expr.subject.span,
-                        form_path=match_expr.subject.form_path,
-                    ),
-                }
-                if isinstance(subject_type, UnionTypeRef)
-                else local_type_bindings
-            ),
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-            active_procedures=active_procedures,
-            workflow_signatures_by_name=workflow_signatures_by_name,
-        )
-        for arm in match_expr.arms
-    )
-
-
-def _record_outputs_are_step_backed(
-    record_expr: RecordExpr,
-    *,
-    return_type_ref: TypeRef,
-    local_values: Mapping[str, Any],
-) -> bool:
-    """Return whether all record return fields resolve to existing step refs."""
-
-
-    if not isinstance(return_type_ref, RecordTypeRef):
-        return False
-    for _, field_path in _flatten_boundary_leaf_paths(return_type_ref, generated_name="return"):
-        value = _record_expr_value_at_path(record_expr, field_path)
-        source_ref = _render_existing_output_ref(value, local_values=local_values)
-        if not isinstance(source_ref, str) or not source_ref.startswith(("root.steps.", "self.steps.", "parent.steps.")):
-            return False
-    return True
-
-
-def _union_variant_outputs_are_step_backed(
-    union_expr: UnionVariantExpr,
-    *,
-    return_type_ref: TypeRef,
-    local_values: Mapping[str, Any],
-) -> bool:
-    """Return whether one union variant can lower through a private workflow seam."""
-
-
-    if not isinstance(return_type_ref, UnionTypeRef):
-        return False
-    active_field_names = {name for name, _ in union_expr.fields}
-    for _, raw_field_path in _flatten_boundary_leaf_paths(return_type_ref, generated_name="return"):
-        field_path = _normalize_union_field_path(raw_field_path)
-        field_name = field_path[0] if field_path else ""
-        if field_name != "variant" and field_name not in active_field_names:
-            continue
-        value = _union_variant_expr_value_at_path(
-            union_expr,
-            field_path,
-            bound_record_fields=True,
-        )
-        source_ref = _render_existing_output_ref(value, local_values=local_values)
-        if source_ref is not None and source_ref.startswith(("root.steps.", "self.steps.", "parent.steps.")):
-            continue
-        resolved = _resolve_inline_expr_value(value, local_values=local_values)
-        if isinstance(resolved, LiteralExpr):
-            continue
-        return False
-    return True
-
-
-def _inline_outputs_are_step_backed(
-    expr: Any,
-    *,
-    return_type_ref: TypeRef,
-    local_values: Mapping[str, Any],
-) -> bool:
-    """Return whether one inline alias resolves to existing step-backed refs."""
-
-
-    output_refs = _flatten_inline_output_refs(_resolve_inline_expr_value(expr, local_values=local_values))
-    if not output_refs:
-        return False
-    for output_name, _ in _flatten_boundary_leaf_paths(return_type_ref, generated_name="return"):
-        source_ref = output_refs.get(output_name)
-        if not isinstance(source_ref, str) or not source_ref.startswith(("root.steps.", "self.steps.", "parent.steps.")):
-            return False
-    return True
-
-
 def _substitute_capture_origin_types(
     expr: ExprNode,
     type_bindings: Mapping[str, TypeRef],
@@ -1002,13 +453,12 @@ def specialize_typed_procedure(
             or name in request.value_bindings
         )
     }
-    if preserve_inherited_bound_params or target_dsl_supports_local_hook_inference(type_env.target_dsl_version):
-        # A residual-reference specialization retains the static creator facts
-        # of its already-bound parent row, whose params no longer list them.
-        bound_param_types = {
-            **dict(getattr(existing_specialization, "bound_param_types", {})),
-            **bound_param_types,
-        }
+    # A residual-reference specialization retains the static creator facts
+    # of its already-bound parent row, whose params no longer list them.
+    bound_param_types = {
+        **dict(getattr(existing_specialization, "bound_param_types", {})),
+        **bound_param_types,
+    }
     bound_names = set(bound_param_types)
     if request.specialized_name is None:
         specialized_name = (
@@ -1118,51 +568,10 @@ def specialize_typed_procedure(
             expected_type=substituted_return_type,
             type_env=type_env,
         )
-    mode = ProcedureLoweringMode.INLINE
-    generated_name = None
-    if not defer_lowering_resolution and not target_dsl_supports_effect_ceilings(
-        request.procedure.definition.effect_contract_target or ""
-    ):
-        boundary_valid = _procedure_private_boundary_valid(
-            specialized,
-            type_env=procedure_type_env_for(
-                specialized,
-                procedure_type_envs=procedure_type_envs,
-                default=type_env,
-            ),
-        )
-        body_valid = _procedure_private_body_valid(
-            specialized,
-            typed_procedures_by_name=request.typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-        )
-        requested = request.procedure.signature.requested_lowering_mode
-        if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
-            if not boundary_valid or not body_valid:
-                raise LispFrontendCompileError(
-                    (
-                        LispFrontendDiagnostic(
-                            code="proc_private_workflow_boundary_invalid",
-                            message=(
-                                f"procedure `{request.procedure.definition.name}` cannot lower as `private-workflow` in Stage 3 "
-                                "after specialization because its body would not export step-backed outputs "
-                                "through the shared-validation seam"
-                            ),
-                            span=request.procedure.definition.span,
-                            form_path=request.procedure.definition.form_path,
-                        ),
-                    )
-                )
-            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
-        elif requested == ProcedureLoweringMode.AUTO and boundary_valid and body_valid:
-            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
-        if mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
-            generated_name = f"%{request.workflow_path.stem}.{specialized_name}.v1"
     return replace(
         specialized,
-        resolved_lowering_mode=mode,
-        generated_workflow_name=generated_name,
+        resolved_lowering_mode=ProcedureLoweringMode.INLINE,
+        generated_workflow_name=None,
     )
 
 
@@ -1284,64 +693,62 @@ def discover_proc_ref_specializations(
                         typed_workflows_by_name={row.definition.name: row for row in typed_workflows},
                     )
                 )
-            if bound_proc_ref is None or target_dsl_supports_local_hook_inference(type_env.target_dsl_version):
-                # A bound consumer can still receive reference-valued residual
-                # arguments. Its static row is discovered above; once settled,
-                # use that same ordinary specialization path for the actuals.
-                callee_name = (bound_proc_ref.call_target_name
-                               if bound_proc_ref is not None else node.callee_name)
-                signature = procedure_catalog.signatures_by_name.get(callee_name)
-                if signature is not None:
-                    if len(node.args) != len(signature.params):
-                        for arg in node.args:
-                            walk(arg, proc_ref_env, workflow_ref_env)
-                        return
-                    proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
-                    for arg_expr, (param_name, param_type) in zip(node.args, signature.params, strict=True):
-                        if not isinstance(param_type, ProcRefTypeRef):
-                            continue
-                        resolved_binding = resolve_proc_ref_value(
-                            arg_expr,
-                            procedure_catalog=procedure_catalog,
-                            proc_ref_env=proc_ref_env,
-                            expected_type=param_type,
-                        )
-                        if resolved_binding is not None:
-                            proc_ref_bindings[param_name] = resolved_binding
-                    if proc_ref_bindings:
-                        base_procedure = typed_procedures_by_name.get(callee_name)
-                        if base_procedure is not None:
-                            record_specialization(
-                                specialize_typed_procedure(
+            # A bound consumer can still receive reference-valued residual
+            # arguments. Its static row is discovered above; once settled,
+            # use that same ordinary specialization path for the actuals.
+            callee_name = (bound_proc_ref.call_target_name
+                           if bound_proc_ref is not None else node.callee_name)
+            signature = procedure_catalog.signatures_by_name.get(callee_name)
+            if signature is not None:
+                if len(node.args) != len(signature.params):
+                    for arg in node.args:
+                        walk(arg, proc_ref_env, workflow_ref_env)
+                    return
+                proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
+                for arg_expr, (param_name, param_type) in zip(node.args, signature.params, strict=True):
+                    if not isinstance(param_type, ProcRefTypeRef):
+                        continue
+                    resolved_binding = resolve_proc_ref_value(
+                        arg_expr,
+                        procedure_catalog=procedure_catalog,
+                        proc_ref_env=proc_ref_env,
+                        expected_type=param_type,
+                    )
+                    if resolved_binding is not None:
+                        proc_ref_bindings[param_name] = resolved_binding
+                if proc_ref_bindings:
+                    base_procedure = typed_procedures_by_name.get(callee_name)
+                    if base_procedure is not None:
+                        record_specialization(
+                            specialize_typed_procedure(
+                                base_procedure,
+                                proc_ref_bindings=proc_ref_bindings,
+                                remaining_params=tuple(
+                                    (param_name, param_type)
+                                    for param_name, param_type in signature.params
+                                    if param_name not in proc_ref_bindings
+                                ),
+                                workflow_path=Path(base_procedure.definition.span.start.path),
+                                type_env=procedure_type_env_for(
                                     base_procedure,
-                                    proc_ref_bindings=proc_ref_bindings,
-                                    remaining_params=tuple(
-                                        (param_name, param_type)
-                                        for param_name, param_type in signature.params
-                                        if param_name not in proc_ref_bindings
-                                    ),
-                                    workflow_path=Path(base_procedure.definition.span.start.path),
-                                    type_env=procedure_type_env_for(
-                                        base_procedure,
-                                        procedure_type_envs=procedure_type_envs,
-                                        default=type_env,
-                                    ),
-                                    typed_procedures_by_name=typed_procedures_by_name,
                                     procedure_type_envs=procedure_type_envs,
-                                    specialized_name=proc_ref_call_specialization_name(
-                                        signature.name,
-                                        proc_ref_bindings,
-                                    ),
-                                    origin_span=node.span,
-                                    origin_form_path=node.form_path,
-                                    # The compiler records this discovery
-                                    # product, continues the fixed point, and
-                                    # re-typechecks it before lowering.
-                                    defer_lowering_resolution=True,
-                                    preserve_inherited_bound_params=(bound_proc_ref is not None
-                                        and target_dsl_supports_local_hook_inference(type_env.target_dsl_version)),
-                                )
+                                    default=type_env,
+                                ),
+                                typed_procedures_by_name=typed_procedures_by_name,
+                                procedure_type_envs=procedure_type_envs,
+                                specialized_name=proc_ref_call_specialization_name(
+                                    signature.name,
+                                    proc_ref_bindings,
+                                ),
+                                origin_span=node.span,
+                                origin_form_path=node.form_path,
+                                # The compiler records this discovery
+                                # product, continues the fixed point, and
+                                # re-typechecks it before lowering.
+                                defer_lowering_resolution=True,
+                                preserve_inherited_bound_params=bound_proc_ref is not None,
                             )
+                        )
             for arg in node.args:
                 walk(arg, proc_ref_env, workflow_ref_env)
             return
@@ -1754,39 +1161,6 @@ def _value_compile_error(*, code: str, message: str, span, form_path: tuple[str,
     )
 
 
-def _build_record_local_value(type_ref: RecordTypeRef, *, generated_name: str, type_env: Any | None = None) -> dict[str, Any]:
-    """Represent a record parameter as nested refs to flattened inputs."""
-
-    local_value: dict[str, Any] = {}
-    for field in type_ref.definition.fields:
-        field_type = type_ref.field_types[field.name]
-        leaf_name = f"{generated_name}__{field.name}"
-        if isinstance(field_type, RecordTypeRef):
-            local_value[field.name] = _build_record_local_value(
-                field_type,
-                generated_name=leaf_name,
-                type_env=type_env,
-            )
-        elif isinstance(field_type, UnionTypeRef):
-            local_value[field.name] = _build_union_local_value(
-                field_type,
-                generated_name=leaf_name,
-                type_env=type_env,
-            )
-        else:
-            local_value[field.name] = f"inputs.{leaf_name}"
-    return local_value
-
-
-def _build_union_local_value(type_ref: UnionTypeRef, *, generated_name: str, type_env: Any | None = None) -> dict[str, Any]:
-    """Represent a union parameter as nested refs to flattened inputs."""
-
-    local_value: dict[str, Any] = {}
-    for leaf_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name=generated_name, type_env=type_env):
-        _assign_nested_local_value(local_value, field_path, f"inputs.{leaf_name}")
-    return local_value
-
-
 def union_prompt_source_from_output_refs(
     type_ref: UnionTypeRef,
     *,
@@ -1827,94 +1201,6 @@ def union_prompt_source_from_output_refs(
         "discriminant": {"kind": "reference", "reference": discriminant},
         "variants": variants,
     }
-
-
-def _build_nested_record_step_local_value(
-    type_ref: RecordTypeRef,
-    *,
-    step_name: str,
-    artifact_prefix: tuple[str, ...],
-) -> dict[str, Any]:
-    """Represent a nested record result from step artifact refs."""
-
-    local_value: dict[str, Any] = {}
-    for field in type_ref.definition.fields:
-        field_type = type_ref.field_types[field.name]
-        next_prefix = artifact_prefix + (field.name,)
-        if isinstance(field_type, RecordTypeRef):
-            local_value[field.name] = _build_nested_record_step_local_value(
-                field_type,
-                step_name=step_name,
-                artifact_prefix=next_prefix,
-            )
-            continue
-        local_value[field.name] = f"root.steps.{step_name}.artifacts.{'__'.join(next_prefix)}"
-    return local_value
-
-
-def _build_record_step_local_value(type_ref: RecordTypeRef, *, step_name: str) -> dict[str, Any]:
-    """Represent a record result as nested refs to one step's artifacts."""
-
-    local_value: dict[str, Any] = {}
-    for field in type_ref.definition.fields:
-        field_type = type_ref.field_types[field.name]
-        artifact_name = field.name
-        if isinstance(field_type, RecordTypeRef):
-            local_value[field.name] = _build_nested_record_step_local_value(
-                field_type,
-                step_name=step_name,
-                artifact_prefix=(artifact_name,),
-            )
-            continue
-        local_value[field.name] = f"root.steps.{step_name}.artifacts.{artifact_name}"
-    return local_value
-
-
-def _procedure_signature_local_values(procedure: TypedProcedureDef, *, type_env: Any | None = None) -> dict[str, Any]:
-    """Seed local value refs from a private workflow procedure signature."""
-
-    local_values: dict[str, Any] = {}
-    for param_name, param_type in procedure.signature.params:
-        if isinstance(param_type, RecordTypeRef):
-            local_values[param_name] = _build_record_local_value(
-                param_type,
-                generated_name=param_name,
-                type_env=type_env,
-            )
-            continue
-        if isinstance(param_type, UnionTypeRef):
-            local_values[param_name] = _build_union_local_value(
-                param_type,
-                generated_name=param_name,
-                type_env=type_env,
-            )
-            continue
-        local_values[param_name] = f"inputs.{param_name}"
-    if procedure.specialization is not None:
-        local_values.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
-        local_values.update(dict(getattr(procedure.specialization, "proc_ref_bindings", {})))
-        local_values.update(dict(getattr(procedure.specialization, "value_bindings", {})))
-    return local_values
-
-
-def _signature_local_values(typed_workflow: Any, *, type_env: Any | None = None) -> dict[str, Any]:
-    """Seed local value refs from a workflow signature."""
-
-    signature = typed_workflow.signature
-    local_values: dict[str, Any] = {}
-    for param_name, param_type in signature.params:
-        if isinstance(param_type, RecordTypeRef):
-            local_values[param_name] = _build_record_local_value(param_type, generated_name=param_name, type_env=type_env)
-        elif isinstance(param_type, UnionTypeRef):
-            local_values[param_name] = _build_union_local_value(param_type, generated_name=param_name, type_env=type_env)
-        else:
-            local_values[param_name] = f"inputs.{param_name}"
-    specialization = getattr(typed_workflow, "specialization", None)
-    if specialization is not None:
-        local_values.update(dict(getattr(specialization, "workflow_ref_bindings", {})))
-        local_values.update(dict(getattr(specialization, "proc_ref_bindings", {})))
-        local_values.update(dict(getattr(specialization, "value_bindings", {})))
-    return local_values
 
 
 def _resolve_nested_local_value(value: Any, field_path: tuple[str, ...]) -> Any:
@@ -2337,41 +1623,6 @@ def _union_variant_expr_value_at_path(
     return None
 
 
-def _render_existing_output_ref(
-    expr: Any,
-    *,
-    local_values: Mapping[str, Any],
-    context: Any | None = None,
-) -> str | None:
-    """Return a shared runtime ref when an expression already names one."""
-
-    if isinstance(expr, PhaseTargetExpr):
-        if context is None or context.phase_scope is None:
-            return None
-        return context.phase_scope.target_refs.get(expr.target_name)
-    value = _resolve_inline_expr_value(expr, local_values=local_values)
-    if isinstance(value, ProjectedPathRef):
-        return value.ref
-    if not isinstance(value, str):
-        return None
-    if value.startswith(("root.steps.", "self.steps.", "parent.steps.", "inputs.")):
-        return value
-    return None
-
-
-def _assign_nested_local_value(target: dict[str, Any], field_path: tuple[str, ...], ref: str) -> None:
-    """Assign a flattened ref into a nested local-value mapping."""
-
-    current = target
-    for field_name in field_path[:-1]:
-        nested = current.get(field_name)
-        if not isinstance(nested, dict):
-            nested = {}
-            current[field_name] = nested
-        current = nested
-    current[field_path[-1]] = ref
-
-
 def inline_expr_projection_source(
     expr: Any, *, field_path: tuple[str, ...], bound_record_fields: bool,
 ) -> Any:
@@ -2422,244 +1673,14 @@ def _resolve_procedure_lowering(
     type_env: FrontendTypeEnvironment,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> Mapping[str, TypedProcedureDef]:
+    """Every procedure lowers inline: a procedure has no call frame of its own."""
 
-    if any(
-        not target_dsl_supports_effect_ceilings(
-            procedure.definition.effect_contract_target or ""
+    return MappingProxyType({
+        procedure.definition.name: replace(
+            procedure, resolved_lowering_mode=ProcedureLoweringMode.INLINE, generated_workflow_name=None,
         )
         for procedure in typed_procedures
-    ):
-        call_counts, lowerable_call_sites = _procedure_private_call_site_analysis(
-            typed_procedures,
-            typed_workflows=typed_workflows,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-        )
-    else:
-        call_counts, lowerable_call_sites = {}, {}
-    resolved: dict[str, TypedProcedureDef] = {}
-    typed_procedures_by_name = {
-        procedure.definition.name: procedure for procedure in typed_procedures
-    }
-    for procedure in typed_procedures:
-        if target_dsl_supports_effect_ceilings(
-            procedure.definition.effect_contract_target or ""
-        ):
-            resolved[procedure.definition.name] = replace(
-                procedure,
-                resolved_lowering_mode=ProcedureLoweringMode.INLINE,
-                generated_workflow_name=None,
-            )
-            continue
-        requested = procedure.signature.requested_lowering_mode
-        boundary_valid = _procedure_private_boundary_valid(
-            procedure,
-            type_env=procedure_type_env_for(
-                procedure,
-                procedure_type_envs=procedure_type_envs,
-                default=type_env,
-            ),
-        )
-        procedure_type_env = procedure_type_env_for(
-            procedure,
-            procedure_type_envs=procedure_type_envs,
-            default=type_env,
-        )
-        compile_time_proc_ref_template = (
-            bool(procedure.signature.type_params)
-        ) or any(
-            isinstance(type_ref, ProcRefTypeRef)
-            for _, type_ref in procedure.signature.params
-        )
-        body_valid = _procedure_private_body_valid(
-            procedure,
-            typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
-            procedure_type_envs=procedure_type_envs,
-        )
-        if (
-            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
-            and not boundary_valid
-            and not compile_time_proc_ref_template
-        ):
-            raise _value_compile_error(
-                code="proc_private_workflow_boundary_invalid",
-                message=f"procedure `{procedure.definition.name}` cannot lower as `private-workflow` in Stage 3",
-                span=procedure.definition.span,
-                form_path=procedure.definition.form_path,
-            )
-        if (
-            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
-            and not body_valid
-            and not compile_time_proc_ref_template
-        ):
-            raise _value_compile_error(
-                code="proc_private_workflow_boundary_invalid",
-                message=(
-                    f"procedure `{procedure.definition.name}` cannot lower as `private-workflow` in Stage 3 "
-                    "because its body would not export step-backed outputs through the shared-validation seam"
-                ),
-                span=procedure.definition.span,
-                form_path=procedure.definition.form_path,
-            )
-        if (
-            requested == ProcedureLoweringMode.PRIVATE_WORKFLOW
-            and compile_time_proc_ref_template
-        ):
-            # The generic ProcRef-bearing definition is a compile-time
-            # specialization template, not a runtime workflow boundary.  Its
-            # authoritative monomorphic specializations are validated below
-            # after compiler fixed-point re-typechecking.
-            mode = ProcedureLoweringMode.INLINE
-        elif requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
-            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
-        elif (
-            requested == ProcedureLoweringMode.AUTO
-            and boundary_valid
-            and body_valid
-            and (
-                call_counts.get(procedure.definition.name, 0) > 1
-                or (
-                    procedure.specialization is not None
-                    and any(
-                        bool(getattr(procedure.specialization, field_name, {}))
-                        for field_name in (
-                            "type_bindings",
-                            "workflow_ref_bindings",
-                            "proc_ref_bindings",
-                        )
-                    )
-                )
-            )
-            and lowerable_call_sites.get(procedure.definition.name, True)
-        ):
-            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
-        else:
-            mode = ProcedureLoweringMode.INLINE
-        generated_name = None
-        if mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
-            generated_name = f"%{workflow_path.stem}.{procedure.definition.name}.v1"
-        resolved[procedure.definition.name] = TypedProcedureDef(
-            definition=procedure.definition,
-            signature=procedure.signature,
-            typed_body=procedure.typed_body,
-            direct_effect_summary=procedure.direct_effect_summary,
-            transitive_effect_summary=procedure.transitive_effect_summary,
-            resolved_lowering_mode=mode,
-            generated_workflow_name=generated_name,
-            specialization=procedure.specialization,
-        )
-    return MappingProxyType(resolved)
-
-
-def _procedure_private_call_site_analysis(
-    typed_procedures: tuple[TypedProcedureDef, ...],
-    *,
-    typed_workflows: tuple[TypedWorkflowDef, ...],
-    type_env: FrontendTypeEnvironment,
-    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
-) -> tuple[Mapping[str, int], Mapping[str, bool]]:
-    """Count procedure call sites and whether each can cross a workflow boundary."""
-
-
-    typed_procedures_by_name = {
-        procedure.definition.name: procedure for procedure in typed_procedures
-    }
-    distinct_call_sites: dict[str, set[tuple[SourceSpan, tuple[str, ...]]]] = {}
-    lowerable: dict[str, bool] = {}
-
-    def walk(
-        expr: Any,
-        *,
-        local_values: Mapping[str, Any],
-        current_type_env: FrontendTypeEnvironment,
-    ) -> None:
-        if isinstance(expr, ProcedureCallExpr):
-            distinct_call_sites.setdefault(expr.callee_name, set()).add((expr.span, expr.form_path))
-            call_site_lowerable = True
-            for arg in expr.args:
-                walk(arg, local_values=local_values, current_type_env=current_type_env)
-                if _resolve_expr_local_value(arg, local_values=local_values) is None:
-                    call_site_lowerable = False
-            lowerable[expr.callee_name] = lowerable.get(expr.callee_name, True) and call_site_lowerable
-            callee = typed_procedures_by_name.get(expr.callee_name)
-            if callee is not None:
-                child_locals = {}
-                for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
-                    child_locals[param_name] = _resolve_expr_local_value(arg_expr, local_values=local_values)
-                walk(
-                    callee.typed_body.expr,
-                    local_values=child_locals,
-                    current_type_env=procedure_type_env_for(
-                        callee,
-                        procedure_type_envs=procedure_type_envs,
-                        default=current_type_env,
-                    ),
-                )
-            return
-        if isinstance(expr, LetStarExpr):
-            child_locals = dict(local_values)
-            for binding_name, binding in expr.bindings:
-                walk(binding, local_values=child_locals, current_type_env=current_type_env)
-                resolved_binding = _resolve_expr_local_value(binding, local_values=child_locals)
-                if resolved_binding is not None:
-                    child_locals[binding_name] = resolved_binding
-                # schema1_compatibility: legacy local-value projection for covered provider results.
-                elif isinstance(binding, ProviderResultExpr):
-                    binding_type = current_type_env.resolve_type(
-                        binding.returns_type_name,
-                        span=binding.span,
-                        form_path=binding.form_path,
-                    )
-                    if isinstance(binding_type, RecordTypeRef):
-                        child_locals[binding_name] = _build_record_step_local_value(
-                            binding_type,
-                            step_name=binding_name,
-                        )
-            walk(expr.body, local_values=child_locals, current_type_env=current_type_env)
-            return
-        # schema1_compatibility: legacy procedure traversal for covered match forms.
-        if isinstance(expr, MatchExpr):
-            walk(expr.subject, local_values=local_values, current_type_env=current_type_env)
-            for arm in expr.arms:
-                walk(arm.body, local_values=local_values, current_type_env=current_type_env)
-            return
-        if isinstance(expr, RecordExpr):
-            for _, value in expr.fields:
-                walk(value, local_values=local_values, current_type_env=current_type_env)
-            return
-        if isinstance(expr, WithPhaseExpr):
-            walk(expr.ctx_expr, local_values=local_values, current_type_env=current_type_env)
-            walk(expr.body, local_values=local_values, current_type_env=current_type_env)
-            return
-        # schema1_compatibility: legacy procedure traversal for covered provider results.
-        if isinstance(expr, ProviderResultExpr):
-            walk(expr.provider, local_values=local_values, current_type_env=current_type_env)
-            walk(expr.prompt, local_values=local_values, current_type_env=current_type_env)
-            for value in expr.inputs:
-                walk(value, local_values=local_values, current_type_env=current_type_env)
-            return
-        # schema1_compatibility: legacy procedure traversal for covered command results.
-        if isinstance(expr, CommandResultExpr):
-            for value in expr.argv:
-                walk(value, local_values=local_values, current_type_env=current_type_env)
-            return
-        if isinstance(expr, CallExpr):
-            for _, value in expr.bindings:
-                walk(value, local_values=local_values, current_type_env=current_type_env)
-
-    for workflow in typed_workflows:
-        walk(
-            workflow.typed_body.expr,
-            local_values=_signature_local_values(workflow, type_env=type_env),
-            current_type_env=type_env,
-        )
-    return MappingProxyType(
-        {
-            callee_name: len(call_sites)
-            for callee_name, call_sites in distinct_call_sites.items()
-        }
-    ), MappingProxyType(lowerable)
+    })
 
 
 def resolved_surface_proc_ref(
@@ -2854,93 +1875,3 @@ class RetainedExpressionFact:
     tag: LiteralExpr | None = None
 
 
-def schema1_iteration_private_override_applies(
-    procedure: Any, *, iteration_scope: Any, workflow_name: str,
-    default_type_env: Any, typed_procedures: Mapping[str, Any],
-    procedure_type_envs: Mapping[str, Any], workflow_signatures: Mapping[str, Any],
-) -> bool:
-    """Surface-only iteration override, with the existing private eligibility."""
-    from orchestrator.workflow_lisp.expression_traversal import walk_expr
-    from orchestrator.workflow_lisp.expressions import LoopRecurExpr
-    from orchestrator.workflow_lisp.procedures import ProcedureLoweringMode, procedure_type_env_for
-
-    if target_dsl_supports_effect_ceilings(
-        procedure.definition.effect_contract_target or ""
-    ):
-        return False
-    if not (
-        procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE
-        and iteration_scope is not None
-        and not workflow_name.startswith("%composition.")
-        and not any(isinstance(node, LoopRecurExpr) for node in walk_expr(procedure.typed_body.expr))
-    ):
-        return False
-    procedure_type_env = procedure_type_env_for(
-        procedure, procedure_type_envs=procedure_type_envs, default=default_type_env,
-    )
-    return _procedure_private_boundary_valid(
-        procedure, type_env=procedure_type_env,
-    ) and _procedure_private_body_valid(
-        procedure, typed_procedures_by_name=typed_procedures,
-        type_env=procedure_type_env, procedure_type_envs=procedure_type_envs,
-        workflow_signatures_by_name=workflow_signatures,
-    )
-
-
-def _control_binding_terminal_for_match_subject_impl(
-    subject: Any,
-    *,
-    local_values: Mapping[str, Any],
-) -> Mapping[str, str] | None:
-    resolved_subject = _resolve_inline_expr_value(subject, local_values=local_values)
-    return _control_binding_terminal_for_inline_match_impl(resolved_subject)
-
-
-def _control_match_arm_local_values_impl(
-    *,
-    local_values: Mapping[str, Any],
-    binding_name: str,
-    binding_terminal: Mapping[str, str],
-    binding_type: TypeRef | None = None,
-) -> dict[str, Any]:
-    localized_output_refs = {
-        output_name: _match_subject_scope_value(output_ref)
-        for output_name, output_ref in binding_terminal.items()
-    }
-    if isinstance(binding_type, VariantCaseTypeRef):
-        allowed_field_names = {"variant", *(field.name for field in binding_type.definition.fields)}
-        localized_output_refs = {
-            output_name: output_ref
-            for output_name, output_ref in localized_output_refs.items()
-            if output_name == "return__variant"
-            or output_name.removeprefix("return__").split("__", 1)[0] in allowed_field_names
-        }
-    binding_value = _build_output_step_local_value(localized_output_refs)
-    if isinstance(binding_type, UnionTypeRef):
-        source = union_prompt_source_from_output_refs(
-            binding_type,
-            output_refs=localized_output_refs,
-        )
-        if source is not None:
-            binding_value["__typed_union_prompt_source__"] = source
-    return {
-        **local_values,
-        binding_name: binding_value,
-    }
-
-
-def _control_binding_terminal_for_inline_match_impl(local_value: Any) -> Mapping[str, str] | None:
-    output_refs = _flatten_inline_output_refs(local_value)
-    if "return__variant" not in output_refs:
-        return None
-    return output_refs
-
-
-def _match_subject_scope_value(value: Any) -> Any:
-    if isinstance(value, str):
-        if value.startswith("self.steps."):
-            return "parent.steps." + value.removeprefix("self.steps.")
-        return value
-    if isinstance(value, Mapping):
-        return {name: _match_subject_scope_value(item) for name, item in value.items()}
-    return value

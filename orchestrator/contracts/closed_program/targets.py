@@ -70,8 +70,3 @@ def target_dsl_uses_evaluated_execution(target_dsl_version: str) -> bool:
     except (AttributeError, TypeError, ValueError):
         return False
     return target >= minimum
-
-
-def target_dsl_supports_effect_ceilings(target_dsl_version: str) -> bool:
-    """Whether authored procedures use inference-default optional restrictions."""
-    return target_dsl_version in READABLE_PROGRAM_TARGET_DSL_VERSIONS and tuple(map(int, target_dsl_version.split("."))) >= (2, 39)
