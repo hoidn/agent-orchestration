@@ -706,6 +706,47 @@ def test_the_pause_of_a_known_limit_names_resume_after_limit_and_not_not_a_limit
     assert ("resume-after-limit" in str(refused.value), "not-a-limit" in str(refused.value)) == (True, False)
 
 
+PAID_EVENT = {"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "overageStatus": "allowed",
+                                                              "isUsingOverage": True, "overageInUse": True}}
+
+
+@pytest.mark.parametrize("judge", [False, True])
+def test_a_unit_with_paid_extra_usage_on_any_call_is_never_withdrawn_by_not_a_limit(runner, judge):  # review 4 M1
+    """Call 1 failed in a flagged limit shape, call 2 showed paid extra usage and ended normally: the pause names
+    `resume-after-limit` only, and not-a-limit refuses."""
+    out = runner.pools / "t1" / "first"
+    unit, facts, root = ((f"{out}#{H}", out / "records" / f"study-{H}.json", out / "records" / "judges" / H) if judge
+                         else (str(run_dir(runner)), runner.work / "records" / "direct" / "run-1" / "study.json",
+                               runner.work / "records" / "direct" / "run-1"))
+    for name, stdout, stderr in (("1", [{**ERROR, "result": "x"}], "You've hit your session limit\n"),
+                                 ("2", [PAID_EVENT, OK_END], "")):
+        (root / "calls" / name).mkdir(parents=True)
+        (root / "calls" / name / "prompt.txt").write_text("p")
+        (root / "calls" / name / "stdout.txt").write_text("".join(json.dumps(e) + "\n" for e in stdout))
+        (root / "calls" / name / "stderr.txt").write_text(stderr)
+    limit = study.pause_on_limit(runner, root, unit)
+    facts.write_text(json.dumps((json.loads(facts.read_text()) if facts.is_file() else {}) | {"calls": 2,
+                                                                                            "cut": limit}))
+    with pytest.raises(SystemExit) as closed:
+        spend.reserve(runner.ledger, "calibration", "candidate", H, 1, "/w/next", env("calibration"), price=P)
+    with pytest.raises(SystemExit, match="resume-after-limit"):
+        study.not_a_limit(runner, unit, "operator read call 1")
+    assert ("not-a-limit" in str(closed.value), len(spend.open_pauses(spend.rows(runner.ledger)))) == (False, 1)
+
+
+@pytest.mark.parametrize("key", ["isUsingOverage", "overageInUse"])
+@pytest.mark.parametrize("value", ["true", "True", "TRUE"])
+def test_overage_in_use_given_as_a_string_is_read_as_true(tmp_path, key, value):  # review 4 n1
+    stdout = [{"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", key: value}}, OK_END]
+    assert units.usage_limit(call_printing(tmp_path, stdout))["rule"] == units.PAID
+
+
+def test_the_reset_is_the_last_rejected_event_that_names_one(tmp_path):  # review 4 n3
+    stdout = [{"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": RESET}}, PAID_EVENT,
+              OK_END]
+    assert units.usage_limit(call_printing(tmp_path, stdout))["reset"] == RESET
+
+
 QUOTED = json.dumps({**ERROR, "api_error": "usage_limit_reached", "api_error_status": 429,
                      "result": "You've hit your session limit"})
 

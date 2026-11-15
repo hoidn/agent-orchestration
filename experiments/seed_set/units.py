@@ -43,9 +43,10 @@ RECORDED = "the recorded answer (api_error usage_limit_reached, status 429)"
 STATUS_429 = "an error result with status 429"
 REJECTED = "an error result beside a rejected rate_limit_event"
 WORDING = "a limit wording in an error line of a call that did not succeed"
-# Paid extra usage (final scoped check M1): the CLI's own rate_limit_event shows overage in use, or a rejected limit
-# with overage allowed, as the long-horizon kit reads the same signs in the API's headers (`passthrough.PAID_USAGE`).
-# The call may end normally; it is billed past the subscription's allowance, so it cuts and pauses like a limit.
+# Paid extra usage (final scoped check M1): the CLI's own rate_limit_event shows overage in use (`isUsingOverage` or
+# `overageInUse` true), or a rejected limit with overage allowed. The long-horizon kit's `passthrough.PAID_USAGE`
+# reads the API's headers and is broader (overage allowed on any answer). The call may end normally; it is billed
+# past the subscription's allowance, so it pauses like a limit (and cuts a call that did not end normally).
 PAID = "paid extra usage: a rate_limit_event with overage in use"
 OVERAGE_ALLOWED = ("allowed", "allowed_warning")
 OLDER_RESET = re.compile(r"usage limit reached\|(\d{9,11})\b", re.I)  # an older CLI: "...|<epoch seconds>"
@@ -124,24 +125,28 @@ def usage_limit(records, cutting=False):
     usage_limit_reached` with `api_error_status: 429`, experiments/long_horizon_tasks/fixtures/
     token-usage-limit-NonZeroAgentExitCodeError.json). `rule` is the rule that fired (`limit_rule`) and `text` the
     line it read (the last error result's text; for `WORDING`, the matched error line). `reset` is the `resetsAt`
-    (epoch seconds) of the call's rejected `rate_limit_event`, else the epoch an older CLI's wording names
-    (`Claude AI usage limit reached|<epoch>`), None when the answer names none; `raw` is the call's directory.
-    With `cutting`, only a limit that cuts its unit: paid extra usage on a call that ended normally is passed over
-    (that call is an observation, and only pauses; coordinator ruling on fix round 4)."""
+    (epoch seconds) of the call's last rejected `rate_limit_event` that names one, else the epoch an older CLI's
+    wording names (`Claude AI usage limit reached|<epoch>`), None when the answer names none; `raw` is the call's
+    directory. Without `cutting`, the first call with paid extra usage comes before any earlier call, so the pause
+    names it and only `resume-after-limit` reopens (review 4 M1). With `cutting`, only a limit that cuts its unit:
+    paid extra usage on a call that ended normally is passed over (that call is an observation, and only pauses;
+    coordinator ruling on fix round 4)."""
+    found = []
     for call in calls(records):
         events = stream_events(call / "stdout.txt")
         if (rule := limit_rule(call, events)) and not (cutting and rule == PAID and succeeded(events)):
-            return limit_facts(call, events, rule)
-    return None
+            found.append(limit_facts(call, events, rule))
+    paid = [] if cutting else [facts for facts in found if facts["rule"] == PAID]
+    return next(iter(paid + found), None)
 
 
 def limit_facts(call, events, rule):
     """The facts `usage_limit` returns for a call where `rule` fired."""
     rejected = [e["rate_limit_info"] for e in events if rejected_event(e)]
-    named = rejected[-1].get("resetsAt") if rejected else None
+    named = next((info["resetsAt"] for info in reversed(rejected) if type(info.get("resetsAt")) in (int, float)), None)
     errors = [e for e in events if e.get("type") == "result" and e.get("is_error")]
     text = next(limit_lines(call), "") if rule == WORDING or not errors else errors[-1].get("result")
-    return {"call": call.name, "rule": rule, "reset": named if type(named) in (int, float) else older_reset(call),
+    return {"call": call.name, "rule": rule, "reset": older_reset(call) if named is None else named,
             "text": str(text)[:300], "raw": str(call)} | ({} if rule in (RECORDED, PAID) else {"flag": UNRECOGNISED})
 
 
@@ -153,8 +158,9 @@ def older_reset(call):
 def limit_rule(call, events):
     """`PAID` for paid extra usage (`paid_usage`, whether or not the call succeeded); `RECORDED` for the vendor's
     recorded answer; else, each flagged `UNRECOGNISED` by `usage_limit`: `STATUS_429` for an error result with
-    status 429 (a number or a string), `REJECTED` for an error result beside a rejected `rate_limit_event`, `WORDING` for a call that did not succeed with an error line in a limit wording that no
-    other named status explains; else None. A model's or a tool's text is never read (`error_lines`)."""
+    status 429 (a number or a string), `REJECTED` for an error result beside a rejected `rate_limit_event`,
+    `WORDING` for a call that did not succeed with an error line in a limit wording that no other named status
+    explains; else None. A model's or a tool's text is never read (`error_lines`)."""
     if any(map(paid_usage, events)):
         return PAID
     results = [e for e in events if e.get("type") == "result"]
@@ -204,7 +210,7 @@ def paid_usage(event):
     info = event.get("rate_limit_info") if event.get("type") == "rate_limit_event" else None
     if not isinstance(info, dict):
         return False
-    in_use = any(info.get(key) in (True, "true") for key in ("isUsingOverage", "overageInUse"))
+    in_use = any(str(info.get(key)).lower() == "true" for key in ("isUsingOverage", "overageInUse"))
     return in_use or (info.get("status") == "rejected" and info.get("overageStatus") in OVERAGE_ALLOWED)
 
 
