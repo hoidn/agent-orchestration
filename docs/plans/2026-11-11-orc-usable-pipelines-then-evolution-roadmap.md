@@ -869,13 +869,11 @@ is manual. Phase plans are linked here as they start:
 - Lane D, old IR stack, done: [stage 3 plan](2026-11-12-lane-d-stage-3-old-ir-stack-plan.md).
   The old stack's modules are gone and nothing imports them (code kept at the local tag
   `archive/old-ir-stack-2026-11-12`); a small leftovers list remains in the plan's ledger.
-- Lane D, one target, in execution: [stage 4 plan](2026-11-12-lane-d-stage-4-one-target-plan.md),
-  accepted. Merged by 2026-11-14: the catalog and experiment sources (3a), 288 of 313 test fixtures
-  (3b), the re-recorded run roots (3d) and the first half of the test modules' inline sources (3c
-  part A, 116 modules); the second half is in review with 59 modules still to do. The cut itself
-  (4a, 4b) waits on that and on every program that builds at an older target also building at
-  2.40. Target 2.40 survives; after the cut a run recorded at an older target is read-only
-  (`report`, dashboard and monitor read it; continuing it needs the tagged release).
+- Lane D, one target, done: [stage 4 plan](2026-11-12-lane-d-stage-4-one-target-plan.md).
+  Target 2.40 is the one admitted source target (package 0.3.0, cut merged 2026-11-15); a source at
+  2.35-2.39 refuses with the migration message, and a run recorded at an older target is read-only
+  (`report`, dashboard and monitor read it; it is finished with the local tag `v0.2.1`). The plan's
+  Final Figures section holds the measured lines and tests.
 - Lane D, surface coherence (stage 5): [design](../design/workflow_lisp_surface_coherence.md)
   accepted. The constructor-field defect is fixed and the callables change (C1) is merged
   (2026-11-13), as are the loop binder form with its migration tool (I2a) and map bodies
@@ -884,8 +882,8 @@ is manual. Phase plans are linked here as they start:
   two that passed alone); effects in fields (E1) merged on 2026-11-14 (`ecd57051`) after five
   reviews and a mechanical acceptance gate, narrower than first accepted: a direct effect beside
   simple parts (frontend specification §16.3; the design's §13 lists the departures). Stage 5 is
-  complete except the Python emitter change (I2b), which rides the stage 4 cut; the `fn` form goes
-  at that cut.
+  complete except the Python emitter change (I2b); the `fn` loop form stayed at the stage 4 cut, and
+  its removal is a separate change decided after the experiments.
 - Lane D, authoring revisions for staged workflows (stage 6):
   [design](../design/workflow_lisp_staged_workflow_authoring.md) and
   [plan](2026-11-13-staged-workflow-authoring-revisions-plan.md), reviewed and accepted
