@@ -178,7 +178,8 @@ def containers(trial, behaviour):
     sidecar = behaviour.get("egress", '{"sid": "a", "msg": "bypass"}\n{"sid": "a", "dst": "203.0.113.9:443"}')
     for name, extra in ((f"{project}_main_1", {"env": behaviour.get("container_env", ["PATH=/usr/bin"]),
                                                "fs": behaviour.get("container_fs", "a file\n")}),
-                        (f"{project}_harbor-docker-egress-control-sidecar_1", {"log": sidecar})):
+                        (f"{project}_harbor-docker-egress-control-sidecar_1",
+                         {"log": sidecar, "stderr_log": behaviour.get("egress_stderr", "")})):
         (folder / "containers" / f"{name}.json").write_text(json.dumps({"running": True, "stubborn":
                                                                        behaviour.get("stubborn", 0), **extra}))
     (folder / "networks" / f"{project}_default.json").write_text("{}")
@@ -294,8 +295,10 @@ elif cmd == "network" and rest[0] == "rm":
         (N / f"{name}.json").unlink(missing_ok=True)
 elif cmd == "inspect":
     print(json.dumps([{"Name": n, "Config": {"Env": load(n).get("env", [])}} for n in operands(rest) if load(n)]))
-elif cmd == "logs":
-    print((load(operands(rest)[0]) or {}).get("log", ""))
+elif cmd == "logs":  # the container's standard output, then its standard error (the real proxy logs there)
+    found = load(operands(rest)[0]) or {}
+    print(found.get("log", ""))
+    sys.stderr.write(found.get("stderr_log", ""))
 elif cmd == "exec":
     found = load(operands(rest)[0])
     if not found or not found.get("running", True):
@@ -1642,6 +1645,16 @@ def test_the_egress_log_is_followed_out_and_kept_before_the_containers_are_remov
     kept = [p.read_text() for p in attempt_dir.glob("egress-*.log")]
     assert (calls.index(["logs", sidecar]) < first_rm, len(kept), "198.51.100.7:443" in kept[0],
             ladder.egress_refused(attempt_dir)) == (True, 1, True, {"198.51.100.7:443": 1})
+
+
+def test_the_kept_egress_log_holds_what_the_sidecar_s_proxy_writes_to_its_standard_error(rig):
+    """Task 7 found it: the sidecar's shell writes its two start lines to standard output, and its proxy (gost)
+    writes every connection and every refusal (`bypass`) to standard error; the kept log must hold both."""
+    r = rig(plan=[{"egress": "ok: allow all egress\nharbor-docker-egress-control-sidecar ready: initial egress policy is public",
+                   "egress_stderr": '{"sid": "a", "dst": "198.51.100.7:443"}\n{"sid": "a", "msg": "bypass"}\n'}])
+    r.launch()
+    attempt_dir = r.root / "slots" / r.attempts()[0]["id"]
+    assert ladder.egress_refused(attempt_dir) == {"198.51.100.7:443": 1}
 
 
 def test_a_slot_closes_only_after_every_container_is_removed_and_the_cli_s_later_requests_are_metered_into_it(rig):

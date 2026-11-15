@@ -1659,12 +1659,15 @@ def _scan_verdict(code, match, incomplete):
 def runtime_check(ctx, attempt_dir, export):
     """D4's runtime check on the attempt's containers before they are removed: every container's inspected
     configuration and the process environments read while it ran; with `export`, the agent container's exported
-    file system too. The egress sidecar's log is read to its end and kept first. The finding, or None."""
+    file system too. The egress sidecar's log is read to its end and kept first, both of its streams: the proxy
+    writes every connection and refusal to standard error (Task 7). The finding, or None."""
     (attempt_dir / "containers").mkdir(exist_ok=True)
     names = container_names(ctx, prefixes(attempt_dir))
     for name in names:
         if "egress-control-sidecar" in name:
-            (attempt_dir / f"egress-{name}.log").write_bytes(podman(ctx, "logs", name).stdout)
+            with open(attempt_dir / f"egress-{name}.log", "wb") as kept:
+                subprocess.run(["podman", "logs", name], env=base_env(ctx), stdout=kept, stderr=subprocess.STDOUT,
+                               timeout=300, check=False)
     sample_environ(ctx, attempt_dir, names)
     for name in names:
         (attempt_dir / "containers" / f"{name}.inspect.json").write_bytes(podman(ctx, "inspect", name).stdout)
