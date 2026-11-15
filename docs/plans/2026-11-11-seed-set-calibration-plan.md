@@ -1,6 +1,7 @@
 # Seed-Set Calibration Plan
 
-**Status: Plan; the kit is on `main` (`09068ec8`, 2026-11-15) after five review rounds; nothing spent.** Owed
+**Status: Plan; the kit is on `main` (`09068ec8`, 2026-11-15; entry point
+[`experiments/seed_set/README.md`](../../experiments/seed_set/README.md)) after five review rounds; nothing spent.** Owed
 before the first paid call, in the [ledger](#ledger)'s order: the owner's decisions, the freeze with
 `criterion.json`, the 20-task rehearsal, the tranche's spend row, then the smoke. The freeze waits for the owner's
 credential-route decision. This page plans the scaled-down research step
