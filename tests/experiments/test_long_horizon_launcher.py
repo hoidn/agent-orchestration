@@ -2005,6 +2005,109 @@ def test_the_launcher_refuses_to_write_an_export_the_readout_would_refuse(short)
     assert str(refused.value).startswith("the export does not fit slot_record.py")
 
 
+# D7.7's count thresholds (coordinator ruling): a stop or pause by one is lifted only by `ladder.py resume --clears`,
+# after a ledger Ruling row; the cleared threshold then counts only the endings after its clearing.
+
+def _ended(root, specs, at):
+    """Settled attempts after any already there, one per (class, row, effort, load_refused), closing from `at` on."""
+    start = len(list((root / "slots").iterdir()))
+    for i, (cls, row, effort, load) in enumerate(specs, start + 1):
+        folder = root / "slots" / f"{i:03d}-r1-gsea-proteomics-{effort}"
+        folder.mkdir(mode=0o700)
+        (folder / "slot.json").write_text(json.dumps({"id": folder.name, "index": i, "task": "gsea-proteomics",
+                                                      "effort": effort, "round": 1, "kind": "round"}))
+        (folder / "settled.json").write_text(json.dumps({"class": cls, "row": row, "closed": at + i,
+                                                         "load_refused": load, "usd": 0.1}))
+
+
+OBS, INFRA, CUT, PRE = ("observation", 5), ("infrastructure_failure", 4), ("cut", 10), ("pre_session_failure", 1)
+EFFS = ("low", "medium", "high")
+
+
+def _specs(cls_row, n, load=False):
+    return [(*cls_row, EFFS[i % 3], load) for i in range(n)]
+
+
+THRESHOLD_CASES = {  # name: (kind, endings that trip it)
+    "infrastructure-failures": ("stop", _specs(OBS, 20) + _specs(INFRA, 3)),
+    "infrastructure-failures at one level": ("stop", [(*OBS, "high", False)] * 2 + [(*INFRA, "high", False)]),
+    "pre-session-failures": ("stop", _specs(PRE, 5)),
+    "pre-session-failures in all": ("stop", [x for _ in range(24) for x in (_specs(OBS, 1)[0], _specs(PRE, 1)[0])]),
+    "cuts": ("pause", _specs(OBS, 19) + _specs(CUT, 2)),
+    "load-refusals": ("pause", _specs(("infrastructure_failure", 15), 3, load=True))}
+
+
+def _threshold_rig(short):
+    ctx = _ctx(short)
+    ladder.ensure_state(ctx.root)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    return ctx
+
+
+@pytest.mark.parametrize("case", sorted(THRESHOLD_CASES))
+def test_a_d77_threshold_trips_is_lifted_only_by_a_clearing_after_its_ruling_and_then_counts_new_endings(short, case):
+    name, (kind, specs) = case.split(" ")[0], THRESHOLD_CASES[case]
+    ctx = _threshold_rig(short)
+    _ended(ctx.root, specs[:-1], time.time() - 600)
+    below = ladder.threshold_breaches(ctx.root, STANDING)
+    _ended(ctx.root, specs[-1:], time.time() - 300)
+    ladder.check_thresholds(ctx.root, STANDING)
+    ladder.check_thresholds(ctx.root, STANDING)  # a second look writes no second event
+    tripped = [(e["event"], e["threshold"]) for e in _jsonl_events(ctx)]
+    plain = ladder.main(["resume"], env=ctx.env)
+    clearing = ["resume", "--clears", name, "--date", "2026-11-22"]
+    unruled = ladder.main(clearing, env=ctx.env)
+    (ctx.rehearsal / "ledger.md").write_text(f"| 2026-11-22 | Ruling | {name}: go on, the host was repaired |\n")
+    cleared = ladder.main(clearing, env=ctx.env)
+    after = ladder.threshold_breaches(ctx.root, STANDING)
+    _ended(ctx.root, specs, time.time())  # the same endings again, after the clearing
+    again = ladder.threshold_breaches(ctx.root, STANDING)
+    record = ladder._jsonl(ctx.root / "clearings.jsonl")
+    assert (name in below, tripped, plain, unruled, cleared, [e["event"] for e in _jsonl_events(ctx)][-1], after,
+            name in again, [(r["threshold"], r["date"], bool(r["counts"])) for r in record]) == (
+        False, [(kind, name)], 3, 3, 0, "resume", {}, True, [(name, "2026-11-22", True)])
+
+
+@pytest.mark.parametrize("specs", [_specs(OBS, 8) + _specs(CUT, 2),  # 20% of cuts, but under 20 starts
+                                   [(*INFRA, "high", False), (*OBS, "high", False)]])  # under a block at one level
+def test_a_share_is_not_judged_before_its_minimum_of_starts(short, specs):
+    ctx = _threshold_rig(short)
+    _ended(ctx.root, specs, time.time() - 60)
+    assert ladder.threshold_breaches(ctx.root, STANDING) == {}
+
+
+def test_an_attempt_ended_by_a_load_refusal_is_marked_from_the_tranche_s_rows_as_row_15_reads_them():
+    rows = [{"slot": None, "status": 403, "refused": "too many connections"}]  # at the cap: no slot known yet
+    assert (ladder._load_refused(rows, STANDING), ladder._load_refused([{"slot": "a", "refused": "slot cap reached"}],
+                                                                       STANDING)) == (True, False)
+
+
+def test_the_launch_loop_stops_on_a_threshold_over_its_bound_before_any_start(rig):
+    r = rig()
+    _ended(r.root, _specs(PRE, 5), time.time() - 60)
+    code, out, err = r.launch()
+    assert (code, [(e["event"], e.get("threshold")) for e in r.events()], r.calls()) == (
+        0, [("stop", "pre-session-failures")], [])
+
+
+def test_a_plain_resume_is_recorded_when_no_threshold_is_over_its_bound(short):
+    ctx = _threshold_rig(short)
+    _ended(ctx.root, _specs(OBS, 3), time.time() - 60)
+    assert (ladder.main(["resume"], env=ctx.env), [e["event"] for e in _jsonl_events(ctx)]) == (0, ["resume"])
+
+
+def test_clearing_one_threshold_does_not_resume_while_another_is_over_its_bound(short):
+    ctx = _threshold_rig(short)
+    _ended(ctx.root, _specs(PRE, 5) + _specs(("infrastructure_failure", 15), 3, load=True), time.time() - 60)
+    (ctx.rehearsal / "ledger.md").write_text("| 2026-11-22 | Ruling | load-refusals: the cap was raised |\n")
+    code = ladder.main(["resume", "--clears", "load-refusals", "--date", "2026-11-22"], env=ctx.env)
+    assert (code, ladder._jsonl(ctx.root / "clearings.jsonl"), _jsonl_events(ctx)) == (3, [], [])
+
+
+def _jsonl_events(ctx):
+    return ladder._jsonl(ctx.root / "passthrough" / "tranche.jsonl")
+
+
 # The export the readout reads: slot_record.py (from feat/lh-readout), loaded by its path as the readout does.
 
 def test_an_export_of_a_rehearsal_run_loads_through_slot_record(rig):

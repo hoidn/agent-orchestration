@@ -142,6 +142,7 @@ python -I experiments/long_horizon_tasks/ladder.py plan                   # the 
 python -I experiments/long_horizon_tasks/ladder.py launch [--dry-run]     # run until it ends, waits or stops
 python -I experiments/long_horizon_tasks/ladder.py status [--export F]    # the state; F: the readout's record
 python -I experiments/long_horizon_tasks/ladder.py ruling ATTEMPT --row N --date YYYY-MM-DD
+python -I experiments/long_horizon_tasks/ladder.py resume [--clears THRESHOLD --date YYYY-MM-DD]
 python -I experiments/long_horizon_tasks/ladder.py allowance inputs|reading|figures ...
 ```
 
@@ -161,8 +162,11 @@ round-one read, a pause or a stop. It reads these ledger rows:
 - `| <date> | Ruling | <attempt> row <N> ... |`, which `ruling` needs before it gives a start paused under D5 row
   16 its row.
 
-To end a pause or a stop, a person writes the ledger row that D5 asks for and then appends `{"event": "resume"}`
-to `<state>/passthrough/tranche.jsonl`. The export (`status --export`) follows `slot_record.py`, the layout the
+To end a pause or a stop, a person writes the ledger row that D5 asks for and then runs `ladder.py resume`. While one
+of D7.7's count thresholds is over its bound, a plain resume is refused, naming it. The thresholds are the
+infrastructure-failure share, five or 24 pre-session failures, the 5% of cuts, and three load-refusal endings.
+`resume --clears <threshold> --date <D>` lifts one after a `| <D> | Ruling | <threshold>: <decision> |` row. That
+threshold then counts only later endings, and every other threshold keeps counting. The export (`status --export`) follows `slot_record.py`, the layout the
 readout reads. The launcher checks the export against that layout before it writes it. It refuses to write the
 export while any start still waits for a ruling. State lives in `$HOME/.local/state/lh-ladder`, or `<dir>/state`
 for a rehearsal.

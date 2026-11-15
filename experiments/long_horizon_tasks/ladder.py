@@ -12,6 +12,8 @@ Usage (from the repository root, or a detached checkout of the frozen commit for
   python -I experiments/long_horizon_tasks/ladder.py ruling ATTEMPT --row N --date YYYY-MM-DD
                                                                  a start paused under D5 row 16 gets the row of
                                                                  the ledger's `| date | Ruling | ATTEMPT row N |`
+  python -I experiments/long_horizon_tasks/ladder.py resume [--clears THRESHOLD --date YYYY-MM-DD]
+                                                                 resume a pause or a stop (D7.7 thresholds: below)
   python -I experiments/long_horizon_tasks/ladder.py allowance (inputs|reading|figures) ...
                                                                  the owner's inputs and meter readings (D4)
 
@@ -34,8 +36,8 @@ State lives outside the checkout: $HOME/.local/state/lh-ladder, or LH_REHEARSAL/
   allowance.jsonl the owner's inputs, meter readings and the pilot's figures, appended (their history)
   money.lock      the one lock under which starts are counted, reserved and settled
   end.json        how the tranche ended: the schedule done, the ceiling or the 240 starts
-A pause or a stop (passthrough/tranche.jsonl) holds until a person appends {"event": "resume"} there, after the
-ledger row D5 asks for. The ledger rows the schedule waits for: `| <date> | Smoke read | <label> pass |` (or
+A pause or a stop (passthrough/tranche.jsonl) holds until a person runs `ladder.py resume` after the ledger row D5
+asks for; a D7.7 threshold over its bound needs `resume --clears <threshold> --date <its Ruling row's date>`. The ledger rows the schedule waits for: `| <date> | Smoke read | <label> pass |` (or
 `fail`: a stop), `| <date> | Pilot read | <label> ... |`, `| <date> | Round 1 read | <label> ... |`.
 The passthrough is started by a person with the token file; `status` prints its command line.
 """
@@ -781,8 +783,15 @@ def judge(root, attempt, ladder, ended_at=None, closed=None):
     return {"row": row, "class": cls, "flagged": spec.get("flagged", False), "reward": _observed(cls, row, trial),
             "stop": stop or (f"D5 row {row}" if cls == "stop" or spec.get("stop") else None),
             "api_retry": None if session is None else session["n_api_retry"], "minutes": session_minutes(trial),
-            "graded": graded(trial, ladder, attempt["task"]),
+            "graded": graded(trial, ladder, attempt["task"]), "load_refused": _load_refused(window, ladder),
             "slot_rows": [r for r in window if r.get("slot") == attempt["id"]]}
+
+
+def _load_refused(window, ladder):
+    """Whether the attempt's window holds a refusal under load or timing (refusal.load_reasons), read as D5 row 15
+    reads it: from the tranche's rows, since a connection refused at the cap is logged before any slot is known."""
+    reasons = set(ladder["refusal"]["load_reasons"].values())
+    return any(r.get("refused") in reasons for r in window)
 
 
 def session_minutes(trial):
@@ -1103,6 +1112,81 @@ def stream_stop(event):
     if event.get("type") == "rate_limit_event" and (event.get("rate_limit_info") or {}).get("isUsingOverage") is not False:
         return "a sign of paid extra usage in the session's stream"
     return None
+
+
+# ---- D7.7's count thresholds: each lifted only by a clearing after a ledger ruling (coordinator ruling) ------
+
+THRESHOLDS = {"infrastructure-failures": "stop", "pre-session-failures": "stop", "cuts": "pause",
+              "load-refusals": "pause"}
+
+
+def _rule(ladder, name):
+    every = ladder["stops"]["stops"] + ladder["stops"]["pauses_for_a_ruling_or_an_input"]
+    return next(e for e in every if e.get("stop", e.get("pause", "")).startswith(name))
+
+
+def _after(root, name):
+    """The settled attempts in the order they closed, after the last clearing of threshold `name`."""
+    since = max((c["at"] for c in _jsonl(root / "clearings.jsonl") if c["threshold"] == name), default=float("-inf"))
+    ended = sorted((a for a in attempts(root) if a["settled"]), key=lambda a: a["settled"]["closed"])
+    return [a for a in ended if a["settled"]["closed"] > since]
+
+
+def _share(every, ladder, cls, above, least):
+    """"hits of starts" when the class's share of the counted starts is above `above` with at least `least` starts."""
+    starts = [a for a in every if ladder["classification"]["classes"][a["settled"]["class"]]["starts"]]
+    hits = sum(a["settled"]["class"] == cls for a in starts)
+    return f"{hits} of {len(starts)} starts" if len(starts) >= least and hits > above * len(starts) else None
+
+
+def _infrastructure(root, ladder):
+    rule, every = _rule(ladder, "infrastructure failures"), _after(root, "infrastructure-failures")
+    found = _share(every, ladder, "infrastructure_failure", rule["above_share_of_starts"], rule["from_starts"])
+    # Open ruling: D7.7 states no minimum for the share at one level; the block's size (one start per effort) is used.
+    at_level = (_share([a for a in every if a["effort"] == level], ladder, "infrastructure_failure",
+                       rule["above_share_at_one_level"], len(EFFORTS)) for level in EFFORTS)
+    return found or next((f"{why} at one level" for why in at_level if why), None)
+
+
+def _pre_session(root, ladder):
+    rule = _rule(ladder, "pre-session failures")
+    classes, run, longest = [a["settled"]["class"] for a in _after(root, "pre-session-failures")], 0, 0
+    for cls in classes:
+        run = run + 1 if cls == "pre_session_failure" else 0
+        longest = max(longest, run)
+    if longest >= rule["in_a_row"]:
+        return f"{longest} in a row"
+    total = classes.count("pre_session_failure")
+    return f"{total} in all" if total >= rule["in_all"] else None
+
+
+def _cuts(root, ladder):
+    rule = _rule(ladder, "cuts")
+    return _share(_after(root, "cuts"), ladder, "cut", rule["above_share_of_starts"], rule["from_starts"])
+
+
+def _load_refusals(root, ladder):
+    rule = _rule(ladder, "attempts ended by a load refusal")
+    n = sum(a["settled"]["row"] == 15 and bool(a["settled"].get("load_refused")) for a in _after(root, "load-refusals"))
+    return f"{n} attempts ended by a load refusal" if n >= rule["count"] else None
+
+
+COUNTS = {"infrastructure-failures": _infrastructure, "pre-session-failures": _pre_session, "cuts": _cuts,
+          "load-refusals": _load_refusals}
+
+
+def threshold_breaches(root, ladder):
+    """{threshold: what it counted} for each D7.7 threshold over its bound, over the endings after its clearing."""
+    return {name: why for name, count in COUNTS.items() if (why := count(root, ladder))}
+
+
+def check_thresholds(root, ladder):
+    """A threshold over its bound stops or pauses the tranche while the gate is open, and a stop also over a pause."""
+    kind = gate_state(_jsonl(root / "passthrough" / "tranche.jsonl"))["kind"]
+    for name, why in threshold_breaches(root, ladder).items():
+        if kind in (None, "limit") or (THRESHOLDS[name] == "stop" and kind == "pause"):
+            tranche_event(root, THRESHOLDS[name], reason=f"{name}: {why}", threshold=name)
+            kind = THRESHOLDS[name]
 
 
 # ---- the allowance guard (D4): the owner's inputs and meter readings --------------------------------------------
@@ -1842,6 +1926,7 @@ class Tranche:
             self.interrupt.set()
             self.stop(f"free disk under {floor} GB")
         check_limits(self.root, self.ladder)
+        check_thresholds(self.root, self.ladder)
         reason = contamination_stop(attempts(self.root), self.ladder)
         if reason:
             self.stop(reason)
@@ -2013,9 +2098,9 @@ def export(ctx, ladder):
     return doc
 
 
-def ruling_rows(text, date, attempt_id, row):
-    """The ledger's `| <date> | Ruling | <attempt id> row <N> ... |` rows: a coordinator's ruling on a row-16 slot."""
-    form = re.compile(rf"{re.escape(attempt_id)} row {row}(?!\d)")
+def ruling_rows(text, date, form):
+    """The ledger's `| <date> | Ruling | ... |` rows whose third cell starts with the pattern `form`: a coordinator's
+    ruling (`<attempt> row <N> ...` for a row-16 start, `<threshold>: <decision>` for a D7.7 threshold)."""
     return [line for line in text.splitlines() if line.startswith("| ")
             and [p.strip() for p in line.split("|")[1:3]] == [date, "Ruling"] and form.match(line.split("|")[3].strip())]
 
@@ -2029,7 +2114,7 @@ def record_ruling(ctx, args):
         raise Refused(f"no settled attempt {args.attempt}")
     if rows.get(args.row, {"class": "ruling"})["class"] == "ruling":
         raise Refused(f"row {args.row} is not a row of D5 a ruling can give")
-    if not ruling_rows(ledger_text(ctx), args.date, args.attempt, args.row):
+    if not ruling_rows(ledger_text(ctx), args.date, re.compile(rf"{re.escape(args.attempt)} row {args.row}(?!\d)")):
         raise Refused(f"no ledger row `| {args.date} | Ruling | {args.attempt} row {args.row} ... |`")
     with _Lock(ctx.root):
         settled = _read_json(path)
@@ -2040,6 +2125,28 @@ def record_ruling(ctx, args):
         _write_json(path, {**settled, "row": args.row, "class": cls, "reward": reward,
                            "ruled": {"row": args.row, "date": args.date}})
     print(f"{args.attempt}: D5 row {args.row} ({cls}), by the ledger's ruling of {args.date}")
+    return 0
+
+
+def record_resume(ctx, args):
+    """A person's resume of a pause or a stop, after the ledger row D5 asks for. Refused while a D7.7 threshold is
+    over its bound; `--clears T --date D` clears T once the ledger holds `| D | Ruling | T: <decision> |`, recording
+    the date and the counts then, and T counts only later endings; every other threshold keeps counting."""
+    ladder = criterion(ctx)
+    ensure_state(ctx.root)
+    over = threshold_breaches(ctx.root, ladder)
+    form = re.compile(rf"{re.escape(args.clears or '')}:\s*\S")
+    if args.clears and not ruling_rows(ledger_text(ctx), args.date, form):
+        raise Refused(f"no ledger row `| {args.date} | Ruling | {args.clears}: <the decision> |`")
+    left = {name: why for name, why in over.items() if name != args.clears}
+    if left:
+        raise Refused("over its bound, cleared only by `resume --clears`: " + "; ".join(f"{k} ({v})" for k, v in left.items()))
+    if args.clears:
+        with open(ctx.root / "clearings.jsonl", "a") as fh:
+            fh.write(json.dumps({"threshold": args.clears, "date": args.date, "at": time.time(),
+                                 "counts": over.get(args.clears)}) + "\n")
+    tranche_event(ctx.root, "resume", by="a person", clears=args.clears, date=args.date)
+    print(f"resumed{f', {args.clears} cleared by the ruling of {args.date}' if args.clears else ''}")
     return 0
 
 
@@ -2084,6 +2191,9 @@ def _parse(argv):
     ruling.add_argument("attempt")
     ruling.add_argument("--row", type=int, required=True)
     ruling.add_argument("--date", required=True, help="the date of the ledger's `Ruling` row")
+    resume = sub.add_parser("resume", help="resume a pause or a stop; --clears a D7.7 threshold after its ruling")
+    resume.add_argument("--clears", choices=sorted(THRESHOLDS))
+    resume.add_argument("--date", help="the date of the ledger's `Ruling` row (with --clears)")
     _allowance_parser(sub)
     return parser.parse_args(argv)
 
@@ -2098,6 +2208,10 @@ def _run(ctx, args):
         return record_allowance(ctx, args)
     if args.command == "ruling":
         return record_ruling(ctx, args)
+    if args.command == "resume":
+        if args.clears and not args.date:
+            raise Refused("--clears needs the --date of its ledger row")
+        return record_resume(ctx, args)
     return status(ctx, args.export) if args.command == "status" else plan(ctx)
 
 
