@@ -1011,15 +1011,19 @@ def _regrades(ctx, ladder, attempt, record, most, gate):
 def regraded(ctx, ladder, attempt, record, gate):
     """The record after the regrades D5 calls for, each below the load gate (`gate` waits for it and says whether it
     opened); written to settled.json. Case 1: up to two; a reward then stands, a verifier timeout twice is 0, still
-    none is an infrastructure failure. Case 2: one, whose reward stands (none: indeterminate)."""
-    case, record = _case(ladder, attempt, record), dict(record)
+    none is an infrastructure failure. Case 2: one, whose reward stands (none: indeterminate). When the gate's wait
+    was interrupted before any regrade ran, nothing is decided: the record stays as close wrote it, still due, and
+    the next launch's reconcile regrades it (re-review R-m2)."""
+    case, given = _case(ladder, attempt, record), record
     if case is None:
         return record
-    record["regrade_case"] = case
+    record = {**record, "regrade_case": case}
     timeouts, reward = _regrades(ctx, ladder, attempt, record, 2 if case == 1 else 1, gate)
+    if record["regrades"] == 0:
+        return given
     if case == 1 and record["reward"] is None:
         record["reward"], record["class"] = (0.0, "observation") if timeouts == 2 else (None, "infrastructure_failure")
-    if case == 2 and record["reward"] == 0 and reward is None:  # never ran, or no reward (Task 8 part A m8)
+    if case == 2 and record["reward"] == 0 and reward is None:  # ran with no reward (Task 8 part A m8)
         record["indeterminate"] = True
     with _Lock(ctx.root):
         _write_json(ctx.root / "slots" / attempt["id"] / "settled.json", record)
@@ -2425,9 +2429,11 @@ def allowance_used(root):
 
 def export(ctx, ladder):
     """The record the readout reads, in slot_record.py's layout, from the state: every settled start (an attempt
-    still open is not in it). Refused while a start awaits a ruling (D5 row 16), and when the record does not
-    load through slot_record.py: the launcher never writes a record the readout would refuse."""
-    every = [a for a in attempts(ctx.root) if a["settled"]]
+    still open, or one whose regrade is still due, is listed under `open` instead). Refused while a start awaits a
+    ruling (D5 row 16), and when the record does not load through slot_record.py: the launcher never writes a
+    record the readout would refuse."""
+    found = attempts(ctx.root)
+    every = [a for a in found if a["settled"] and not _regrade_due(ladder, a)]
     unruled = [a["id"] for a in every if a["settled"]["class"] == "ruling"]
     if unruled:
         raise Refused(f"the export waits for a ruling (D5 row 16) on {', '.join(unruled)}: `ladder.py ruling`")
@@ -2436,7 +2442,7 @@ def export(ctx, ladder):
            "slots": [{"slot": slot_id(e), "task": e["task"], "effort": e["effort"], "round": e["round"],
                       "pilot": e["kind"] == "pilot"} for e in schedule(ladder)],
            "starts": [_start_record(ctx.root, a, ladder) for a in every], "allowance": allowance_used(ctx.root),
-           "open": [{"slot": slot_id(a), "start": a["index"]} for a in attempts(ctx.root) if a["settled"] is None]}
+           "open": [{"slot": slot_id(a), "start": a["index"]} for a in found if a not in every]}
     try:
         slot_record.load(json.loads(json.dumps(doc)), ladder)
     except slot_record.RecordError as exc:

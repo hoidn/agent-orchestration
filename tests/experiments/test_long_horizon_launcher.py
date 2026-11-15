@@ -1294,14 +1294,43 @@ def test_a_cut_on_a_load_sensitive_task_is_never_regraded(short):
     assert ((record["class"], after["class"], after["reward"]), len(_calls(lh))) == (("cut", "cut", None), 0)
 
 
-def test_a_case_2_regrade_that_never_ran_is_indeterminate_never_a_scored_zero(short):
-    """Task 8 part A m8 (D5): the load gate's wait was interrupted, so the 0 taken under load is not kept."""
+def test_a_case_2_regrade_that_gave_no_reward_is_indeterminate_never_a_scored_zero(short):
+    """Task 8 part A m8 (D5): the regrade ran and gave no reward, so the 0 taken under load is not kept."""
     lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": [
+        {"exception": "RewardFileNotFoundError"}]}))
     criterion = {**CRITERION, "tasks": {**CRITERION["tasks"], "load_sensitive": ["wal-recovery-ordering"]}}
     root, attempt, record = _closed(short, "stub-budget-stop-NonZeroAgentExitCodeError", [], reward=0.0)
-    interrupted = ladder.regraded(_ctx(short, lh), criterion, attempt, {**record, "verifier_load_above_gate": True},
-                                  gate=lambda: False)
-    assert (interrupted["regrades"], interrupted.get("indeterminate"), len(_calls(lh))) == (0, True, 0)
+    after = ladder.regraded(_ctx(short, lh), criterion, attempt, {**record, "verifier_load_above_gate": True},
+                            gate=lambda: True)
+    assert (after["regrades"], after.get("indeterminate"), len(_calls(lh))) == (1, True, 1)
+
+
+@pytest.mark.parametrize("case", [1, 2])
+def test_a_regrade_whose_load_gate_wait_was_interrupted_stays_due_and_reconcile_regrades_it(short, case):
+    """Re-review R-m2 (D5): the gate's wait returned False before any regrade ran (a signal to the launcher, the disk
+    stop), so nothing is final: no "no reward after regrades", no "indeterminate". The start is listed open, and
+    the next launch's reconcile regrades it."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": [{"reward": 1.0}]}))
+    criterion = STANDING  # the stand-ins: wal-recovery-ordering is load-sensitive
+    fixture, reward = ("token-three-tools-normal-end", None) if case == 1 else (
+        "stub-budget-stop-NonZeroAgentExitCodeError", 0.0)
+    root, attempt, record = _closed(short, fixture, [], reward=reward)
+    record = {**record, "verifier_load_above_gate": True}
+    ladder._write_json(root / "slots" / attempt["id"] / "settled.json", record)
+    ctx = _ctx(short, lh)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    interrupted = ladder.regraded(ctx, criterion, attempt, record, gate=lambda: False)
+    due = ladder._regrade_due(criterion, ladder.attempts(root)[0])
+    exported = ladder.export(ctx, criterion)
+    path = root / "slots" / attempt["id"] / "slot.json"
+    ladder._write_json(path, {**json.loads(path.read_text()), "launcher": {"pid": 2 ** 22 + 7, "start": 1}})
+    ladder.reconcile(ctx, criterion, 0.0, gate=lambda: True)
+    settled = ladder.attempts(root)[0]["settled"]
+    assert ((interrupted.get("regrade_case"), interrupted.get("indeterminate"), interrupted["class"]), due,
+            (len(exported["starts"]), len(exported["open"])), (settled["regrade_case"], settled["reward"])) == (
+        (None, None, "observation"), True, (0, 1), (case, 1.0))
 
 
 def test_a_ruling_to_the_normal_row_for_a_start_with_no_reward_is_refused_when_it_is_made(short, capsys):
