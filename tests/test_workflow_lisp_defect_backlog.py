@@ -85,6 +85,7 @@ from tests import test_workflow_evaluated_providers as provider_fixture
 from tests import test_workflow_lisp_run_ref_workflow_program as run_ref_fixture
 from tests.agent_session_shims import closed_path
 from tests.workflow_lisp_closed_program_helpers import build_outcome
+from tests.source_edits import replace_exact
 
 REPO = Path(__file__).resolve().parents[1]
 BUILDS = ("builds",)
@@ -611,7 +612,7 @@ def d9(body: str, call: str = "(h n)") -> str:
 D11_VIA = ("(defproc via ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int\n"
            "    (list/length (list/map-effect ((x xs)) :max 2 (f x))))")
 ROLE = "(let* ((role (bind-proc (proc-ref add) :n 1))) BODY)"
-ROLE_STEP = ROLE.replace("BODY", "(let-proc ((step ((x Int)) -> Int (role x))) BODY)")
+ROLE_STEP = replace_exact(ROLE, "BODY", "(let-proc ((step ((x Int)) -> Int (role x))) BODY)")
 MAP_12 = "(list/length (list/map-effect ((x (list 1 2))) :max 2 CALL))"
 D12 = ("(defrecord Box (n Int))", "(defworkflow helper ((b Box)) -> Box b)",
        "(defworkflow invoke ((runner WorkflowRef[Box -> Box])) -> Box (record Box :n 1))")
@@ -655,7 +656,8 @@ IGNORE = "(defproc ignore ((f ProcRef[Int -> Int]) (v Int)) -> Int v)"
 
 
 def rebound(wanted: tuple, body: str) -> Row:
-    return row(wanted, "((k Int)) -> Int " + REBOUND.replace("BODY", body), ADDN, U, BIND_AS, IGNORE, inputs=("k=1",))
+    return row(wanted, "((k Int)) -> Int " + replace_exact(REBOUND, "BODY", body), ADDN, U, BIND_AS, IGNORE,
+               inputs=("k=1",))
 B7_FWK = "(defproc fwk ((k Int) (y Int)) -> Int (let* ((r (call c1 :input (record Box :n (+ y k))))) r.n))"
 B7_U = "(defunion U (A (n Int)) (B (n Int)))"
 B7_DBL = "(defun dbl ((x Int)) -> Int (* x 2))"
@@ -668,10 +670,10 @@ B7_FWI = "(defproc fwi ((k Int) (input Box)) -> Box (call c1 :input (record Box 
 B7_FREE_RUN = "((n Int)) -> Int (let* ((input (record Box :n n)) (a FIRST) (c SECOND)) (+ a.n (* 1000 c.n)))"
 LOOP_LOCAL_ADDING = "(let-proc ((h ((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done (+ s ADDEND))))) (h x))"
 D23_LOCAL = "((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done BODY))"
-D23_BOTH = ("(defproc both ((n Int)) -> Int (let-proc ((f " + D23_LOCAL.replace("BODY", "(+ s 1)") + ")\n"
-            "    (g " + D23_LOCAL.replace("BODY", "(* s 10)") + ")) (+ (f n) (g n))))")
-D23_MACRO = ("(defmacro with-loop (x k) (let-proc ((h " + D23_LOCAL.replace("(s v)", "(s k)").replace("BODY", "s")
-             + ")) (h x)))")
+D23_BOTH = ("(defproc both ((n Int)) -> Int (let-proc ((f " + replace_exact(D23_LOCAL, "BODY", "(+ s 1)") + ")\n"
+            "    (g " + replace_exact(D23_LOCAL, "BODY", "(* s 10)") + ")) (+ (f n) (g n))))")
+D23_MACRO = ("(defmacro with-loop (x k) (let-proc ((h "
+             + replace_exact(replace_exact(D23_LOCAL, "(s v)", "(s k)"), "BODY", "s") + ")) (h x)))")
 E2_COMMAND = '(command-result c :argv ("python" "c.py" "m" u.n) :returns Int)'
 E4_PICK = ("(defproc pick :forall (T) ((x T))\n"
            "    :where ((T has-union-variant OK (n Int)) (T has-union-variant BAD (why String)))\n"
@@ -713,27 +715,31 @@ ROWS: dict[str, Row] = {
     "B6": row(value(True, "strb"), "() -> Bool " + E("strb", r'\"TRUE\"', "Bool")),
     # Eleventh batch: a value bound by `bind-proc` is identified by its position and, made of stable kinds only,
     # its content, so two expansions of one template that bind different such values get two specializations.
-    "B7-chain": row(value(204104), B7_RUN.replace("CALL", "ch"), *B7_BOX, B7_INC1, B7_CH, inputs=("n=3",)),
-    "B7-ref": row(value(203103), B7_RUN.replace("CALL", "ba"), *B7_BOX, B7_AP,
+    "B7-chain": row(value(204104), replace_exact(B7_RUN, "CALL", "ch", count=2), *B7_BOX, B7_INC1, B7_CH,
+                    inputs=("n=3",)),
+    "B7-ref": row(value(203103), replace_exact(B7_RUN, "CALL", "ba", count=2), *B7_BOX, B7_AP,
                   "(defmacro ba (w v) (ap (bind-proc (proc-ref foo) :runner (workflow-ref w)) v))", inputs=("n=3",)),
-    "B7-deep": row(value(205105), B7_RUN.replace("CALL", "cd"), *B7_BOX, B7_INC1,
+    "B7-deep": row(value(205105), replace_exact(B7_RUN, "CALL", "cd", count=2), *B7_BOX, B7_INC1,
                    "(defmacro cd (w v) (inc1 (bind-proc (proc-ref inc1) :hook "
                    "(bind-proc (proc-ref foo) :runner (workflow-ref w))) v))", inputs=("n=3",)),
-    "B7-let": row(value(203103), B7_RUN.replace("CALL", "lb"), *B7_BOX, B7_AP,
+    "B7-let": row(value(203103), replace_exact(B7_RUN, "CALL", "lb", count=2), *B7_BOX, B7_AP,
                   "(defmacro lb (w v) (let* ((g (bind-proc (proc-ref foo) :runner (workflow-ref w)))) (ap g v)))",
                   inputs=("n=3",)),
-    "B7-written": row(value(204104), B7_RUN.replace("(CALL c1 input)", B7_WRITTEN.replace("W", "c1"))
-                      .replace("(CALL c2 input)", B7_WRITTEN.replace("W", "c2")), *B7_BOX, B7_INC1, inputs=("n=3",)),
-    "B7-same-macro": row(value(104104), B7_RUN.replace("c2", "c1").replace("CALL", "ch"), *B7_BOX, B7_INC1, B7_CH,
-                         inputs=("n=3",)),
+    "B7-written": row(value(204104), replace_exact(
+        replace_exact(B7_RUN, "(CALL c1 input)", replace_exact(B7_WRITTEN, "W", "c1")),
+        "(CALL c2 input)", replace_exact(B7_WRITTEN, "W", "c2")), *B7_BOX, B7_INC1, inputs=("n=3",)),
+    "B7-same-macro": row(value(104104), replace_exact(replace_exact(B7_RUN, "c2", "c1"), "CALL", "ch", count=2),
+                         *B7_BOX, B7_INC1, B7_CH, inputs=("n=3",)),
     "B7-int": row(value(1004), "((n Int)) -> Int (+ (bf 1 n) (* 100 (bf 7 n)))", B7_HELPER, B7_APPLYI, B7_BF,
                   inputs=("n=3",)),
-    "B7-same-written": row(value(104104), B7_RUN.replace("(CALL c1 input)", B7_WRITTEN.replace("W", "c1"))
-                           .replace("(CALL c2 input)", B7_WRITTEN.replace("W", "c1")), *B7_BOX, B7_INC1, inputs=("n=3",)),
+    "B7-same-written": row(value(104104), replace_exact(
+        replace_exact(B7_RUN, "(CALL c1 input)", replace_exact(B7_WRITTEN, "W", "c1")),
+        "(CALL c2 input)", replace_exact(B7_WRITTEN, "W", "c1")), *B7_BOX, B7_INC1, inputs=("n=3",)),
     # Bound to `ap` directly, not through `inc1`: the same refusal (bound-value re-review, `Q-wfref-same`).
-    "B7-same-ref": row(value(103103), B7_RUN.replace("(CALL c1 input)", "(ap (bind-proc (proc-ref foo) :runner "
-                       "(workflow-ref c1)) input)").replace("(CALL c2 input)", "(ap (bind-proc (proc-ref foo) :runner "
-                       "(workflow-ref c1)) input)"), *B7_BOX, B7_AP, inputs=("n=3",)),
+    "B7-same-ref": row(value(103103), replace_exact(
+        replace_exact(B7_RUN, "(CALL c1 input)", "(ap (bind-proc (proc-ref foo) :runner (workflow-ref c1)) input)"),
+        "(CALL c2 input)", "(ap (bind-proc (proc-ref foo) :runner (workflow-ref c1)) input)"),
+        *B7_BOX, B7_AP, inputs=("n=3",)),
     # A bound value of another kind than the stable ones keeps the position identity alone, so two expansions of
     # one template share one specialization (bound-value re-review: conditional normalization hoists these kinds).
     "B7-macro-if": row(value(110103), B7_TWICE, *B7_BOX, B7_FWK, B7_APPLYI, B7_U, B7_DBL,
@@ -766,14 +772,16 @@ ROWS: dict[str, Row] = {
                ":xs (list/map ((i (list 1 2))) (+ i k)))) x))", inputs=("n=3",)),
     # A bound value that reads a local keeps the position identity alone, so two expansions of a template whose
     # bound value still reads a local after substitution share one specialization: the build stops.
-    "B7-free-eff": row(value(111105), B7_FREE_RUN.replace("FIRST", "(lk 1 input)").replace("SECOND", "(lk 7 input)"),
+    "B7-free-eff": row(value(111105),
+                       replace_exact(replace_exact(B7_FREE_RUN, "FIRST", "(lk 1 input)"), "SECOND", "(lk 7 input)"),
                        *B7_BOX, B7_FWI, B7_AP, "(defmacro lk (k v) (let* ((b k) (hook (bind-proc (proc-ref fwi) "
                        ":k (+ b 1)))) (ap hook v)))", inputs=("n=3",)),
     "B7-free-pure": row(value(1105), "((n Int)) -> Int (+ (lkp 1 n) (* 100 (lkp 7 n)))", B7_HELPER, B7_APPLYI,
                         "(defmacro lkp (k x) (let* ((b k) (hook (bind-proc (proc-ref helper) :fixed (+ b 1)))) "
                         "(applyi hook x)))", inputs=("n=3",)),
-    "B7-free-arg": row(value(111105), B7_FREE_RUN.replace("FIRST", "(let* ((b 1)) (bk b input))")
-                       .replace("SECOND", "(let* ((b 7)) (bk b input))"), *B7_BOX, B7_FWI, B7_AP,
+    "B7-free-arg": row(value(111105), replace_exact(
+        replace_exact(B7_FREE_RUN, "FIRST", "(let* ((b 1)) (bk b input))"), "SECOND", "(let* ((b 7)) (bk b input))"),
+                       *B7_BOX, B7_FWI, B7_AP,
                        "(defmacro bk (k v) (let* ((hook (bind-proc (proc-ref fwi) :k (+ k 1)))) (ap hook v)))",
                        inputs=("n=3",)),
 
@@ -857,17 +865,18 @@ ROWS: dict[str, Row] = {
     "D9-scalar-state": row(value(5), d9("(loop/recur ((s 5)) :max 1 :on-exhausted 0 (done s))"), inputs=("n=1",)),
     "D10": row(value(2), "() -> Int (let* ((p (proc-ref increment))) "
                "(let-proc ((f ((x Int)) -> Int (p x))) (f 1)))", INC),
-    "D10-R1": row(value(2), "() -> Int " + ROLE_STEP.replace("BODY", "(step 1)"), ADD),
+    "D10-R1": row(value(2), "() -> Int " + replace_exact(ROLE_STEP, "BODY", "(step 1)"), ADD),
     "D11": row(value(2, "step", "step"), "() -> Int (let* ((g (proc-ref step))) "
                "(let-proc ((h ((n Int)) -> Int (g n))) (via (proc-ref h) (list 1 2))))", STEP, D11_VIA),
-    "D11-R1": row(value(3, "add"), "() -> Int " + ROLE_STEP.replace("BODY", "(step 1)"), ADDE),
+    "D11-R1": row(value(3, "add"), "() -> Int " + replace_exact(ROLE_STEP, "BODY", "(step 1)"), ADDE),
     "D11-R2": row(value(2, "add", "add"),
-                  "() -> Int " + ROLE_STEP.replace("BODY", MAP_12.replace("CALL", "(step x)")), ADDE),
+                  "() -> Int " + replace_exact(ROLE_STEP, "BODY", replace_exact(MAP_12, "CALL", "(step x)")), ADDE),
     "D11-R5": row(value(2, "add", "add"),
-                  "() -> Int " + ROLE_STEP.replace("BODY", "(each (proc-ref step) (list 1 2))"), ADDE, EACH),
+                  "() -> Int " + replace_exact(ROLE_STEP, "BODY", "(each (proc-ref step) (list 1 2))"), ADDE, EACH),
     "D11-R3": row(value(2, "add", "add"),
-                  "() -> Int " + ROLE.replace("BODY", MAP_12.replace("CALL", "(role x)")), ADDE),
-    "D11-R4": row(value(2, "add", "add"), "() -> Int " + ROLE.replace("BODY", "(each role (list 1 2))"), ADDE, EACH),
+                  "() -> Int " + replace_exact(ROLE, "BODY", replace_exact(MAP_12, "CALL", "(role x)")), ADDE),
+    "D11-R4": row(value(2, "add", "add"), "() -> Int " + replace_exact(ROLE, "BODY", "(each role (list 1 2))"),
+                  ADDE, EACH),
     "D12-entry": Row(None, module("() -> Int 1", *D12, head="(export run invoke)"), entry="m::invoke"),
     "D12-literal": row(None, "() -> Box (call invoke :runner (workflow-ref helper))", *D12),
     "D12-name": row(None, "() -> Box (call invoke :runner helper)", *D12),
@@ -881,8 +890,10 @@ ROWS: dict[str, Row] = {
                "(proc-ref increment) (proc-ref increment)))) (g 1))", INC),
     "D17-effect": row(value(2, "m", "m"), D17_RUN, D17_EFFECT),
     "D17-pure": row(value(2), D17_RUN, D17_PURE),
-    "D19": row(refused("effect_not_permitted"), D19.replace("EXIT", "continue").replace("VALUE", D19_VALUE), inputs=("n=1",)),
-    "D19-done": row(value(1, "e"), D19.replace("EXIT", "done").replace("VALUE", D19_VALUE), inputs=("n=1",)),
+    "D19": row(refused("effect_not_permitted"),
+               replace_exact(replace_exact(D19, "EXIT", "continue"), "VALUE", D19_VALUE), inputs=("n=1",)),
+    "D19-done": row(value(1, "e"), replace_exact(replace_exact(D19, "EXIT", "done"), "VALUE", D19_VALUE),
+                    inputs=("n=1",)),
     "D20": row(value(1, "e1"), f"((n Int)) -> Int (match {D20_SUBJECT} {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
     "D20-bound": row(value(1, "e1"), f"((n Int)) -> Int (let* ((shape {D20_SUBJECT})) (match shape {D20_ARMS}))",
                      SHAPE, D20_MK, inputs=("n=1",)),
@@ -896,9 +907,9 @@ ROWS: dict[str, Row] = {
     # that body to different lifted locals shared one site and one target, chosen in hash-seed order.
     # Found by the call-site review; not collisions: they crash in a single use too.
     "D24": row(None, "((n Int)) -> Int (let* ((x n) (r (record R :k 1))) "
-               + LOOP_LOCAL_ADDING.replace("ADDEND", "r.k") + ")", "(defrecord R (k Int))", inputs=("n=3",)),
+               + replace_exact(LOOP_LOCAL_ADDING, "ADDEND", "r.k") + ")", "(defrecord R (k Int))", inputs=("n=3",)),
     "D25": row(None, "((n Int)) -> Int (both n 1)", "(defproc both ((x Int) (k Int)) -> Int (let* ((kk (+ k 0))) "
-               + LOOP_LOCAL_ADDING.replace("ADDEND", "kk") + "))", inputs=("n=3",)),
+               + replace_exact(LOOP_LOCAL_ADDING, "ADDEND", "kk") + "))", inputs=("n=3",)),
     # Twelfth batch (TD6 fix round 1), each a role called from a local step: over a workflow input with a pure
     # `add` (D10's shape with `:n k`); over a field read; over a `let*` name bound to a literal. The copied role is
     # the spelling `main` crashes on when written by hand inside the local. D10-rebound-*: the role reads `k`, bound
@@ -907,51 +918,67 @@ ROWS: dict[str, Row] = {
     # the value the lexical binding gives, the one the renamed spelling runs to. Controls: renamed; the local never
     # referenced, referenced only by a `let*` nothing reads, or by an argument its callee ignores: `main` builds
     # each (7) with the same digest.
-    "D10-input-pure": row(value(2), "((k Int)) -> Int " + ROLE_OVER.replace("VALUE ", "").replace("READ", "k"), ADD,
-                          inputs=("k=1",)),
-    "D10-field": row(value(3, "add"), "((k Int)) -> Int " + ROLE_OVER.replace("VALUE", "(r (record R :k k))")
-                     .replace("READ", "r.k"), ADDE, "(defrecord R (k Int))", inputs=("k=1",)),
-    "D10-field-pure": row(value(2), "((k Int)) -> Int " + ROLE_OVER.replace("VALUE", "(r (record R :k k))")
-                          .replace("READ", "r.k"), ADD, "(defrecord R (k Int))", inputs=("k=1",)),
-    "D10-literal-let": row(value(3, "add"), "() -> Int " + ROLE_OVER.replace("VALUE", "(v 10)").replace("READ", "v"),
-                           ADDE),
-    "D10-literal-let-pure": row(value(11), "() -> Int " + ROLE_OVER.replace("VALUE", "(v 10)").replace("READ", "v"),
-                                ADD),
-    "D10-rebound-loop": rebound(value(2, "add"), REBINDERS["loop"].replace(
-        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
-    "D10-rebound-continue": rebound(value(2, "add"), REBINDERS["continue"].replace(
-        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
-    "D10-rebound-fn": rebound(value(2, "add"), REBINDERS["fn"].replace(
-        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
-    "D10-rebound-let": rebound(value(2, "add"), REBINDERS["let"].replace(
-        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
-    "D10-rebound-let-in-loop": rebound(value(2, "add"), REBINDERS["let-in-loop"].replace(
-        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
-    "D10-rebound-arm": rebound(value(2, "add"), REBINDERS["arm"].replace(
-        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
-    "D10-rebound-macro": rebound(value(2, "add"), REBINDERS["macro"].replace(
-        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
+    "D10-input-pure": row(value(2), "((k Int)) -> Int "
+                          + replace_exact(replace_exact(ROLE_OVER, "VALUE ", ""), "READ", "k"), ADD, inputs=("k=1",)),
+    "D10-field": row(value(3, "add"), "((k Int)) -> Int "
+                     + replace_exact(replace_exact(ROLE_OVER, "VALUE", "(r (record R :k k))"), "READ", "r.k"),
+                     ADDE, "(defrecord R (k Int))", inputs=("k=1",)),
+    "D10-field-pure": row(value(2), "((k Int)) -> Int "
+                          + replace_exact(replace_exact(ROLE_OVER, "VALUE", "(r (record R :k k))"), "READ", "r.k"),
+                          ADD, "(defrecord R (k Int))", inputs=("k=1",)),
+    "D10-literal-let": row(value(3, "add"), "() -> Int "
+                           + replace_exact(replace_exact(ROLE_OVER, "VALUE", "(v 10)"), "READ", "v"), ADDE),
+    "D10-literal-let-pure": row(value(11), "() -> Int "
+                                + replace_exact(replace_exact(ROLE_OVER, "VALUE", "(v 10)"), "READ", "v"), ADD),
+    "D10-rebound-loop": rebound(value(2, "add"), replace_exact(
+        REBINDERS["loop"],
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "(step 1)"))),
+    "D10-rebound-continue": rebound(value(2, "add"), replace_exact(
+        REBINDERS["continue"],
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "(step 1)"))),
+    "D10-rebound-fn": rebound(value(2, "add"), replace_exact(
+        REBINDERS["fn"],
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "(step 1)"))),
+    "D10-rebound-let": rebound(value(2, "add"), replace_exact(
+        REBINDERS["let"],
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "(step 1)"))),
+    "D10-rebound-let-in-loop": rebound(value(2, "add"), replace_exact(
+        REBINDERS["let-in-loop"],
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "(step 1)"))),
+    "D10-rebound-arm": rebound(value(2, "add"), replace_exact(
+        REBINDERS["arm"],
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "(step 1)"))),
+    "D10-rebound-macro": rebound(value(2, "add"), replace_exact(
+        REBINDERS["macro"],
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "(step 1)"))),
     "D10-rebound-parameter": rebound(value(2, "add"), "(let-proc ((step ((k Int)) -> Int (role k))) (step 1))"),
     "D10-rebound-two-roles": row(value(13, "add", "add"), "((k Int)) -> Int (let* ((v 10) (r1 (bind-proc (proc-ref add) :n k)) "
                                  "(r2 (bind-proc (proc-ref add) :n v))) (let* ((v 0)) (let-proc ((step ((x Int)) -> Int "
                                  "(+ (r1 x) (r2 x)))) (step 1))))", ADDN, inputs=("k=1",)),
-    "D10-rebound-renamed": rebound(value(2, "add"), REBINDERS["loop"].replace("((k 100))", "((q 100))")
-                                   .replace("LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
-    "D10-rebound-unreferenced": rebound(value(7), REBINDERS["loop"].replace("LOCAL", REBOUND_STEP.replace("USE", "7"))),
-    "D10-rebound-unread-binding": rebound(value(7), REBINDERS["let"].replace(
-        "LOCAL", REBOUND_STEP.replace("USE", "(let* ((f (proc-ref step))) 7)"))),
-    "D10-rebound-ignored-argument": rebound(value(7), REBINDERS["let"].replace(
-        "LOCAL", REBOUND_STEP.replace("USE", "(ignore (proc-ref step) 7)"))),
+    "D10-rebound-renamed": rebound(value(2, "add"), replace_exact(
+        replace_exact(REBINDERS["loop"], "((k 100))", "((q 100))"),
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "(step 1)"))),
+    "D10-rebound-unreferenced": rebound(value(7), replace_exact(
+        REBINDERS["loop"],
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "7"))),
+    "D10-rebound-unread-binding": rebound(value(7), replace_exact(
+        REBINDERS["let"],
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "(let* ((f (proc-ref step))) 7)"))),
+    "D10-rebound-ignored-argument": rebound(value(7), replace_exact(
+        REBINDERS["let"],
+        "LOCAL", replace_exact(REBOUND_STEP, "USE", "(ignore (proc-ref step) 7)"))),
     "D25-plain": row(value(4), "((n Int)) -> Int (pan 1 n)",
                      "(defproc pan ((k Int) (x Int)) -> Int (let-proc ((h ((v Int)) -> Int (+ v k))) (h x)))",
                      inputs=("n=3",)),
     # Found by the bound-value review; each crashes on `main` too, in a single use (D28 binds in two scopes).
-    "D26": row(value(104), B7_FREE_RUN.replace("(c SECOND)) (+ a.n (* 1000 c.n))", ") a.n").replace(
+    "D26": row(value(104), replace_exact(
+               replace_exact(B7_FREE_RUN, "(c SECOND)) (+ a.n (* 1000 c.n))", ") a.n"),
                "FIRST", "(ap (bind-proc (proc-ref fw) :b (record Box :n 1)) input)"), *B7_BOX, B7_AP,
                "(defproc fw ((b Box) (input Box)) -> Box (call c1 :input (record Box :n (+ input.n b.n))))",
                inputs=("n=3",)),
-    "D28": row(value(110104), B7_FREE_RUN.replace("FIRST", "(let* ((b 1) (hook (bind-proc (proc-ref fwi) :k b))) (ap hook input))")
-               .replace("SECOND", "(let* ((b 7) (hook (bind-proc (proc-ref fwi) :k b))) (ap hook input))"),
+    "D28": row(value(110104), replace_exact(
+        replace_exact(B7_FREE_RUN, "FIRST", "(let* ((b 1) (hook (bind-proc (proc-ref fwi) :k b))) (ap hook input))"),
+        "SECOND", "(let* ((b 7) (hook (bind-proc (proc-ref fwi) :k b))) (ap hook input))"),
                *B7_BOX, B7_FWI, B7_AP, inputs=("n=3",)),
     "D29": row(value([7]), "() -> List[Int] (list/map ((b (list 1))) (let* ((hook (bind-proc (proc-ref add-leading) "
                ":leading (+ b 1)))) (hook 5)))",
@@ -987,8 +1014,8 @@ ROWS: dict[str, Row] = {
     "E9": row(value(1), E9_RUN, AP, E9_H, inputs=("n=1",)),
     "E9-local": row(value(5), d9(D9_STATE, "(apply1 (proc-ref h) n)"), AP, inputs=("n=1",)),
     "E9-direct": row(BUILDS, "((n Int)) -> Int (h n)", AP, E9_H),
-    "E9-effect-callee": row(BUILDS, E9_RUN, AP, E9_H.replace("(done s)", f"(done {E('e', 4, 'Int')})")),
-    "E9-effect-caller": row(BUILDS, E9_RUN, E9_H, AP.replace("(f v)", f"(let* ((w {E('w', 1, 'Int')})) (f v))")),
+    "E9-effect-callee": row(BUILDS, E9_RUN, AP, replace_exact(E9_H, "(done s)", f"(done {E('e', 4, 'Int')})")),
+    "E9-effect-caller": row(BUILDS, E9_RUN, E9_H, replace_exact(AP, "(f v)", f"(let* ((w {E('w', 1, 'Int')})) (f v))")),
     # Not fixed: specification 34 states that a free name in a template resolves at the call site.
     "E10": row(value(6), "((y Int)) -> Int (uses-y)", "(defmacro uses-y () (+ y 1))", inputs=("y=5",)),
     # The one-target cut's: E11 to E13.
@@ -999,21 +1026,22 @@ ROWS: dict[str, Row] = {
     "E13": Row(None, module("() -> Int (f 1)", '(defun f ((x Int)) -> (result Int :description "fmarker") x)'),
                versus=module("() -> Int (f 1)", "(defun f ((x Int)) -> Int x)")),
     # Not a defect: the binder has the name of a template local, as the program written in place has.
-    "E18-macro": row(refused("list_map_binder_invalid"), "() -> Int (mm 1)", E18_MM.replace("BINDER", "v")),
+    "E18-macro": row(refused("list_map_binder_invalid"), "() -> Int (mm 1)",
+                     replace_exact(E18_MM, "BINDER", "v", count=2)),
     "E18-in-place": row(refused("list_map_binder_invalid"),
                         "() -> Int (let* ((v (list 1 1))) (list/length (list/map ((v v)) (+ v 1))))"),
-    "E18-other-binder": row(value(2), "() -> Int (mm 1)", E18_MM.replace("BINDER", "w")),
+    "E18-other-binder": row(value(2), "() -> Int (mm 1)", replace_exact(E18_MM, "BINDER", "w", count=2)),
     "E19": row(value(4), "() -> Int (twice 1)",
                "(defmacro twice (a) (let-proc ((h ((x Int)) -> Int (+ x 1))) (+ (h a) (h a))))"),
     "E20": row(value(1), "() -> Int (let* ((flag false)) (mm 1))",
                "(defmacro mm (x) (let* ((flag true)) (cond (flag 1) (true 0))))"),
-    "E23-local": row(value(2), "() -> Int (let* ((tmp 1)) " + E23_BIND.replace("NAME", "tmp") + ")", AP, ADD),
-    "E23-input": row(value(2), "((k Int)) -> Int " + E23_BIND.replace("NAME", "k"), AP, ADD, inputs=("k=1",)),
+    "E23-local": row(value(2), "() -> Int (let* ((tmp 1)) " + replace_exact(E23_BIND, "NAME", "tmp") + ")", AP, ADD),
+    "E23-input": row(value(2), "((k Int)) -> Int " + replace_exact(E23_BIND, "NAME", "k"), AP, ADD, inputs=("k=1",)),
     "E23-bound": row(value(2), "() -> Int (let* ((tmp 1) (role (bind-proc (proc-ref add) :n tmp))) (apply1 role 1))",
                      AP, ADD),
     "E24": e24("Box mk"),
     "E24-imported": e24("Box mk P"),
-    "E24-qualified": e24("Box mk", E24_LIB.replace("(path/join-under P", "(path/join-under m/lib/P")),
+    "E24-qualified": e24("Box mk", replace_exact(E24_LIB, "(path/join-under P", "(path/join-under m/lib/P")),
     "E25": row(BUILDS, "() -> Int (if (= (list/length (list/map-effect "
                f'((r (list "a"))) :max 1 :parallel 1 :workspace r {E("p", 1, "Int")})) 1) 1 0)'),
     "E26": row(None, f"() -> Int (apply1 (bind-proc (proc-ref add2) :n {E('e', 1, 'Int')}) 1)", AP,
@@ -1057,8 +1085,11 @@ SLOTS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
 
 
 def slots(fields: str, fills: str, template: str, arguments: str, parameters: str = "(message String) (report Report)"):
-    return (SLOTS.replace("FIELDS", fields).replace("FILLS", fills).replace("TEMPLATE", template)
-            .replace("ARGUMENTS", arguments).replace("PARAMETERS", parameters))
+    text = SLOTS
+    for old, new in (("FIELDS", fields), ("FILLS", fills), ("TEMPLATE", template), ("ARGUMENTS", arguments),
+                     ("PARAMETERS", parameters)):
+        text = replace_exact(text, old, new)
+    return text
 
 
 @dataclass(frozen=True)
@@ -1261,7 +1292,7 @@ def test_program_row(row_id, tmp_path):
 
 @pytest.mark.parametrize("row_id", sorted(A2_ROWS))
 def test_confined_site_reached_from_a_map_body_row(row_id, tmp_path, monkeypatch):
-    controller = run_ref_fixture.CONFINED.replace("EXTRA", "EXTRA " + A2_ROUTES)
+    controller = replace_exact(run_ref_fixture.CONFINED, "EXTRA", "EXTRA " + A2_ROUTES)
     monkeypatch.setattr(run_ref_fixture, "CONFINED", controller)
 
     settle(row_id, build_outcome(
