@@ -194,7 +194,8 @@ def run(args):
     """`harbor_patient.py run ...`: the next behaviour of standin/plan.json, in call order."""
     import os, subprocess, time
     calls = [json.loads(line) for line in (HERE / "calls.jsonl").read_text().splitlines()]
-    n = sum(1 for c in calls if c["argv"][1:2] == ["run"])
+    mine = max(i for i, c in enumerate(calls) if c["pid"] == os.getpid())  # its own line: two harnesses started
+    n = sum(1 for c in calls[:mine + 1] if c["argv"][1:2] == ["run"])   # together never read the same count
     plan = json.loads((HERE / "plan.json").read_text()) if (HERE / "plan.json").exists() else []
     behaviour = plan[n - 1] if n <= len(plan) else {}
     note("started", n=n, affinity=sorted(os.sched_getaffinity(0)), pgid=os.getpgid(0), pid=os.getpid())
