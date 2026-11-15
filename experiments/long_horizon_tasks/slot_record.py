@@ -22,16 +22,19 @@ neither imports the other. Standard library only.
                     "label"           the configuration label it ran under: the current one or an earlier one
                     "row"             the row of D5 that classified its ending (classification.rows); row 16 awaits
                                       a ruling and is refused until the ruling gives the start its row
-                    "class"           the class the launcher decided: the row's class, or "stop" when the launcher
-                                      stopped the tranche on this attempt (then "stop_cause" names why)
+                    "class"           the class the launcher decided: the row's class, "stop" when the launcher
+                                      stopped the tranche on this attempt (then "stop_cause" names why), or
+                                      "infrastructure_failure" on the normal ending's row for regrade case 1
                     "stop_cause"      null, or one of LAUNCHER_STOPS: a stop of D7.7 the launcher sees in an attempt
                                       whose row is not a stop row; required exactly then, and only where the cause
                                       can occur (LAUNCHER_STOPS: on a session's start, on the smoke's slot, or on any)
                     "reward"          the verifier's reward, 0 or 1, or null; read only for an observation, where
                                       null is 0 (D5), except after a normal ending, which is regraded first (D5)
-                    "excluded"        null, or why an observation is excluded after all: "no reward after regrades"
-                                      (D5, regrade case 1, an infrastructure failure: a normal ending, reward null),
-                                      "indeterminate" (D5, regrade case 2: a reward of 0 that could not be regraded)
+                    "excluded"        null, or the D5 regrade case that takes a normal ending out of k and n: "no
+                                      reward after regrades" (regrade case 1: class "infrastructure_failure", a
+                                      normal ending, reward null; ladder.json and D5: still no reward file is an
+                                      infrastructure failure) or "indeterminate" (regrade case 2: an observation
+                                      with a reward of 0 that could not be regraded)
                     "contamination"   the SHA-256 of each frozen term the launcher's scan found in the attempt's
                                       transcript at teardown (readout.contamination_scan: the SHA-256 of a term's
                                       UTF-8 bytes, or canary_sha256), never the term; [] when none. On a start of any
@@ -49,14 +52,14 @@ neither imports the other. Standard library only.
                   owner's readings, finite and not negative, "readings": the ledger rows they come from} (D6)
 
 A start's class (observation, flagged or not; cut; infrastructure failure; stop; pre-session failure) is its row's
-in ladder.json unless the launcher stopped on it; a stop is never scored. An observation with "excluded" set, or with
-a contamination hit, is listed and enters no k or n.
+in ladder.json unless the launcher stopped on it or it is regrade case 1; a stop is never scored. An observation with
+"excluded" set, or with a contamination hit, is listed and enters no k or n; so is every start of another class.
 
-How the launcher's own records map to this layout (they differ from it in four places, feat/lh-launcher 0ff18eda):
-regrade case 1 (no reward after the regrades of a normal ending) is row 5, class "observation", reward null,
-excluded "no reward after regrades", not class "infrastructure_failure"; regrade case 2 is excluded
-"indeterminate", reward 0, not a flag `indeterminate`; a row-16 ending is not exported until the ruling has given it
-a row and the class that row has (the class "ruling" is refused); the stream's api_retry count is "api_retry".
+How the launcher's own records map to this layout (they differ from it in three places, feat/lh-launcher 0ff18eda):
+regrade case 2 is excluded "indeterminate", reward 0, not a flag `indeterminate`; a row-16 ending is not exported
+until the ruling has given it a row and the class that row has (the class "ruling" is refused); the stream's
+api_retry count is "api_retry". Regrade case 1 is exported as the launcher records it, class
+"infrastructure_failure" on row 5, with excluded "no reward after regrades" naming the case (coordinator ruling).
 """
 
 import hashlib
@@ -249,27 +252,33 @@ def _stop_seen(cause, row, slot, ladder):
 
 
 def _class(start, row, slot, ladder, where):
-    """The launcher's class, checked against the row: the row's class, or a stop with a launcher cause where that
+    """The launcher's class, checked against the row: the row's class; an infrastructure failure on the normal
+    ending's row marked as regrade case 1 (_exclusion checks the case); or a stop with a launcher cause where that
     cause can occur (D5, D7.7)."""
     cls, cause = start["class"], start["stop_cause"]
-    if (cls == row["class"] and cause is None) or (cls == "stop" != row["class"]
-                                                   and _stop_seen(cause, row, slot, ladder)):
+    case_1 = cls == "infrastructure_failure" and row["ending"] == "Normal" and start["excluded"] == EXCLUSIONS[0]
+    if (cause is None and (cls == row["class"] or case_1)) or (cls == "stop" != row["class"]
+                                                                and _stop_seen(cause, row, slot, ladder)):
         return cls
     raise RecordError(f"{where}: class {cls!r} with stop_cause {cause!r} does not fit row {row['row']} "
-                      f"({row['class']}) on slot {slot['slot']!r}: the class is the row's, or 'stop' with a cause of "
-                      f"LAUNCHER_STOPS where it can occur, {LAUNCHER_STOPS}")
+                      f"({row['class']}) on slot {slot['slot']!r}: the class is the row's, 'infrastructure_failure' "
+                      f"for regrade case 1 on the normal ending's row, or 'stop' with a cause of LAUNCHER_STOPS where "
+                      f"it can occur, {LAUNCHER_STOPS}")
 
 
 def _exclusion(start, cls, normal, where):
-    """An exclusion is an observation's, and fits its D5 case (regrade case 1 or 2)."""
+    """An exclusion fits its D5 regrade case: case 1, a normal ending still with no reward after its regrades, is an
+    infrastructure failure (ladder.json, D5); case 2, a reward of 0 that could not be regraded, an observation."""
     excluded, reward = start["excluded"], start["reward"]
-    if cls != "observation" or excluded not in EXCLUSIONS:
-        raise RecordError(f"{where}: excluded {excluded!r}: only an observation is excluded, as one of {EXCLUSIONS}")
-    case_1 = excluded == EXCLUSIONS[0] and start["row"] == normal and reward is None
-    case_2 = excluded == EXCLUSIONS[1] and reward == 0
+    if excluded not in EXCLUSIONS:
+        raise RecordError(f"{where}: excluded {excluded!r} is not one of {EXCLUSIONS}")
+    case_1 = (excluded == EXCLUSIONS[0] and cls == "infrastructure_failure" and start["row"] == normal
+              and reward is None)
+    case_2 = excluded == EXCLUSIONS[1] and cls == "observation" and reward == 0
     if not (case_1 or case_2):
-        raise RecordError(f"{where}: excluded {excluded!r} does not fit its D5 case (case 1: a normal ending, "
-                          f"reward null; case 2: reward 0); row {start['row']}, reward {reward!r}")
+        raise RecordError(f"{where}: excluded {excluded!r} with class {cls!r} does not fit its D5 case (case 1: an "
+                          f"infrastructure failure, a normal ending, reward null; case 2: an observation, reward 0); "
+                          f"row {start['row']}, reward {reward!r}")
 
 
 def _outcome(start, cls, normal, where):

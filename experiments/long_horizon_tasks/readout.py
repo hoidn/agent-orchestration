@@ -315,11 +315,6 @@ def _why(start):
     return "; ".join(reasons) or start["ending"]
 
 
-def _d5_class(start):
-    """The class D5 gives the start: no reward after regrades is an infrastructure failure (regrade case 1)."""
-    return "infrastructure_failure" if start["excluded"] == slot_record.EXCLUSIONS[0] else start["class"]
-
-
 def _contaminated(starts, ladder):
     """Every start with a contamination hit, of any class, with its label, and the tasks they are on (D6). Over the
     tranche's starts of every label this is D7.7's count: its stop is the tranche's, and D7.6 confines only placement
@@ -335,7 +330,7 @@ def _listed(starts, efforts, ladder):
     attempts cut by a usage limit, counted per effort; the pilot's attempts, marked (D7.2); the refused
     connections of each attempt (D3, D6), which exclude nothing."""
     cuts = Counter(s["effort"] for s in starts if s["class"] == "cut")
-    return {"exclusions": [_entry(s) | {"reason": _why(s), "class": _d5_class(s), "contamination": s["contamination"]}
+    return {"exclusions": [_entry(s) | {"reason": _why(s), "contamination": s["contamination"]}
                            for s in starts if not s["counted"]],
             "contaminated": _contaminated(starts, ladder),
             "flags": [_entry(s) for s in starts if s["counted"] and s["flagged"]],

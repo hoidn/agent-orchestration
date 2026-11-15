@@ -2047,10 +2047,10 @@ def _tokens(rows):
 
 def _export_class(settled, rows):
     """(class, stop_cause, excluded) as slot_record.py reads a start. Regrade case 1 that still gave no reward is
-    the launcher's infrastructure failure (D5) and the layout's observation excluded as "no reward after regrades";
-    case 2 that could not regrade is "indeterminate"; a stop on a stop row has no cause of its own (the row is it)."""
+    an infrastructure failure (D5, ladder.json), marked "no reward after regrades"; case 2 that could not regrade
+    is "indeterminate"; a stop on a stop row has no cause of its own (the row is it)."""
     if settled.get("regrade_case") == 1 and settled["class"] == "infrastructure_failure":
-        return "observation", None, "no reward after regrades"
+        return "infrastructure_failure", None, "no reward after regrades"
     cause = settled.get("stop") if settled["class"] == "stop" and rows[settled["row"]]["class"] != "stop" else None
     return settled["class"], cause, "indeterminate" if settled.get("indeterminate") else None
 

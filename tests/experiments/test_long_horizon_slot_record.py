@@ -228,12 +228,29 @@ def test_two_pre_session_failures_and_cuts_may_precede_the_slot_s_observation():
         "pre_session_failure", "cut", "pre_session_failure", "cut", "observation"]
 
 
-@pytest.mark.parametrize("fields", [{"excluded": "no reward after regrades", "reward": 1},
-                                    {"excluded": "no reward after regrades", "row": 3, "reward": None},
+CASE_1 = {"class": "infrastructure_failure", "excluded": "no reward after regrades", "reward": None}
+
+
+def test_no_reward_after_the_regrades_of_a_normal_ending_is_an_infrastructure_failure_never_scored():
+    """D5 and ladder.json: regrade case 1 that still gives no reward is an infrastructure failure (coordinator
+    ruling, Task 5): row 5, the class the launcher decided, enters no k or n."""
+    first = _load(_one(CASE_1))[0]
+    assert (first["row"], first["class"], first["counted"], first["success"]) == (
+        5, "infrastructure_failure", False, None)
+
+
+@pytest.mark.parametrize("fields", [{"excluded": "no reward after regrades", "reward": None},
+                                    CASE_1 | {"reward": 1},
                                     {"excluded": "indeterminate", "reward": 1},
                                     {"excluded": "indeterminate", "reward": None}])
 def test_an_exclusion_that_contradicts_its_d5_case_is_refused(fields):
     with pytest.raises(slot_record.RecordError, match="does not fit its D5 case"):
+        _load(_one(fields))
+
+
+@pytest.mark.parametrize("fields", [CASE_1 | {"row": 3}, {"class": "infrastructure_failure", "reward": None}])
+def test_an_infrastructure_failure_on_an_observation_s_row_is_only_regrade_case_1(fields):
+    with pytest.raises(slot_record.RecordError, match="does not fit row"):
         _load(_one(fields))
 
 

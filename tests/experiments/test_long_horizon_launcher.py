@@ -1079,7 +1079,7 @@ def test_no_reward_after_a_normal_ending_is_regraded_twice_at_most_and_a_regrade
             [k for c in calls for k in c["env"] if k.startswith(("CLAUDE", "LH_", "ANTHROPIC"))],
             (exported["class"], exported["excluded"])) == (
         want, {"trial regrade"}, [set()] * len(calls), [],
-        ("observation", "no reward after regrades" if want[0] == "infrastructure_failure" else None))
+        (want[0], "no reward after regrades" if want[0] == "infrastructure_failure" else None))
 
 
 def test_a_load_sensitive_task_s_zero_under_load_is_regraded_once_below_the_gate(short):
@@ -1960,11 +1960,12 @@ def test_a_stop_on_a_stop_row_has_no_cause_of_its_own_and_a_launcher_stop_on_ano
     assert [(s["class"], s["stop_cause"]) for s in (on_row, launcher)] == [("stop", None), ("stop", "a subagent file")]
 
 
-def test_regrade_case_1_without_a_reward_is_exported_as_an_observation_excluded_and_case_2_as_indeterminate(short):
+def test_regrade_case_1_without_a_reward_is_exported_as_an_infrastructure_failure_and_case_2_as_indeterminate(short):
+    """D5 and ladder.json (coordinator ruling, Task 5): still no reward file is an infrastructure failure."""
     case_1 = _settled_start(short, row=5, **{"class": "infrastructure_failure"}, reward=None, regrade_case=1)
     case_2 = _settled_start(short, row=6, reward=0.0, regrade_case=2, indeterminate=True)
     assert [(s["class"], s["excluded"], s["reward"]) for s in (case_1, case_2)] == [
-        ("observation", "no reward after regrades", None), ("observation", "indeterminate", 0.0)]
+        ("infrastructure_failure", "no reward after regrades", None), ("observation", "indeterminate", 0.0)]
 
 
 def test_a_missing_figure_is_exported_as_missing_never_as_zero(short):

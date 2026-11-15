@@ -296,7 +296,7 @@ def test_a_final_readout_of_a_filled_criterion_is_not_stamped():
 EXCLUDING = {TASKS[0]: {
     "low": [[{"row": 10, "reward": 1}, 1], 1, {"row": 15, "reward": 1}, [{"row": 1}, 0],
             {"reward": 1, "contamination": [TERM_SHA256]}],
-    "medium": [{"row": 13}, {"row": 4}, {"row": 2}, {"excluded": "no reward after regrades"},
+    "medium": [{"row": 13}, {"row": 4}, {"row": 2}, {"class": "infrastructure_failure", "excluded": "no reward after regrades"},
                {"row": 9, "reward": 0}],
     "high": [0, 0, 0, 0, {"reward": 0, "excluded": "indeterminate"}]}}
 
