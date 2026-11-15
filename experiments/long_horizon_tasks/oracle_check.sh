@@ -164,7 +164,8 @@ prepare() {  # <label>: images, the overlay copy, and for the uidfix label the d
   OVERLAY=$(overlay_task "$LH/tasks41/$task/x" "$LH/oracle/tasks/$label" "${ALLOWLIST[@]}" "${extra[@]}") || return 2
   [ "$label" = "$task" ] && return 0
   uidfix "$LH/oracle/tasks/$label/tests/app_worker.py" || return 2
-  derived=localhost/lh-oracle-$label:verifier ctx=$(mktemp -d "$LH/oracle/uidfix.XXXXXX")
+  # No localhost/ prefix: podman-compose's teardown force-removes images named so, and the next trial lacks it.
+  derived=lh-oracle/$label:verifier ctx=$(mktemp -d "$LH/oracle/uidfix.XXXXXX")
   cat > "$ctx/Containerfile" <<EOF
 FROM docker.io/$verifier_ref
 RUN test "\$(grep -cF 'secrets.randbelow(1000000000)' /tests/app_worker.py)" = 1 && sed -i '$UIDFIX_SED' /tests/app_worker.py
