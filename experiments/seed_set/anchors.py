@@ -109,16 +109,20 @@ def packages(rows):
     return list(dict.fromkeys(found))
 
 
-def run(work, ids=None, out=b.HERE, width=WIDTH):
+def run(work, ids=None, out=b.HERE, width=WIDTH, root=b.ROOT):
     rows = [json.loads(line) for line in (out / "tasks.jsonl").read_text().splitlines()]
     path = out / FILE
     found = json.loads(path.read_text()) if path.is_file() else {}
-    scoring_path = scoring_path_hash()
+    scoring_path = scoring_path_hash(root)
     # resumable: a package already recorded at its current hash and scoring path is not checked again unless named
     ids = ids or [pid for pid in packages(rows) if lacking(found.get(pid), out / "tasks" / pid, scoring_path)
                   in ("not measured", "other scoring path")]
     with ThreadPoolExecutor(width) as pool_:
         for pid, entry in zip(ids, pool_.map(lambda pid: check(out / "tasks" / pid, work), ids)):
+            if (now := scoring_path_hash(root)) != scoring_path:  # a kit module was edited while this package ran
+                pool_.shutdown(cancel_futures=True)
+                raise SystemExit(f"the scoring path changed during the run ({scoring_path} at its start, {now} after "
+                                 f"{pid}'s repetitions): no entry written for {pid}; run again on unchanged code")
             found[pid] = entry | {"scoring_path": scoring_path}
             print(pid, "stable" if entry["stable"] else f"UNSTABLE {entry['reference_failing']}",
                   [round(r.get("load", 0), 1) for r in entry["runs"]], flush=True)

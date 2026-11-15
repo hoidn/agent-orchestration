@@ -176,13 +176,19 @@ def test_withheld_check_passes_with_the_reference_fix_and_leaves_the_tree_as_it_
         repos.git(clone, "apply", "-R", "--binary", str(pkg / "anchors" / f"{pkg.name}-upstream.diff"))
 
 
-def test_an_unstable_package_rejects_its_row_and_its_probe_flag_moves_to_the_next_usable_task():
+def measured_now(tasks_dir, pid, **entry):
+    """An anchors entry for `pid` at its current package hash (under `tasks_dir`) and the current scoring path."""
+    from experiments.seed_set import anchors
+    return {"sha256": b.package_hash(tasks_dir / pid), "scoring_path": anchors.scoring_path_hash(), **entry}
+
+
+def test_an_unstable_package_rejects_its_row_and_its_probe_flag_moves_to_the_next_usable_task(tmp_path):
     rows = manifest_rows({"T2": 7, "T3": 6})
-    stability = {"T3-01": {"stable": False, "reference_failing": [], "runs": [
+    stability = {"T3-01": measured_now(tmp_path, "T3-01", stable=False, reference_failing=[], runs=[
                      {"T3-01-base": ["tests/test_x.py", "tests/test_y.py"], "T3-01-upstream": []},
-                     {"T3-01-base": ["tests/test_y.py"], "T3-01-upstream": []}]},  # test_x varies on the base
-                 "T2w-02": {"stable": False, "reference_failing": ["tests/test_y.py::t"]}}
-    out = tiers.reject_unstable(rows, stability)
+                     {"T3-01-base": ["tests/test_y.py"], "T3-01-upstream": []}]),  # test_x varies on the base
+                 "T2w-02": measured_now(tmp_path, "T2w-02", stable=False, reference_failing=["tests/test_y.py::t"])}
+    out = tiers.reject_unstable(rows, stability, tmp_path)
     by = {r["id"]: r for r in out}
     assert ([r["id"] for r in out if r.get("probe") and r["tier"] == "T3"],
             [r["id"] for r in out if r.get("probe") and r["tier"] == "T2"],
@@ -192,10 +198,27 @@ def test_an_unstable_package_rejects_its_row_and_its_probe_flag_moves_to_the_nex
         "anchor not stable under study conditions: T2w-02: tests/test_y.py::t")
 
 
-def test_an_unstable_smoke_moves_the_smoke_to_the_first_usable_t2_task_that_is_not_a_probe_task():
+def test_an_unstable_smoke_moves_the_smoke_to_the_first_usable_t2_task_that_is_not_a_probe_task(tmp_path):
     rows = manifest_rows({"T2": 7})
-    out = tiers.reject_unstable(rows, {"smoke": {"stable": False, "reference_failing": []}})
+    out = tiers.reject_unstable(rows, {"smoke": measured_now(tmp_path, "smoke", stable=False, reference_failing=[])},
+                                tmp_path)
     assert [r["id"] for r in out if r["set"] == "smoke"] == ["T2-04"]
+
+
+@pytest.mark.parametrize("stale, rejected", [({}, True), ({"scoring_path": "0" * 64}, False),
+                                             ({"scoring_path": None}, False), ({"sha256": "0" * 64}, False)])
+def test_reject_unstable_rejects_only_on_an_entry_unstable_at_the_current_hash_and_scoring_path(
+        tmp_path, stale, rejected):
+    entry = measured_now(tmp_path, "T3-01", stable=False, reference_failing=["tests/test_y.py::t"]) | stale
+    out = tiers.reject_unstable(manifest_rows({"T3": 6}, smoke=False), {"T3-01": entry}, tmp_path)
+    assert bool(next(r for r in out if r["id"] == "T3-01").get("rejected")) is rejected
+
+
+def test_reject_unstable_says_how_many_stale_entries_it_skipped(tmp_path, capsys):
+    stability = {pid: measured_now(tmp_path, pid, stable=False, reference_failing=[], scoring_path="0" * 64)
+                 for pid in ("T3-01", "T3w-02")}
+    tiers.reject_unstable(manifest_rows({"T3": 6}, smoke=False), stability, tmp_path)
+    assert capsys.readouterr().out.startswith("2 anchors entries skipped")
 
 
 def test_the_anchor_check_resumes_past_packages_recorded_at_their_current_hash(tmp_path, monkeypatch):
@@ -244,6 +267,37 @@ def test_the_scoring_path_hash_follows_the_kit_modules_only(tmp_path, edited, ch
     before = anchors.scoring_path_hash(root)
     (root / edited).write_text((root / edited).read_text() + " ")
     assert (anchors.scoring_path_hash(root) != before) is changes
+
+
+def test_the_scoring_path_hash_does_not_depend_on_where_the_tree_lives(tmp_path):
+    from experiments.seed_set import anchors
+    assert anchors.scoring_path_hash(kit_tree(tmp_path / "a")) == anchors.scoring_path_hash(kit_tree(tmp_path / "b" / "c"))
+
+
+def test_the_scoring_path_hash_depends_on_each_modules_relative_path(tmp_path):
+    from experiments.seed_set import anchors
+    root = kit_tree(tmp_path)
+    before = anchors.scoring_path_hash(root)
+    (root / "experiments/seed_set/anchors.py").rename(root / "experiments/seed_set/anchors2.py")
+    assert anchors.scoring_path_hash(root) != before
+
+
+def test_the_anchor_check_stops_without_an_entry_when_the_scoring_path_changes_during_a_package(tmp_path, monkeypatch):
+    from experiments.seed_set import anchors
+    root = kit_tree(tmp_path / "kit")
+    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in manifest_rows({"T3": 1}, smoke=False)))
+    kept = {"T3-00": {"sha256": b.package_hash(tmp_path / "tasks" / "T3-00"), "stable": True,
+                      "scoring_path": anchors.scoring_path_hash(root)}}
+    (tmp_path / anchors.FILE).write_text(json.dumps(kept))
+
+    def edit_while_checking(package, work):  # T3w-00's repetitions run while a kit module is edited
+        (root / "experiments/seed_set/anchors.py").write_text("# edited\n")
+        return {"stable": True, "sha256": "x", "reference_failing": [], "runs": []}
+
+    monkeypatch.setattr(anchors, "check", edit_while_checking)
+    with pytest.raises(SystemExit, match="scoring path changed"):
+        anchors.run(tmp_path / "work", out=tmp_path, root=root)
+    assert json.loads((tmp_path / anchors.FILE).read_text()) == kept
 
 
 def verified_kit(out, scoring_path):
