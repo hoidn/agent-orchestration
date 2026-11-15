@@ -16,10 +16,13 @@
    "max_tokens": null,
    "stream": null,
    "other_params": [],
+   "body_keys": [],
    "tools": null,
    "server_tools": [],
    "tool_chars": null,
    "tool_cache": null,
+   "tool_keys": [],
+   "input_schema_keys": [],
    "system": []
   }
  ],
@@ -34,5 +37,7 @@
   ]
  ],
  "first_request": {},
- "bearer_matches": []
+ "bearer_matches": [],
+ "message_block_keys": {},
+ "message_block_keys_unrecorded": {}
 }
