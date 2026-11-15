@@ -248,6 +248,41 @@ def test_the_sweep_skips_and_names_a_record_line_that_is_not_a_direct_child_of_t
         "0o500", True)
 
 
+def test_the_sweep_skips_a_prefix_named_regular_file_without_changing_its_mode(tmp_path, monkeypatch, capsys):
+    """Review 4 B1a: a line naming a regular file, not a directory, is named, skipped and kept; no chmod."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    plain = tmp_path / "seed-set-host-file"
+    plain.write_text("not the kit's")
+    plain.chmod(0o400)
+    dead = Path(tempfile.mkdtemp(prefix="seed-set-host-"))
+    record = tmp_path / "host-temp.jsonl"
+    record.write_text(made_by(plain, 1, 1) + made_by(dead, os.getpid(), reaper.stat(os.getpid())[1] + 1))
+    removed = host.sweep(record)
+    assert (removed, oct(plain.stat().st_mode & 0o777), str(plain) in capsys.readouterr().err,
+            record.read_text()) == ([str(dead)], "0o400", True, made_by(plain, 1, 1))
+
+
+@pytest.mark.parametrize("line", ['{"path": "/tmp/seed-set-ho', "", '{"pid": 1, "started": 1}', "[]",
+                                  '{"path": 5, "pid": 1, "started": 1}', '{"path": "/tmp/seed-set-host-x"}'])
+def test_the_sweep_skips_and_keeps_a_record_line_it_cannot_read(tmp_path, monkeypatch, capsys, line):  # review 4 m1
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    dead = Path(tempfile.mkdtemp(prefix="seed-set-host-"))
+    record = tmp_path / "host-temp.jsonl"
+    record.write_text(line + "\n" + made_by(dead, os.getpid(), reaper.stat(os.getpid())[1] + 1))
+    removed = host.sweep(record)
+    assert (removed, repr(line) in capsys.readouterr().err, record.read_text()) == ([str(dead)], True, line + "\n")
+
+
+def test_the_sweep_removes_a_dead_kit_directory_whose_mode_is_000(tmp_path, monkeypatch):  # review 4 m1
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    dead = Path(tempfile.mkdtemp(prefix="seed-set-host-"))
+    (dead / "check.pgid").write_text("1 1\n")
+    dead.chmod(0)
+    record = tmp_path / "host-temp.jsonl"
+    record.write_text(made_by(dead, os.getpid(), reaper.stat(os.getpid())[1] + 1))
+    assert (host.sweep(record), dead.exists()) == ([str(dead)], False)
+
+
 def test_a_host_check_records_its_temporary_directories_and_its_child_makes_its_own_inside(tmp_path):  # round 3
     record = tmp_path / "host-temp.jsonl"
     done, _ = host.guarded([sys.executable, "-c", "import tempfile; print(tempfile.mkdtemp())"], record=record)

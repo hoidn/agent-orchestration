@@ -59,21 +59,21 @@ def temporary(prefix, record=None):
 def sweep(record):
     """Remove each directory `record` names whose maker (pid and start time) and whose check's session no longer
     run, and return their paths; the record keeps the others. Only a directory the kit makes is touched (`kits`); a
-    line naming any other path is named on stderr, skipped and kept (final scoped check B1)."""
+    line naming any other path, or one that is not a record the kit writes (`entry`), is named on stderr, skipped and
+    kept (final scoped check B1, review 4 m1). A kit directory gets mode 700 first, so its check file can be read."""
     if not Path(record).is_file():
         return []
     kept, removed = [], []
     for line in Path(record).read_text().splitlines():
-        entry = json.loads(line)
-        path = Path(entry["path"])
-        if not kits(path):
-            print(f"{record} names {path}, not a directory the kit makes (a direct child of "
+        if not (found := entry(line)) or not kits(path := Path(found["path"])):
+            print(f"{record}: the line {line!r} names no directory the kit makes (a direct child of "
                   f"{tempfile.gettempdir()} named {' or '.join(PREFIXES)}, no symlink): skipped", file=sys.stderr)
             kept.append(line + "\n")
             continue
         if not path.exists():
             continue
-        if maker_runs(entry) or units.session_alive(path / "check.pgid"):
+        path.chmod(0o700)  # a directory left without search permission (review 4 m1)
+        if maker_runs(found) or units.session_alive(path / "check.pgid"):
             kept.append(line + "\n")
             continue
         subprocess.run(["chmod", "-R", "u+rwx", str(path)], check=False)  # a test's read-only leftovers
@@ -85,9 +85,20 @@ def sweep(record):
 
 def kits(path):
     """Whether `path` can be a directory `temporary` made: a direct child of the temp directory, named with a kit
-    prefix, whose real path is `path` itself (no `..`, no symlinked parent, not a symlink)."""
+    prefix, whose real path is `path` itself (no `..`, no symlinked parent, not a symlink), and a directory or
+    nothing (a record outlives the directory it names; review 4 B1a: never a file)."""
     return (path.name.startswith(PREFIXES) and path.parent == Path(tempfile.gettempdir())
-            and os.path.realpath(path) == str(path))
+            and os.path.realpath(path) == str(path) and (path.is_dir() or not os.path.lexists(path)))
+
+
+def entry(line):
+    """The record `temporary` writes on `line` ({"path", "pid", "started"}), or None for any other line."""
+    try:
+        found = json.loads(line)
+    except ValueError:
+        return None
+    shaped = isinstance(found, dict) and isinstance(found.get("path"), str) and found["path"]
+    return found if shaped and all(type(found.get(key)) is int for key in ("pid", "started")) else None
 
 
 def maker_runs(entry):
