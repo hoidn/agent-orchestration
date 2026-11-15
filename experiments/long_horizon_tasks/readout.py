@@ -41,12 +41,22 @@ A start's class (observation, flagged or not; cut; infrastructure failure; stop;
 in ladder.json. An observation with "excluded" set is listed and enters no k or n.
 """
 
+import argparse
 import copy
+import hashlib
+import json
 import math
 import random
 import re
+import sys
 from collections import Counter, defaultdict
 from fractions import Fraction
+from pathlib import Path
+
+KIT = Path(__file__).resolve().parent
+LADDER_PATH = "experiments/long_horizon_tasks/ladder.json"
+POOLED_LABELS = ("screened in", "floor", "above the band", "no observation")
+DIGESTS = ("digest_4_1_0", "environment_image", "verifier_image", "overlay_digest")
 
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
 EXCLUSIONS = ("contaminated", "no reward after regrades", "indeterminate")
@@ -694,3 +704,91 @@ def render(result):
     return "\n".join(_header(result) + _tasks_table(result) + _effort_section(result) + _cost_section(result)
                      + _graded_section(result) + _listed_section(result["listed"]) + _earlier_section(result)
                      + _allowance_section(result))
+
+
+# ---- family.json (the plan's step 7): from compute's result alone -------------------------------------------------
+
+def _plain(value):
+    """compute's values as JSON: exact p values as fractions written out ("1/64"), tuples as lists."""
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    return str(value) if isinstance(value, Fraction) else value
+
+
+def family(result, criterion_sha256, tasks_doc):
+    """family.json's content: the criterion's SHA-256, the configuration and its label, each task with its digests,
+    counts and labels by effort and its band effort, grouped by pooled label, and the effort verdict with the bound.
+
+    Only from a complete readout (the tranche ended) that did not end in a stop. A pure function of its arguments.
+    """
+    if result["end"] is None or result["stop"]:
+        state = "is in progress" if result["end"] is None else f"ended in a stop ({result['end']['cause']})"
+        raise ReadoutError(f"family.json is written only from a complete readout that did not end in a stop; this "
+                           f"one {state}")
+    digests = {t["name"].split("/", 1)[-1]: {key: t[key] for key in DIGESTS} for t in tasks_doc["tasks"]}
+    grouped = {label: [] for label in POOLED_LABELS}
+    for task, placed in result["tasks"].items():
+        if task not in digests:
+            raise ReadoutError(f"family.json: task {task!r} has no digests in tasks.json")
+        grouped[placed["pooled"]["label"]].append({"task": task, "digests": digests[task]} | placed)
+    effort = {key: value for key, value in result["effort"].items() if key != "per_task"}
+    return _plain({"rehearsal": result["rehearsal"], "criterion_sha256": criterion_sha256, "label": result["label"],
+                   "configuration": result["configuration"], "end": result["end"]["by"], "tasks": grouped,
+                   "effort": effort, "fall_bound_rule": result["rules"]["fall_bound"]["rule"]})
+
+
+def family_bytes(content):
+    """family.json's bytes: sorted keys, so the same records give the same bytes."""
+    return (json.dumps(content, indent=1, sort_keys=True, ensure_ascii=False) + "\n").encode()
+
+
+# ---- The command --------------------------------------------------------------------------------------------------
+
+def _sha256_of(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def bound(ladder_bytes, manifest_bytes, label):
+    """A final readout applies the criterion of its label: the label is the manifest's SHA-256 (D7.6), and the
+    manifest holds the SHA-256 of the ladder.json read. None, or a ReadoutError naming which does not hold."""
+    if _sha256_of(manifest_bytes) != label:
+        raise ReadoutError(f"the label is not this manifest's SHA-256: {label} against {_sha256_of(manifest_bytes)}")
+    recorded = json.loads(manifest_bytes)["files"].get(LADDER_PATH)
+    if recorded != _sha256_of(ladder_bytes):
+        raise ReadoutError(f"ladder.json is not the manifest's: {_sha256_of(ladder_bytes)} against {recorded}")
+
+
+def _run(args):
+    """Refuses before printing or writing anything: a pending field, a record, the label's criterion, family.json."""
+    ladder_bytes, export = (KIT / "ladder.json").read_bytes(), json.loads(Path(args.export).read_text())
+    standins = json.loads(Path(args.rehearsal).read_text()) if args.rehearsal else None
+    result = compute(json.loads(ladder_bytes), export, standins)
+    if standins is None:
+        bound(ladder_bytes, (KIT / "manifest.json").read_bytes(), result["label"])
+    content = family(result, _sha256_of(ladder_bytes), json.loads((KIT / "tasks.json").read_text())) if (
+        args.family) else None
+    print(render(result))
+    if content is not None:
+        Path(args.family).write_bytes(family_bytes(content))
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="The long-horizon readout (plan D6): prints the readout as "
+                                     "Markdown; with --family, writes family.json from a complete, non-stop readout.")
+    parser.add_argument("export", help="the launcher's export (the record shape in this module's docstring)")
+    parser.add_argument("--rehearsal", metavar="STAND_INS", help="a JSON object of stand-in values for every "
+                        "pending readout field; stamps every output as a rehearsal")
+    parser.add_argument("--family", metavar="PATH", help="where to write family.json")
+    args = parser.parse_args(argv)
+    try:
+        _run(args)
+    except ReadoutError as error:
+        print(f"readout.py: {error}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

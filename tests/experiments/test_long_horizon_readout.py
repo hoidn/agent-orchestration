@@ -4,10 +4,15 @@ Every record here is constructed by the test; nothing runs an agent, a container
 from `ladder.json`'s `readout` group; where it is pending, the tests pass stand-in values as a rehearsal does.
 """
 
+import getpass
+import hashlib
 import importlib.util
 import itertools
 import json
 import re
+import socket
+import subprocess
+import sys
 from fractions import Fraction
 from pathlib import Path
 
@@ -585,3 +590,106 @@ def test_the_same_records_without_the_stop_are_placed():
     text = readout.render(_compute(_export(STOPPED)))
     assert [w for w in ("screened in", "floor", "above") if w in _section(text, "Tasks")] == [
         "screened in", "floor", "above"]
+
+
+# ---- 10. family.json: criterion, label and digests; only from a complete, non-stop readout; a pure function -------
+
+TASKS_DOC = json.loads((KIT / "tasks.json").read_text())
+CRITERION = "e" * 64
+DIGESTS = {t["name"].split("/", 1)[1]: (t["digest_4_1_0"], t["environment_image"], t["verifier_image"])
+           for t in TASKS_DOC["tasks"]}
+
+
+def _family(export, **kwargs):
+    return readout.family(_compute(export, **kwargs), CRITERION, TASKS_DOC)
+
+
+def test_family_json_names_the_criterion_the_configuration_label_and_each_task_s_digests():
+    family = _family(_export(STOPPED))
+    listed = {t["task"]: (t["digests"]["digest_4_1_0"], t["digests"]["environment_image"],
+                          t["digests"]["verifier_image"]) for group in family["tasks"].values() for t in group}
+    assert (family["criterion_sha256"], family["label"], family["configuration"]["model"], listed) == (
+        CRITERION, LABEL, "claude-haiku-5-5", {task: DIGESTS[task] for task in STOPPED})
+
+
+def test_family_json_lists_the_tasks_by_pooled_label_with_their_counts_and_band_effort_and_the_verdict():
+    family = _family(_export(STOPPED))
+    screened = family["tasks"]["screened in"][0]
+    assert ({label: [t["task"] for t in group] for label, group in family["tasks"].items()},
+            screened["band_effort"]["effort"], screened["cells"]["low"]["k"], family["effort"]["verdict"],
+            isinstance(family["effort"]["fall_bound"], float)) == (
+        {"screened in": [TASKS[0]], "floor": [TASKS[1]], "above the band": [TASKS[2]], "no observation": []},
+        "low", 1, "not resolved", True)
+
+
+@pytest.mark.parametrize("end", [None, STOP], ids=["in progress", "stop"])
+def test_family_json_is_written_only_from_a_complete_readout_that_did_not_end_in_a_stop(end):
+    with pytest.raises(readout.ReadoutError, match="family.json"):
+        _family(_export(STOPPED, end=end))
+
+
+def _bytes(export):
+    return readout.family_bytes(_family(export))
+
+
+def test_family_json_is_the_same_bytes_from_the_same_records_and_holds_no_time_path_host_or_user():
+    once, again = _bytes(_export(STOPPED)), _bytes(_export(STOPPED))
+    text = once.decode()
+    machine = [getpass.getuser(), socket.gethostname(), str(ROOT), "/tmp", "/home"]
+    assert (once == again, [m for m in machine if m in text], re.findall(r"\d{4}-\d\d-\d\dT\d\d", text)) == (
+        True, [], [])
+
+
+def test_a_rehearsal_stamps_family_json_and_the_readout_and_a_final_readout_stamps_neither():
+    rehearsal, final = _compute(_export(STOPPED)), _compute(_export(STOPPED), ladder=_filled(), standins=None)
+    stamps = [readout.family(r, CRITERION, TASKS_DOC)["rehearsal"] for r in (rehearsal, final)]
+    texts = ["REHEARSAL" in readout.render(r) for r in (rehearsal, final)]
+    assert (stamps, texts) == ([True, False], [True, False])
+
+
+def test_a_task_missing_from_tasks_json_is_an_error():
+    with pytest.raises(readout.ReadoutError, match="tasks.json"):
+        readout.family(_compute(_export(STOPPED)), CRITERION, {"tasks": TASKS_DOC["tasks"][1:]})
+
+
+# ---- The command: python -I readout.py <export> [--rehearsal <stand-ins>] [--family <path>] ----------------------
+
+def _write(path, value):
+    path.write_text(json.dumps(value))
+    return path
+
+
+def test_the_command_prints_the_readout_and_writes_family_json_in_a_rehearsal(tmp_path):
+    export, standins = _write(tmp_path / "export.json", _export(STOPPED)), _write(tmp_path / "s.json", STANDINS)
+    done = subprocess.run([sys.executable, "-I", str(KIT / "readout.py"), str(export), "--rehearsal", str(standins),
+                           "--family", str(tmp_path / "family.json")],
+                          capture_output=True, text=True, cwd=ROOT, env={"PATH": "/nonexistent"})
+    family = json.loads((tmp_path / "family.json").read_text())
+    assert (done.returncode, "REHEARSAL" in done.stdout, family["rehearsal"], family["label"]) == (0, True, True, LABEL)
+
+
+def test_the_command_refuses_a_final_readout_while_a_readout_field_is_pending(tmp_path, capsys):
+    code = readout.main([str(_write(tmp_path / "export.json", _export(STOPPED))), "--family",
+                         str(tmp_path / "family.json")])
+    err = capsys.readouterr().err
+    assert (code, all(f in err for f in STANDINS), (tmp_path / "family.json").exists()) == (2, True, False)
+
+
+def test_the_command_writes_no_family_json_for_a_readout_in_progress(tmp_path, capsys):
+    export, standins = _write(tmp_path / "e.json", _export(STOPPED, end=None)), _write(tmp_path / "s.json", STANDINS)
+    code = readout.main([str(export), "--rehearsal", str(standins), "--family", str(tmp_path / "family.json")])
+    assert (code, "in progress" in capsys.readouterr().err, (tmp_path / "family.json").exists()) == (2, True, False)
+
+
+def test_a_final_readout_reads_the_criterion_of_its_label_only():
+    """The manifest whose SHA-256 is the label must hold the SHA-256 of the ladder.json the readout applies."""
+    ladder = b'{"criterion": "frozen"}'
+    manifest = json.dumps({"files": {readout.LADDER_PATH: hashlib.sha256(ladder).hexdigest()}}).encode()
+    label = hashlib.sha256(manifest).hexdigest()
+    refusals = []
+    for args in ((ladder, manifest, "f" * 64), (b'{"criterion": "edited"}', manifest, label)):
+        with pytest.raises(readout.ReadoutError) as caught:
+            readout.bound(*args)
+        refusals.append(str(caught.value).split(":")[0])
+    assert (readout.bound(ladder, manifest, label), refusals) == (
+        None, ["the label is not this manifest's SHA-256", "ladder.json is not the manifest's"])
