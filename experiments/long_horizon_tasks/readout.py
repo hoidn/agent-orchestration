@@ -390,19 +390,26 @@ def _counts(starts, tasks, efforts, level):
             for task, by in cells.items()}
 
 
-def _placement(cells, rules):
-    """Per task: the cells with their labels, the pooled count and label, and the band effort (D6)."""
+def _placement(cells, rules, place):
+    """Per task: the cells and the pooled count; when place, their labels and the band effort (D6)."""
     level = rules["interval"]["level"]
     placed = {}
     for task, by_effort in cells.items():
         K, n = sum(c["k"] for c in by_effort.values()), sum(c["n"] for c in by_effort.values())
-        pooled = {"K": K, "n": n, "interval": interval(K, n, level), "label": pooled_label(K, n, rules["pooled"])}
-        labelled = {e: c | {"label": cell_label(c["k"], c["n"], rules["cell"])} for e, c in by_effort.items()}
-        band = None
-        if pooled["label"] == "screened in":
-            band = band_effort({e: (c["k"], c["n"]) for e, c in by_effort.items()}, rules)
-        placed[task] = {"cells": labelled, "pooled": pooled, "band_effort": band}
+        placed[task] = {"cells": by_effort, "pooled": {"K": K, "n": n, "interval": interval(K, n, level)},
+                        "band_effort": None}
+        if place:
+            placed[task] = _placed(placed[task], rules)
     return placed
+
+
+def _placed(task, rules):
+    pooled = task["pooled"] | {"label": pooled_label(task["pooled"]["K"], task["pooled"]["n"], rules["pooled"])}
+    cells = {e: c | {"label": cell_label(c["k"], c["n"], rules["cell"])} for e, c in task["cells"].items()}
+    band = None
+    if pooled["label"] == "screened in":
+        band = band_effort({e: (c["k"], c["n"]) for e, c in cells.items()}, rules)
+    return {"cells": cells, "pooled": pooled, "band_effort": band}
 
 
 def _triples(starts, efforts):
@@ -469,11 +476,13 @@ def _dominated(effort, per_effort, triples, rule):
     return {"verdict": "not resolved", "by": None}
 
 
-def _cost(starts, efforts, triples, ladder):
+def _cost(starts, efforts, triples, ladder, place):
+    """D6's cost per effort; the dominance verdicts only when the readout places (not after a stop)."""
     classes = ladder["classification"]["classes"]
     per_effort = {e: _level_cost(starts, e, classes) for e in efforts}
-    return {"per_effort": per_effort, "dominated": {
-        e: _dominated(e, per_effort, triples, ladder["readout"]["effort_test"]) for e in efforts}}
+    rule = ladder["readout"]["effort_test"]
+    return {"per_effort": per_effort,
+            "dominated": {e: _dominated(e, per_effort, triples, rule) for e in efforts} if place else None}
 
 
 def _graded(starts, tasks, efforts, verifiers):
@@ -508,8 +517,21 @@ def _configuration(ladder):
             "podman_compose": harness["podman_compose"], "network": ladder["network"]["agent_phase"]}
 
 
+def _earlier(starts, export, tasks, efforts, level):
+    """Per earlier label: its ledger row, its cells (k of n, no label) and its lists; they enter no rule (D6)."""
+    earlier = []
+    for entry in export["earlier_labels"]:
+        own = [s for s in starts if s["label"] == entry["label"]]
+        earlier.append(entry | {"cells": _counts(own, tasks, efforts, level), "listed": _listed(own, efforts)})
+    return earlier
+
+
 def compute(ladder, export, standins=None):
-    """Every figure of the readout, from the export's starts joined by slot id; rules read from ladder.json."""
+    """Every figure of the readout, from the export's starts joined by slot id; rules read from ladder.json.
+
+    Every rule reads the current label's starts alone. A readout that ends in a stop places nothing: no cell or
+    pooled label, no band effort, no effort test and no dominance (D6).
+    """
     criterion, rehearsal = _criterion(ladder, standins)
     starts = load(export, criterion)
     efforts, rules = criterion["attempt"]["efforts"], criterion["readout"]
@@ -518,15 +540,15 @@ def compute(ladder, export, standins=None):
     level = rules["interval"]["level"]
     current = [start for start in starts if start["label"] == export["label"]]
     triples = _triples(current, efforts)
-    earlier = [{"label": e["label"], "ended_by": e["ended_by"],
-                "cells": _counts([s for s in starts if s["label"] == e["label"]], tasks, efforts, level),
-                "listed": _listed([s for s in starts if s["label"] == e["label"]], efforts)}
-               for e in export["earlier_labels"]]
+    place = export["end"] is None or export["end"]["by"] != "stop"
     return {"rehearsal": rehearsal, "configuration": _configuration(criterion), "label": export["label"],
-            "end": export["end"], "tasks": _placement(_counts(current, tasks, efforts, level), rules),
-            "effort": effort_test(triples, efforts, rules) | {"per_task": triples}, "listed": _listed(current, efforts),
-            "earlier": earlier, "rules": {"fall_bound": rules["fall_bound"], "interval": rules["interval"]},
-            "cost": _cost(current, efforts, triples, criterion),
+            "end": export["end"], "stop": not place,
+            "tasks": _placement(_counts(current, tasks, efforts, level), rules, place),
+            "effort": effort_test(triples, efforts, rules) | {"per_task": triples} if place else None,
+            "listed": _listed(current, efforts), "earlier": _earlier(starts, export, tasks, efforts, level),
+            "rules": {"fall_bound": rules["fall_bound"], "interval": rules["interval"],
+                      "stop_readout": rules["stop_readout"]},
+            "cost": _cost(current, efforts, triples, criterion, place),
             "graded": _graded(current, tasks, efforts, rules["graded_outcome"]["verifiers"]),
             "allowance": _allowance(export["allowance"], starts)}
 
@@ -542,8 +564,8 @@ def _count(cell, k="k", n="n"):
     return f"{cell[k]} of {cell[n]} ({_percent(lower)}–{_percent(upper)}%)"
 
 
-def _labelled(cell):
-    return f"{_count(cell)} {cell['label']}"
+def _labelled(cell, k="k"):
+    return f"{_count(cell, k)} {cell['label']}" if "label" in cell else _count(cell, k)
 
 
 def _header(result):
@@ -563,16 +585,16 @@ def _header(result):
 
 def _tasks_table(result):
     efforts = result["configuration"]["efforts"]
-    lines = ["## Tasks (current label; k of n, exact 95% interval, label)", "",
+    shown = "no placement after a stop" if result["stop"] else "label"
+    lines = [f"## Tasks (current label; k of n, exact {result['rules']['interval']['level']:.0%} interval, {shown})", "",
              "| Task | " + " | ".join(efforts) + " | Pooled | Band effort |", "|" + " --- |" * (len(efforts) + 3)]
     for task, placed in result["tasks"].items():
         pooled, band = placed["pooled"], placed["band_effort"]
-        screened = f", screened at {pooled['n']} attempts" if pooled["label"] == "screened in" else ""
+        screened = f", screened at {pooled['n']} attempts" if pooled.get("label") == "screened in" else ""
         banded = "none" if band is None else f"{band['effort']}, {band['label']}" + (
             ", flagged" if band["flagged"] else "")
-        cells = [_labelled(placed["cells"][e]) for e in efforts]
-        lines.append(f"| {task} | " + " | ".join(cells) + f" | {_count(pooled, 'K')} {pooled['label']}{screened} | "
-                     f"{banded} |")
+        cells = [_labelled(placed["cells"][e]) for e in efforts] + [_labelled(pooled, "K") + screened]
+        lines.append(f"| {task} | " + " | ".join(cells) + f" | {'withheld' if result['stop'] else banded} |")
     return lines + [""]
 
 
@@ -582,6 +604,9 @@ def _fraction(p):
 
 def _effort_section(result):
     effort, rule = result["effort"], result["rules"]["fall_bound"]
+    if effort is None:
+        return ["## Effort test (complete triples of the current label)", "",
+                f"Withheld: {result['rules']['stop_readout']} (D6).", ""]
     lines = ["## Effort test (complete triples of the current label)", "",
              f"Complete triples: {effort['triples']} over {effort['tasks']} tasks. Pooled successes: " +
              ", ".join(f"{e} {s} of {effort['triples']}" for e, s in effort["pooled"].items()) + ".", "",
@@ -633,8 +658,9 @@ def _cost_section(result):
              "every start | Successes | Cost per success | Dominated |", "|" + " --- |" * 10]
     for effort, c in result["cost"]["per_effort"].items():
         tokens = ", ".join(f"{k} {'none' if v is None else round(v)}" for k, v in c["mean_tokens"].items())
-        dominated = result["cost"]["dominated"][effort]
-        verdict = dominated["verdict"] + (f" by {dominated['by']}" if dominated["by"] else "")
+        dominated = (result["cost"]["dominated"] or {}).get(effort)
+        verdict = "withheld" if dominated is None else dominated["verdict"] + (
+            f" by {dominated['by']}" if dominated["by"] else "")
         lines.append(f"| {effort} | {c['observations']} | {_money(c['mean_usd'])} | "
                      f"{_money(c['mean_minutes'], '')} | {tokens} | {c['starts']} | {_money(c['usd_all_starts'])} | "
                      f"{c['successes']} | {_money(c['usd_per_success'])} | {verdict} |")

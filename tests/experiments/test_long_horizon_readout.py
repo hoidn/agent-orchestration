@@ -557,3 +557,31 @@ def test_a_level_is_dominated_only_by_one_that_beats_it_on_the_test_and_costs_le
     assert (cheap["low"], cheap["high"], _compute(_export(dear))["cost"]["dominated"]["low"]) == (
         {"verdict": "dominated", "by": "high"}, {"verdict": "not resolved", "by": None},
         {"verdict": "not resolved", "by": None})
+
+
+# ---- 9. A stop readout prints no placement ---------------------------------------------------------------------
+
+STOP = {"by": "stop", "cause": "a vendor 401 (D5 row 14); ledger row of 2026-11-21"}
+STOPPED = {TASKS[0]: _same([1, 0, 0, 0, 0]), TASKS[1]: _same([0, 0, 0, 0, 0]),
+           TASKS[2]: {"low": [1, 1, 1, 1, {"row": 14}], "medium": [1, 1, 1, 1, "-"], "high": [1, 1, 1, 1, "-"]}}
+PLACEMENT_WORDS = ("screened in", "floor", "above", "incomplete", "noisy", "rises", "falls", "not resolved",
+                   "dominated")
+
+
+def test_a_stop_readout_computes_no_label_band_effort_verdict_bound_or_dominance():
+    result = _compute(_export(STOPPED, end=STOP))
+    labels = [c.get("label") for t in result["tasks"].values() for c in [*t["cells"].values(), t["pooled"]]]
+    assert (set(labels), {t["band_effort"] for t in result["tasks"].values()}, result["effort"],
+            result["cost"]["dominated"]) == ({None}, {None}, None, None)
+
+
+def test_a_stop_readout_prints_its_counts_and_its_cause_and_no_placement():
+    text = readout.render(_compute(_export(STOPPED, end=STOP)))
+    placed = _section(text, "Tasks") + _section(text, "Effort test") + _section(text, "Cost per effort")
+    assert (STOP["cause"] in text, "1 of 5" in placed, [w for w in PLACEMENT_WORDS if w in placed]) == (True, True, [])
+
+
+def test_the_same_records_without_the_stop_are_placed():
+    text = readout.render(_compute(_export(STOPPED)))
+    assert [w for w in ("screened in", "floor", "above") if w in _section(text, "Tasks")] == [
+        "screened in", "floor", "above"]
