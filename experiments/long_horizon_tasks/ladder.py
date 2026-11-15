@@ -813,8 +813,9 @@ def _reward(trial):
 
 
 def _launcher_stop(trial, ladder):
-    """A stop of D7.7 the launcher sees in the attempt's own files, beyond the D5 rows (the follower acts on the
-    paid-usage sign as the stream comes; this is the teardown's second look)."""
+    """A stop of D7.7 the launcher sees in the attempt's own files, beyond the D5 rows. The stream reaches the host
+    only after the agent phase (Task 7), so these are post-session checks; during a session the paid-usage stop is
+    the passthrough's header rule (D4)."""
     try:
         events = stream_events(trial)
     except ValueError:
@@ -1803,13 +1804,21 @@ def _worst(codes):
     return 1 if 1 in codes else max(codes, default=0)
 
 
-def _export_scan(ctx, name):
+def _read_logged(attempt_dir, name, verb, code):
+    """One podman read of the teardown with its exit (Task 7 ruling 1), in the attempt's podman.jsonl."""
+    with open(attempt_dir / "podman.jsonl", "a") as fh:
+        fh.write(json.dumps({"time": time.time(), "container": name, "verb": verb, "exit": code}) + "\n")
+
+
+def _export_scan(ctx, attempt_dir, name):
     """token_scan.py over a container's exported file system; a failed export is an incomplete scan."""
     exported = subprocess.Popen(["podman", "export", name], env=base_env(ctx), stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL)
     code = token_scan(ctx, "-", stdin=exported.stdout)
     exported.stdout.close()
-    return 2 if exported.wait() != 0 and code == 0 else code
+    exit_code = exported.wait()
+    _read_logged(attempt_dir, name, "export", exit_code)
+    return 2 if exit_code != 0 and code == 0 else code
 
 
 def _kept(ctx, attempt_dir, name):
@@ -1821,6 +1830,7 @@ def _kept(ctx, attempt_dir, name):
     for verb, path in reads:
         done = subprocess.run(["podman", verb, name], env=base_env(ctx), stdout=subprocess.PIPE, timeout=300,
                               stderr=subprocess.STDOUT if verb == "logs" else subprocess.PIPE, check=False)
+        _read_logged(attempt_dir, name, verb, done.returncode)
         if done.returncode != 0 or (verb == "inspect" and not done.stdout.strip()):
             code = 2
             continue
@@ -1840,18 +1850,19 @@ def runtime_check(ctx, attempt_dir, export):
     container (`*_main_1`) too. The egress sidecar's log is read to its end and kept first, both of its streams: the proxy
     writes every connection and refusal to standard error (Task 7). The finding, or None:
     any finding in any container is the attempt's. A session with no container under the trial's prefix, or an
-    export due with no agent container, is an incomplete scan, never clean (Task 8 B2); so are a container whose
-    process environments no sample over the attempt read (M1) and a podman read that failed (M2)."""
+    export due with no agent container, is an incomplete scan, never clean (Task 8 B2); so is a podman read that
+    failed (M2): every container's inspect and every exported container's export must succeed. The process
+    environments are what the samples taken while each container ran hold; a container never sampled is scanned
+    by its inspected configuration (Task 7 ruling 1: at teardown every container has exited)."""
     (attempt_dir / "containers").mkdir(exist_ok=True)
     names = container_names(ctx, prefixes(attempt_dir))
     codes = [_kept(ctx, attempt_dir, name) for name in names]
     sample_environ(ctx, attempt_dir, names)
-    sampled = attempt_dir / "containers"  # M1: a container no sample over the attempt could read is unscanned
-    codes += [2 for name in names if not (sampled / f"{name}.environ").is_file()]
     codes += [token_scan(ctx, attempt_dir / "containers")] if names else []  # no container: nothing to scan
     agents = [n for n in names if n.endswith("_main_1")]
     codes += [2] if _unfound(attempt_dir, names, agents, export) else []
-    return _scan_verdict(_exports(ctx, agents if export else [], codes), RUNTIME_MATCH, RUNTIME_INCOMPLETE)
+    return _scan_verdict(_exports(ctx, attempt_dir, agents if export else [], codes), RUNTIME_MATCH,
+                         RUNTIME_INCOMPLETE)
 
 
 def _unfound(attempt_dir, names, agents, export):
@@ -1860,22 +1871,33 @@ def _unfound(attempt_dir, names, agents, export):
     return bool(names or had_session(attempt_dir)) and (not names or (export and not agents))
 
 
-def _exports(ctx, agents, codes):
+def _exports(ctx, attempt_dir, agents, codes):
     """The joint exit of `codes` and each agent container's exported file system, scanned until a match."""
     for name in agents:
         if 1 in codes:
             break
-        codes = codes + [_export_scan(ctx, name)]
+        codes = codes + [_export_scan(ctx, attempt_dir, name)]
     return _worst(codes)
+
+
+def _running(ctx, attempt_dir):
+    """The names of the running containers (`podman ps` without -a); a failed listing is logged and lists none."""
+    done = podman(ctx, "ps", "--format", "{{.Names}}")
+    if done.returncode != 0:
+        _read_logged(attempt_dir, None, "ps", done.returncode)
+    return set(done.stdout.decode().split()) if done.returncode == 0 else set()
 
 
 def sample_environ(ctx, attempt_dir, names):
     """Each running container's process environments, kept as the distinct entries seen so far in
-    containers/<name>.environ (one per NUL-ended entry). A container no exec has reached has no such file, which
-    runtime_check reads as unscanned (Task 8 M1)."""
-    for name in names:
+    containers/<name>.environ (one per NUL-ended entry). Only a running container is sampled (`podman exec` needs
+    one); a failed exec on a container still running is logged in podman.jsonl, one on a container that stopped
+    meanwhile is no failure (Task 7 ruling 1). A failed exec never makes the scan incomplete by itself."""
+    for name in sorted(_running(ctx, attempt_dir) & set(names)):
         done = podman(ctx, "exec", name, "sh", "-c", "cat /proc/[0-9]*/environ 2>/dev/null; true", timeout=60)
         if done.returncode != 0:
+            if name in _running(ctx, attempt_dir):
+                _read_logged(attempt_dir, name, "exec", done.returncode)
             continue
         path = attempt_dir / "containers" / f"{name}.environ"
         seen = set(path.read_bytes().split(b"\0")) if path.is_file() else set()
@@ -2061,6 +2083,8 @@ class Attempt:
             fh.write(json.dumps({"time": time.time(), "load": load_open(self.ctx, self.ladder)[1]}) + "\n")
 
     def read_stream(self):
+        """The stream's new whole lines. Harbor copies the stream out only when the agent phase ends (Task 7), so
+        what this reads, and the stops it finds, come after the session, never during it."""
         trial = trial_dir(self.dir)
         path = trial / "agent" / "claude-code.txt" if trial else None
         if path is None or not path.is_file():

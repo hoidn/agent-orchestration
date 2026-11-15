@@ -577,8 +577,10 @@ coordinating session and the ladder draw on the same allowance.
     a precondition of the live probe, of the pilot and of the freeze, written in the ledger
     with its date each time.
   - *The stop.* The `rate_limit_event` carries `isUsingOverage` (recorded: `false`). The
-    launcher follows each session's stream, and an event whose `isUsingOverage` is not `false`
-    stops the tranche: the passthrough then refuses every further request. Task 2a recorded,
+    launcher reads each session's stream, and an event whose `isUsingOverage` is not `false`
+    stops the tranche: the passthrough then refuses every further request. The stream reaches
+    the host only after the agent phase (Task 7), so this check acts after the session; the
+    stop during a session is the passthrough's header rule below. Task 2a recorded,
     against the stand-in, that a 200 carrying `anthropic-ratelimit-unified-status: rejected`,
     `…-overage-status: allowed` and `…-overage-in-use: true` gives `isUsingOverage: true`, and
     the session goes on to `completed` (`token-paid-extra-usage-normal-end`); which header is
@@ -888,7 +890,8 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
    the egress log shows no connection outside the list except refused ones; settlement figures
    1, 2 and 3 agree within 1%; the verifier returned a reward; `token_scan.py` finds nothing
    in its file set, and the runtime check nothing in the attempt's containers (D4); no
-   `rate_limit_event` and no response header reports paid extra usage; the slot settled. A
+   `rate_limit_event` reporting paid extra usage (every token-mode session emits one with
+   `isUsingOverage: false`) and no response header reporting it; the slot settled. A
    pass makes it slot 1 of round 1. If gsea-proteomics does not qualify, the smoke task is the
    first qualified task in `tasks.json` order that is not on the load-sensitive list.
 2. **Pilot: rs-archive-clone at `low`, `medium` and `high`, the three together, before
@@ -967,7 +970,10 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
    usage (D4); a match of `token_scan.py`; three usage-limit answers in a row with no
    observation between them; infrastructure failures other than cuts above 10% of starts (from
    20 starts on) or above 20% at one level; five pre-session failures in a row or 24 in all;
-   contaminated attempts on three tasks; under 20 GB free. **Pauses that end by themselves:**
+   contaminated attempts on three tasks; under 20 GB free. The init-event, stream and
+   subagent checks read files that reach the host only after the agent phase (Task 7), so
+   they act after the session; during a session only the passthrough's own checks act, and the
+   paid-usage stop then is its header rule (D4). **Pauses that end by themselves:**
    a usage limit, until its reset (D4); the allowance guard and the owner's hours, which only
    delay starts. **Pauses for a ruling or an owner's input:** a window with no meter reading;
    the load wait of D2; the passthrough down; a limit answer that names no reset; cuts above

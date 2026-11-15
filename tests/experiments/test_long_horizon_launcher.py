@@ -1454,9 +1454,32 @@ def test_a_runtime_check_that_finds_nothing_it_must_read_is_incomplete_never_cle
     assert _runtime(short, containers, session=session) == want
 
 
-def test_a_container_whose_process_environments_were_never_read_is_an_incomplete_scan(short):
-    """M1: every `podman exec` failed (an image without sh), so no sample of its processes was ever scanned."""
-    assert _runtime(short, lambda t: {MAIN: {"no_sh": True}, SIDECAR: {}}) == INCOMPLETE
+def _reads(short):
+    """The podman reads `_runtime`'s attempt recorded: (container suffix, verb, exit code)."""
+    path = _ctx(short).root / "slots" / "001" / "podman.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()] if path.is_file() else []
+    return sorted((r["container"].removeprefix("wal__abcdefg__"), r["verb"], r["exit"]) for r in rows)
+
+
+def test_containers_that_exited_before_the_teardown_are_scanned_by_their_inspected_configuration(short):
+    """Task 7 ruling 1 (revises part B M1): at teardown every container has exited and `podman exec` cannot
+    reach it; that is no failure and is not logged as one. Inspect, logs and export are recorded with their exits."""
+    found = _runtime(short, lambda t: {MAIN: {"running": False}, SIDECAR: {"running": False}})
+    assert (found, _reads(short)) == (None, sorted([(MAIN, "export", 0), (MAIN, "inspect", 0), (SIDECAR, "inspect", 0),
+                                                    (SIDECAR, "logs", 0)]))
+
+
+def test_a_failed_exec_on_a_running_container_is_logged_and_its_inspected_configuration_still_decides(short):
+    """Task 7 ruling 1: an image without sh; the container runs, so the failure is logged, and its inspect scan
+    succeeded, so the scan is complete."""
+    found = _runtime(short, lambda t: {MAIN: {"no_sh": True}, SIDECAR: {}})
+    assert (found, [r for r in _reads(short) if r[1] == "exec"]) == (None, [(MAIN, "exec", 127)])
+
+
+def test_a_failed_inspect_is_recorded_with_its_exit_and_the_scan_is_incomplete(short):
+    """Task 7 ruling 1: every container needs a successful inspect whose configured environment is scanned."""
+    found = _runtime(short, lambda t: {MAIN: {"running": False, "inspect_fails": True}, SIDECAR: {"running": False}})
+    assert (found, (MAIN, "inspect", 125) in _reads(short)) == (INCOMPLETE, True)
 
 
 @pytest.mark.parametrize("fields", [{MAIN: {"inspect_fails": True}, SIDECAR: {}},

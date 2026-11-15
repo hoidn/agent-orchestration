@@ -548,7 +548,7 @@
              {"settlement_figures_agree": [1, 2, 3], "within": 0.01},
              {"verifier": "returned a reward"},
              {"token_scan": "nothing in its file set, and the runtime check nothing in the attempt's containers"},
-             {"paid_usage": "no rate_limit_event and no response header reports it"},
+             {"paid_usage": "no rate_limit_event reports it (isUsingOverage not false) and no response header reports it"},
              {"slot": "settled"}
             ]},
   "pilot": {"task": "rs-archive-clone", "efforts": ["low", "medium", "high"], "together": true, "concurrency": 3,

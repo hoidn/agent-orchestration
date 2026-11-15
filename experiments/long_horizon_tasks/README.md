@@ -178,7 +178,21 @@ but is no start: it is not exported, its token is retired, and the attempt is ke
 
 A resume lifts a pause or a stop, never a usage limit. Starts stay closed until five minutes after the limit's reset
 and then reopen with one start, and with the rest once that session has an answer. If the single start ends with no
-answer, the tranche pauses, and a resume allows one more.
+answer, the tranche pauses, and a resume allows one more. The one start is enforced as at most one attempt in flight,
+so an attempt started before the limit and still running delays it past the reset's five minutes.
+
+The launcher's stream checks (the init event, the paid-usage sign in a `rate_limit_event`, a subagent file) read
+files that Harbor copies to the host only when the agent phase ends: they are post-session checks and never stop a
+running session. The paid-usage stop during a session is the passthrough's header rule (D4).
+
+At teardown the runtime check reads every container of the attempt: each container's inspected configuration
+(its configured environment), the egress sidecar's log, and, for the smoke, the pilot and a rehearsal, every agent
+container's (`*_main_1`) exported file system. A failed `podman inspect`, `logs` or `export` is an incomplete scan,
+a stop; each read's exit code is kept in the slot's `podman.jsonl`. The process environments are sampled every 2 s
+while the harness runs, from running containers only: at teardown every container has exited. A failed `podman exec`
+on a running container is logged there and does not by itself make the scan incomplete. The pids limit
+(`limits-compose.yaml`) reaches the agent's environment only: Harbor does not apply runtime overrides to the
+separate verifier containers.
 
 To end a pause or a stop, a person writes the ledger row that D5 asks for and then runs `ladder.py resume`. A stop
 needs `| <D> | Ruling | resume: <its cause>: <the decision> |` and `resume --date <D>` (a plain resume of a stop is
