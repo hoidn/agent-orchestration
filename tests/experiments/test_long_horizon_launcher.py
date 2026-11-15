@@ -1658,6 +1658,15 @@ def test_an_overlay_whose_digest_is_not_the_criterion_s_stops_the_tranche_before
         ["refused at launch"], [], [])
 
 
+def test_the_disk_stop_reads_the_root_file_system_beside_the_state_the_cache_and_the_home(short):
+    """ladder.json host.disk_plan: no start under 20 GB free on /home or / (Podman stages pulls in /var/tmp)."""
+    ctx = _ctx(short)
+    ladder.ensure_state(ctx.root)
+    paths = ladder.disk_paths(ctx)
+    assert (Path("/") in paths, ctx.root in paths, ladder.free_gb(ctx) == min(
+        shutil.disk_usage(p).free for p in paths) / 1e9) == (True, True, True)
+
+
 @pytest.mark.parametrize("load", ["30.0 30.0 30.0", "24.0 24.5 20.0", "24.5 24.0 20.0"])  # both, 5-min, 1-min above
 def test_the_load_gate_waits_and_pauses_after_its_wait_with_nothing_in_flight(rig, load):
     r = rig()

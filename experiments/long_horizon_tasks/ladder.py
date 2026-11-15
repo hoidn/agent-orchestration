@@ -1424,14 +1424,19 @@ def load_open(ctx, ladder):
     return one <= gate and five <= gate, (one, five)
 
 
+def disk_paths(ctx):
+    """The file systems the disk stop reads (host.disk_plan: / , where Podman stages each pull in /var/tmp, and the
+    home directory, where it keeps its images), with the state and the cache."""
+    return [p for p in (Path("/"), ctx.root, ctx.lh, ctx.home) if p.exists()]
+
+
 def free_gb(ctx):
-    """The least free space, in GB, of the file systems the tranche writes (the state, the cache, the home
-    directory where Podman keeps its images); a rehearsal may give a stand-in LH_REHEARSAL/host/free_gb."""
+    """The least free space, in GB, of disk_paths; a rehearsal may give a stand-in LH_REHEARSAL/host/free_gb."""
     import shutil
     path = _host_file(ctx, "free_gb")
     if path:
         return float(path.read_text())
-    return min(shutil.disk_usage(p).free for p in (ctx.root, ctx.lh, ctx.home) if p.exists()) / 1e9
+    return min(shutil.disk_usage(p).free for p in disk_paths(ctx)) / 1e9
 
 
 def overlay_lines(hosts):
