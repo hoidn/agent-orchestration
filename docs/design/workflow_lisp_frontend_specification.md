@@ -2027,9 +2027,8 @@ types with one root are each refused. Where the form around the list states its 
 must agree. Diagnostics: `pure_expr_operand_type_mismatch`. A list whose elements hold an effect
 needs every element simple, and is not written inside an argument of a procedure, a `let-proc`
 local or a function, nor in the body of a `let-proc` local; bind it with `let*` first (§16.3).
-Diagnostics: `effect_not_permitted`. Open defect (reported with this section; it gives the
-crash text recorded for D14): a `variant` with a list in a field, written directly as a `match`
-subject, ends in `compiler_defect`; bound with `let*` first, it builds.
+Diagnostics: `effect_not_permitted`. Open defect: a `variant` with a list in a field, written
+directly as a `match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
 
 **Empty list.** `(list)` has no element to take a type from. It is accepted where the form
 around it states the list's type: the result of a workflow, a procedure or a function; an
@@ -2079,8 +2078,9 @@ element of `source`, in the source's order; an empty source gives the empty list
 - A body that fails for one element, by a division by zero or a refused `path/join-under` child
   for example, fails the run with that failure's own code. A map over literals that fails for
   an element builds, and fails when the program runs.
-- Open defect D8: a `list/map` whose body is a `match`, written in the condition of an `if`
-  inside a loop body, ends in `compiler_defect`.
+- Open defect (defect backlog row D8): a `list/map` whose body is a `match` on its binder,
+  written in the condition of an `if` inside a loop body, ends in `compiler_defect`; bound with
+  `let*` before the `if`, it builds.
 
 **`list/map-effect`.** `(list/map-effect ((name source)) :max n body)` evaluates `body` once
 per element of `source`, one element after the other, and gives the list of its values in the
@@ -2114,9 +2114,10 @@ source's order. An empty source gives the empty list and evaluates no body.
   at the failed element and returns every value in order
   ([evaluated execution](workflow_lisp_evaluated_execution.md) owns resume). A parallel map
   differs: see *Parallel, at run time*.
-- A discriminant proof does not reach a serial map's body (§12.2). Open defects: a body that
-  calls a generic procedure holding an effect is refused with `procedure_call_unknown` (E7); a
-  serial map in the body of a `let-proc` local does not build (D9-map).
+- A discriminant proof does not reach a serial map's body (§12.2).
+- Open defect (defect backlog row E7): a serial map's body that calls a generic procedure
+  (§7.9) is refused with `procedure_call_unknown`, whether or not the procedure holds an
+  effect; a parallel map's body and a `list/map` body take the call.
 - A serial map takes each element with a compiler-owned head read. That read fails with
   `list_nonempty_invariant_broken` on an empty list; the map evaluates it after testing that
   elements remain, and no source form names it.
@@ -2145,8 +2146,8 @@ type's `:under` root joined with `child`.
   (`Path.state-root`, `Path.artifact-root`, §7.1), a `defpath` of the module or an imported one.
   It is a name, not an expression. Diagnostics: `path_join_under_type_invalid` (a name that is
   no path type, a first operand that is not a name, a number of operands other than two). Open
-  defect E24: a procedure whose body names a path type is refused with this code when it is
-  called from a module that does not import that type.
+  defect (defect backlog row E24): a procedure whose body names a path type is refused with
+  this code when it is called from a module that does not import that type.
 - `child` is one `String` expression, evaluated once. It may hold an effect when it is simple
   (§16.3). Diagnostics: `pure_expr_operand_type_mismatch` (not a `String`; a path value is not
   one), `effect_not_permitted`.
