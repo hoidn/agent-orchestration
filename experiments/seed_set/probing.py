@@ -80,25 +80,36 @@ def results(study, phase):
     for rung in {f["rung"] for runs in tried.values() for f in runs}:
         tasks = ladder.probe_tasks(rows, rung)
         good = [next(filter(usable, tried.get(t, []))) for t in tasks if any(map(usable, tried.get(t, [])))]
-        excluded = [t for t in tasks if exhausted(tried.get(t, []))]
-        own = [f for f in good if f.get("self_check") is not None]
-        figures[rung] = {"runs": sum(len(tried.get(t, [])) for t in tasks), "usable": len(good),
-                         "passes": sum(bool(f["hidden"]["passed"]) for f in good),
-                         "incidents": sum("incident" in f for t in tasks for f in tried.get(t, [])),
-                         "cuts": sum("cut" in f for t in tasks for f in tried.get(t, [])),
-                         "excluded": excluded, "in_tree_runs": len(own),
-                         "self_checked": sum(bool(f["self_check"]) for f in own)}
-        if len(good) + len(excluded) == len(tasks) == ladder.PROBE_TASKS:
-            if len(good) < MIN_USABLE:
-                figures[rung]["incomplete"] = True
-            else:
-                passes[rung] = round(Fraction(ladder.PROBE_TASKS * figures[rung]["passes"], len(good)))
-                if len(good) < ladder.PROBE_TASKS:
-                    figures[rung]["counted_on_four"] = (
-                        f"{figures[rung]['passes']} of {len(good)} usable runs counted as {passes[rung]} of "
-                        f"{ladder.PROBE_TASKS}: round(4 x passes / usable), for the choice of rung only, not a "
-                        "quality gate")
+        figures[rung] = rung_figures(tasks, tried, good)
+        if len(good) + len(figures[rung]["excluded"]) == len(tasks) == ladder.PROBE_TASKS:
+            passes |= counted_on_four(rung, figures[rung], len(good))
     return passes, figures
+
+
+def rung_figures(tasks, tried, good):
+    """A rung's probe figures: its runs, usable runs and their passes, incidents, cuts, excluded tasks, and the
+    in-tree runs with how many ran the visible check themselves."""
+    own = [f for f in good if f.get("self_check") is not None]
+    return {"runs": sum(len(tried.get(t, [])) for t in tasks), "usable": len(good),
+            "passes": sum(bool(f["hidden"]["passed"]) for f in good),
+            "incidents": sum("incident" in f for t in tasks for f in tried.get(t, [])),
+            "cuts": sum("cut" in f for t in tasks for f in tried.get(t, [])),
+            "excluded": [t for t in tasks if exhausted(tried.get(t, []))], "in_tree_runs": len(own),
+            "self_checked": sum(bool(f["self_check"]) for f in own)}
+
+
+def counted_on_four(rung, figures, usable_runs):
+    """{rung: passes on four} for an answered rung, {} for one with fewer than MIN_USABLE usable runs (marked
+    `incomplete` in its figures); a rung with fewer than four usable runs says how it was counted."""
+    if usable_runs < MIN_USABLE:
+        figures["incomplete"] = True
+        return {}
+    passes = round(Fraction(ladder.PROBE_TASKS * figures["passes"], usable_runs))
+    if usable_runs < ladder.PROBE_TASKS:
+        figures["counted_on_four"] = (
+            f"{figures['passes']} of {usable_runs} usable runs counted as {passes} of {ladder.PROBE_TASKS}: "
+            "round(4 x passes / usable), for the choice of rung only, not a quality gate")
+    return {rung: passes}
 
 
 def incomplete(study, phase):
@@ -209,15 +220,22 @@ def recover(study):
         if units.session_alive(records / "run.pgid"):
             raise SystemExit(f"{records}: its session is still running; wait for it")
         if "calls" not in facts:
-            tree = load(records / "record.json").get("tree")
-            facts = (runner.finish(study, records, facts, fixes[facts["task"]]) if tree and Path(tree).exists()
-                     else facts | {"incident": "interrupted: the runner stopped before the run was settled"})
-            if "exit" not in facts and facts.get("outcome") != "completed":
-                facts.setdefault("incident", "interrupted: the runner stopped during the launch")
+            facts = settle_left(study, records, facts, fixes[facts["task"]])
             dump(path, facts)
         if not ended(facts):
             probe_check(study, records, facts)
         print(f"{records}: recovered, {facts.get('incident') or facts.get('outcome')}")
+
+
+def settle_left(study, records, facts, fix):
+    """The facts of a reserved probe run its runner never settled: settled while its tree is there, else an
+    incident (interrupted before the settlement, or during the launch)."""
+    tree = load(records / "record.json").get("tree")
+    facts = (runner.finish(study, records, facts, fix) if tree and Path(tree).exists()
+             else facts | {"incident": "interrupted: the runner stopped before the run was settled"})
+    if "exit" not in facts and facts.get("outcome") != "completed":
+        facts.setdefault("incident", "interrupted: the runner stopped during the launch")
+    return facts
 
 
 def probe_run(study, spec, task, rung, fix, phase, limit=1):
