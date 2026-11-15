@@ -64,11 +64,12 @@ def forget_credentials(home):
 
 
 def session_alive(pgid_file):
-    """Whether the process group a launch wrote to `pgid_file` (`study.launch`) still runs; False without the file."""
+    """Whether the process group a launch's guard wrote to `pgid_file` (`reaper.guard`: the session's id, then its
+    start time) still runs; False without the file."""
     if not Path(pgid_file).is_file():
         return False
     try:
-        os.killpg(int(Path(pgid_file).read_text()), 0)
+        os.killpg(int(Path(pgid_file).read_text().split()[0]), 0)
     except ProcessLookupError:
         return False
     except PermissionError:

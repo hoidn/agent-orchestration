@@ -120,30 +120,15 @@ def run_jobs(jobs, one):
     return done
 
 
-REAPER = Path(__file__).with_name("reaper.py")  # the launch's guard: the unit dies with its launcher (review3 X5)
-
-
 def launch(command, env, log, timeout):
-    """Run `bash command` in its own session; return its exit status, or "timeout" after killing its tree. The
-    unit's whole tree, the provider calls' own sessions with their sandboxes included, dies with the launcher
-    however the launcher ends: a guard (`reaper.py`) kills it unless the launcher tells it "done"."""
+    """Run `bash command` under its guard (`reaper.run`), which starts it in a session of its own, writes that
+    session's id and start time to `<log>.pgid`, and kills the unit's whole tree, its provider calls' own sessions
+    and sandboxes and every orphan included, when the command ends (what is left of it), at the timeout, and
+    whenever the launcher ends without the command having ended (an exception, a kill). Return the command's exit
+    status, "timeout", or a status saying the guard itself was killed (the launcher then killed the tree)."""
     with open(log, "x") as out:
-        process = subprocess.Popen(["bash", str(command)], env=env, stdout=out, stderr=subprocess.STDOUT,
-                                   start_new_session=True)
-        Path(log).with_suffix(".pgid").write_text(str(process.pid))  # a recovery refuses while the session lives
-        guard = subprocess.Popen([sys.executable, "-I", str(REAPER), str(process.pid)], stdin=subprocess.PIPE,
-                                 start_new_session=True)
-        try:
-            return process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            reaper.kill_tree(process.pid)
-            process.wait()
-            return "timeout"
-        except BaseException:
-            reaper.kill_tree(process.pid)
-            raise
-        finally:
-            guard.communicate(b"done")
+        return reaper.run(["bash", str(command)], Path(log).with_suffix(".pgid"), timeout, env=env, stdout=out,
+                          stderr=subprocess.STDOUT)
 
 
 @contextmanager

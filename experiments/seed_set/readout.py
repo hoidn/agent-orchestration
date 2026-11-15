@@ -41,12 +41,12 @@ LIMITS = (  # stated on every readout, one line each; recorded, not changed (coo
 
 def measure_free(runs):
     """Per tranche and arm: runs, outcomes, incidents, usage-limit cuts, physical calls, mean wall clock, visible
-    passes, metering."""
+    passes and visible checks past their bound (neither a pass nor a failure; re-review N2), metering."""
     table = {}
     for facts in runs.values():
         row = table.setdefault(f"{facts['tranche']}/{facts['arm']}", {
             "runs": 0, "completed": 0, "failed": 0, "incidents": 0, "cut": 0, "calls": 0, "visible_passed": 0,
-            "metering_complete": 0, "wall_clock": []})
+            "visible_timed_out": 0, "metering_complete": 0, "wall_clock": []})
         row["runs"] += 1
         row["calls"] += facts.get("calls", 0)
         row["incidents"] += "incident" in facts
@@ -54,6 +54,7 @@ def measure_free(runs):
         if facts.get("outcome") in ("completed", "failed") and "cut" not in facts:  # a cut is no outcome (R1)
             row[facts["outcome"]] += 1
         row["visible_passed"] += bool((facts.get("visible") or {}).get("passed"))
+        row["visible_timed_out"] += bool((facts.get("visible") or {}).get("timed_out"))
         row["metering_complete"] += bool(facts.get("metering_complete"))
         if facts.get("wall_clock_sec") is not None:
             row["wall_clock"].append(facts["wall_clock_sec"])
@@ -64,12 +65,14 @@ def measure_free(runs):
 
 
 def direct_runs(records, runs, judge, tasks):
-    """Per task, its first-pool Haiku direct runs as (score by `judge`, visible check passed)."""
+    """Per task, its first-pool Haiku direct runs as (score by `judge`, visible check passed); a run whose visible
+    check ran past its bound is left out (re-review N2)."""
     per_task = {}
     for r in records:
-        if r["pool"] == "first" and r["task"] in tasks and r["arm"] == "direct" and gates.score(r, judge) is not None:
-            visible = (runs.get(r["run"], {}).get("visible") or {}).get("passed") is True
-            per_task.setdefault(r["task"], []).append((gates.score(r, judge), visible))
+        visible = runs.get(r["run"], {}).get("visible") or {}
+        if r["pool"] == "first" and r["task"] in tasks and r["arm"] == "direct" and gates.score(r, judge) is not None \
+                and not visible.get("timed_out"):
+            per_task.setdefault(r["task"], []).append((gates.score(r, judge), visible.get("passed") is True))
     return {task: rows for task, rows in per_task.items() if len(rows) >= 3}
 
 
@@ -235,11 +238,11 @@ def markdown(r):
              f"Tasks: {len(r['tasks'])} ({rungs(r['rungs'])}); retest: {len(r['retest_tasks'])}.",
              "", "## Runs (measure-free)", "",
              "| tranche/arm | runs | completed | failed | incidents | cut by a usage limit | calls | wall clock s | "
-             "visible passed | metered |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+             "visible passed | visible check past its bound | metered |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     lines += [f"| {name} | {row['runs']} | {row['completed']} | {row['failed']} | {row['incidents']} | {row['cut']} | "
-              f"{row['calls']} | "
-              f"{fmt(row['wall_clock_mean_sec'])} | {row['visible_passed']} | {row['metering_complete']} |"
+              f"{row['calls']} | {fmt(row['wall_clock_mean_sec'])} | {row['visible_passed']} | "
+              f"{row['visible_timed_out']} | {row['metering_complete']} |"
               for name, row in r["measure_free"].items()]
     lines += ["", f"## Programs (fewer than {selection.MAX_PROGRAM_LINES} lines; common.orc exempt)", "",
               "| arm | program | lines | within the limit |", "| --- | --- | --- | --- |"]

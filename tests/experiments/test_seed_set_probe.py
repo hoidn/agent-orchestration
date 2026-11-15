@@ -411,6 +411,21 @@ def test_a_settled_but_unchecked_probe_run_gets_its_hidden_check_on_the_next_pro
     assert probing.results(s, "first")[0]["T3"] == 4
 
 
+def test_a_hidden_check_past_its_bound_makes_the_probe_run_an_incident_never_a_failure(s, monkeypatch, tmp_path):
+    """Re-review N2: a timed-out hidden check is neither a pass nor a zero; the run is an incident, relaunched once."""
+    monkeypatch.setattr(host, "hidden_check", lambda package, patch, runtime: {
+        "passed": None, "failing": [], "timed_out": "the hidden tests ran past 600 s"})
+    home = tmp_path / "home"
+    home.mkdir()
+    records = probe_unit(s, "T3-00", "T3", calls=1, outcome="completed", final_patch=str(tmp_path / "final.patch"))
+    (records / "record.json").write_text(json.dumps({"sandbox": {"home": str(home)}}))
+    (layout.task_dir(s, "T3-00") / "withheld").mkdir(parents=True)
+    probing.recover(s)
+    facts = json.loads((records / "study.json").read_text())
+    assert (facts["incident"], probing.usable(facts), probing.allowed([facts])) == (
+        "host check: the hidden tests ran past 600 s", False, 2)
+
+
 def test_recovery_refuses_while_the_launched_session_still_runs(s):
     records = probe_unit(s, "T3-00", "T3")
     (records / "run.pgid").write_text(str(os.getpgid(0)))

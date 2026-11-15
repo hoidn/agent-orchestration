@@ -25,7 +25,7 @@ from types import SimpleNamespace
 import pytest
 
 from experiments.compare.repos import sha256_file
-from experiments.seed_set import forms, host, layout, probing, rules, spend, study
+from experiments.seed_set import forms, host, layout, probing, rules, spend, study, units
 from tests.experiments.compare_harness_support import (
     OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up, skip_without_sandbox, write_test_sandbox_config,
 )
@@ -551,6 +551,69 @@ def test_offline_a_killed_launcher_takes_its_agent_with_it_and_the_next_command_
     assert credentials(s) == []
     study.settle_runs(s, [records])
     assert json.loads((records / "study.json").read_text())["calls"] == 1
+
+
+def running(pids_dir):
+    """The live processes whose pid a host-side check of candidate code recorded in `pids_dir`."""
+    found = []
+    for name in os.listdir(pids_dir):
+        try:
+            state = Path(f"/proc/{name}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except OSError:
+            continue
+        found += [int(name)] if state != "Z" else []
+    return found
+
+
+def test_offline_a_killed_launcher_takes_its_settlements_visible_check_with_it(world, monkeypatch, tmp_path):
+    """Re-review N2: kill -9 of the launcher while the settlement's visible check runs the candidate's code on the
+    host (a conftest that sleeps two minutes). The check runs under the launch guard: nothing of it lives on, and
+    processes that are not the unit's (one in a session of its own, one in this test's group) are untouched."""
+    s, task, pids = world.study, "a0a0a0a0a0", tmp_path / "host-pids"
+    pids.mkdir(mode=0o700)
+    plan = json.loads(Path(world.plan).read_text())
+    Path(world.plan).write_text(json.dumps(plan | {"conftest_sleep": {"seconds": 120, "pids": str(pids)}}))
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    paths = [str(p) for p in (s.runtime, s.work, s.pools, s.results, s.tasks_file, s.criterion, s.state)]
+    code = (f"from pathlib import Path\nfrom experiments.seed_set import layout, rules, study\n"
+            f"rules.loaded_elsewhere = lambda runtime: []\n"
+            f"s = layout.Study(*map(Path, {paths!r}), min_free=10**9)\n"
+            f"study.candidates(s, 'calibration', 'direct_sonnet', [{task!r}])\n")
+    launcher = subprocess.Popen([sys.executable, "-c", code], cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO)})
+    deadline = time.time() + 600
+    while time.time() < deadline and not running(pids) and launcher.poll() is None:
+        time.sleep(0.5)
+    others = [subprocess.Popen(["sleep", "900"], start_new_session=True), subprocess.Popen(["sleep", "900"])]
+    try:
+        checked = running(pids)
+        launcher.kill()
+        launcher.wait()
+        gone = time.time() + 30
+        while time.time() < gone and (running(pids) or unit_processes(world)):
+            time.sleep(0.5)
+        assert (bool(checked), running(pids), unit_processes(world), [p.poll() for p in others]) == (
+            True, [], [], [None, None])
+    finally:
+        for p in others:
+            p.kill()
+            p.wait()
+
+
+def test_offline_a_limit_warning_beside_calls_that_succeed_cuts_nothing(world, monkeypatch):  # re-review N1
+    s, task = world.study, "a0a0a0a0a0"
+    plan = json.loads(Path(world.plan).read_text())
+    Path(world.plan).write_text(json.dumps(plan | {"stderr_warning": "Approaching usage limit · resets 5pm"}))
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    study.candidates(s, "calibration", "direct_sonnet", [task])
+    (facts,) = facts_of(s)
+    (records,) = [path.parent for path in study.study_runs(s)]
+    warned = [c.name for c in units.calls(records) if "Approaching usage limit" in (c / "stderr.txt").read_text()]
+    assert (facts["outcome"], "cut" in facts, "incident" in facts, warned,
+            [r for r in spend.rows(s.ledger) if r.get("event") == "pause"]) == ("completed", False, False, ["1"], [])
 
 
 def test_offline_a_criterion_edited_during_a_batch_refuses_the_batchs_later_units(world, monkeypatch):  # minor 6

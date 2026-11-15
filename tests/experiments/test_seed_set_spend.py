@@ -481,6 +481,35 @@ def test_not_a_limit_from_the_command_line(runner, monkeypatch):
     assert spend.latest(spend.rows(runner.ledger), "not_a_limit")["reason"] == "read the raw result: a 403"
 
 
+def test_a_cut_unit_whose_session_audit_fails_is_an_incident_and_its_pause_stays(runner):  # re-review n4
+    """Settle's session audit: a failed audit is an incident, cut or not, and the pause the cut wrote stays open."""
+    import re
+    import time
+    records = recorded_call(run_dir(runner), "token-usage-limit-NonZeroAgentExitCodeError")
+    (records / "calls" / "1" / "prompt.txt").write_text("p")
+    home, tree = runner.work / "home", runner.work / "tree"
+    tree.mkdir()
+    store = home / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(tree))
+    store.mkdir(parents=True)
+    for name in ("a", "b"):  # two sessions for one recorded call
+        (store / f"{name}.jsonl").write_text(json.dumps({"type": "assistant", "message": {"model": H}}) + "\n")
+    (records / "record.json").write_text(json.dumps({"sandbox": {"home": str(home)}, "tree": str(tree),
+                                                     "created_at": time.time(), "state_root": str(runner.work / "x")}))
+    out = study.settle(runner, records, runner.work / "task", "f" * 40, 1, H, 1)
+    assert ("cut" in out, out["incident"], [r["unit"] for r in spend.open_pauses(spend.rows(runner.ledger))]) == (
+        False, "session audit: 2 sessions for 1 recorded calls", [str(records)])
+
+
+def test_a_cut_probe_run_and_its_re_run_are_one_planned_unit_of_the_redraw(runner):  # re-review n4
+    """planned_runs for the redraw counts (task, step) units: 21 probe units, one of them cut and run again, are 21."""
+    for k in range(21):
+        spend.reserve(runner.ledger, "redraw", "candidate", H, 1, f"/w/{k}", env("redraw"), price=P, task=f"t{k}",
+                      arm="direct", step="first")
+    spend.reserve(runner.ledger, "redraw", "candidate", H, 1, "/w/0-again", env("redraw"), price=P, task="t0",
+                  arm="direct", step="first")
+    assert rules.planned_runs(runner, "redraw") == 21
+
+
 def test_runs_launch_two_at_a_time():
     lock, live, peak = threading.Lock(), [0], [0]
 
@@ -1270,6 +1299,19 @@ def test_the_smoke_never_runs_a_cut_slot_again(runner, monkeypatch):  # a smoke 
     spend.reserve(runner.ledger, "smoke", "candidate", H, 1, records, env("smoke"), task="r2", arm="direct", price=P)
     monkeypatch.setattr(study, "one_run", lambda *a, **k: pytest.fail("a cut smoke slot ran again"))
     assert study.candidates(runner, "smoke", "direct", ["r2"]) == []
+
+
+def test_a_visible_check_past_its_bound_is_counted_apart_never_as_a_pass_or_a_failure():  # re-review N2
+    from experiments.seed_set import readout
+    timed_out = {"passed": None, "failing": [], "timed_out": "the visible check ran past 1200 s"}
+    runs = {f"/w/{k}": {"tranche": "calibration", "arm": "direct", "task": "t1", "outcome": "completed", "calls": 1,
+                        "visible": timed_out if k == 0 else {"passed": k == 1}} for k in range(4)}
+    records = [{"pool": "first", "task": "t1", "arm": "direct", "run": run, "status": "rated", "scores": {H: 4}}
+               for run in runs]
+    row = readout.measure_free(runs)["calibration/direct"]
+    assert ((row["visible_passed"], row["visible_timed_out"]),
+            [visible for _, visible in readout.direct_runs(records, runs, H, ["t1"])["t1"]]) == (
+        (1, 1), [True, False, False])
 
 
 def test_a_cut_run_counts_as_cut_in_the_measure_free_table_never_as_failed():  # R1: no observation

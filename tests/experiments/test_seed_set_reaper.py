@@ -1,0 +1,143 @@
+"""The launch guard (`experiments/seed_set/reaper.py`, `study.launch`, `host.guarded`): the unit's command runs as
+the guard's child from its first instant, nothing of its tree outlives the command, its timeout or its root shell,
+a kill never reaches a pid that was reused (re-review of fix round 1, minors n1 and n2), and the host-side checks
+run under it with a bound, a check past its bound recorded as timed out (major N2). Real processes, no provider."""
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+from experiments.seed_set import host, reaper, study
+
+
+def running(pid):
+    """Whether `pid` is a live process (a zombie is not)."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+    except (OSError, IndexError):
+        return False
+
+
+def gone(*pids, within=10):
+    deadline = time.time() + within
+    while time.time() < deadline and any(map(running, pids)):
+        time.sleep(0.1)
+    return not any(map(running, pids))
+
+
+def wait_for(path, within=20):
+    deadline = time.time() + within
+    while time.time() < deadline and not (path.is_file() and path.read_text().strip()):
+        time.sleep(0.05)
+    return int(path.read_text())
+
+
+def launch(tmp_path, script, timeout=60):
+    command = tmp_path / "command.sh"
+    command.write_text(script)
+    return study.launch(command, {**os.environ}, tmp_path / "run.log", timeout)
+
+
+def test_a_signal_never_reaches_a_pid_whose_start_time_changed():  # n1
+    sleeper = subprocess.Popen(["sleep", "60"])
+    try:
+        _, started = reaper.stat(sleeper.pid)
+        reaper.signal_exact(sleeper.pid, started + 1, signal.SIGKILL)
+        survived = running(sleeper.pid)
+        reaper.signal_exact(sleeper.pid, started, signal.SIGKILL)
+        assert (survived, sleeper.wait(timeout=10)) == (True, -signal.SIGKILL)
+    finally:
+        sleeper.kill()
+
+
+def test_the_tree_of_a_root_that_is_not_the_recorded_process_is_never_killed():  # n1: a reused root pid
+    root = subprocess.Popen(["bash", "-c", "sleep 60 & wait"], start_new_session=True)
+    try:
+        time.sleep(0.5)
+        _, started = reaper.stat(root.pid)
+        reaper.kill_tree(root.pid, started=started + 1)
+        assert (running(root.pid), sorted(reaper.tree(root.pid)) != [root.pid]) == (True, True)
+    finally:
+        reaper.kill_tree(root.pid)
+        root.wait()
+
+
+def test_the_command_runs_as_the_guards_child_and_its_session_is_recorded(tmp_path):  # n2: never unguarded
+    status = launch(tmp_path, f'cd {tmp_path}\ntr "\\0" " " < /proc/$PPID/cmdline > parent.txt\nexit 3\n')
+    pid, started = map(int, (tmp_path / "run.pgid").read_text().split())
+    assert (status, reaper.__file__ in (tmp_path / "parent.txt").read_text().split(), started > 0) == (3, True, True)
+
+
+def test_an_orphan_left_by_a_command_that_ended_is_killed(tmp_path):  # n2: the root's end does not disarm it
+    status = launch(tmp_path, f"cd {tmp_path}\nsleep 300 &\necho $! > orphan.pid\nexit 0\n")
+    assert (status, gone(int((tmp_path / "orphan.pid").read_text()))) == (0, True)
+
+
+def test_a_root_shell_killed_while_its_subtree_lives_does_not_disarm_the_guard(tmp_path):  # n2
+    script = f"cd {tmp_path}\n(sleep 300; true) &\necho $! > child.pid\necho $$ > root.pid\nwait\n"
+    killer = threading.Thread(target=lambda: os.kill(wait_for(tmp_path / "root.pid"), signal.SIGKILL))
+    killer.start()
+    status = launch(tmp_path, script)
+    killer.join()
+    assert (status, gone(wait_for(tmp_path / "child.pid"))) == (128 + signal.SIGKILL, True)
+
+
+def test_a_timeout_kills_the_whole_tree(tmp_path):
+    status = launch(tmp_path, f"cd {tmp_path}\nsetsid sleep 300 &\necho $! > other-session.pid\nsleep 300\n",
+                    timeout=3)
+    assert (status, gone(wait_for(tmp_path / "other-session.pid"))) == ("timeout", True)
+
+
+def test_a_killed_guard_leaves_the_launcher_to_kill_the_unit(tmp_path):
+    script = f"cd {tmp_path}\nsleep 300 &\necho $! > child.pid\necho $PPID > guard.pid\nsleep 300\n"
+    def kill_the_guard():  # only a guard: before the guard was the command's parent, the parent was this test
+        guard = wait_for(tmp_path / "guard.pid")
+        if reaper.__file__ in Path(f"/proc/{guard}/cmdline").read_text().split("\0"):
+            os.kill(guard, signal.SIGKILL)
+    killer = threading.Thread(target=kill_the_guard)
+    killer.start()
+    status = launch(tmp_path, script)
+    killer.join()
+    root = int((tmp_path / "run.pgid").read_text().split()[0])
+    assert (status, gone(wait_for(tmp_path / "child.pid"), root)) == ("guard killed by signal 9", True)
+
+
+REAL = Path(__file__).resolve().parents[2] / "experiments" / "seed_set" / "tasks" / "1f424cc9ae"  # a T3 package
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_a_host_side_check_past_its_bound_is_killed_with_its_whole_tree(tmp_path):  # re-review N2
+    code = (f"import subprocess, time\np = subprocess.Popen(['sleep', '300'], start_new_session=True)\n"
+            f"open({str(tmp_path / 'grandchild.pid')!r}, 'w').write(str(p.pid))\ntime.sleep(300)\n")
+    done, attempts = host.guarded([sys.executable, "-c", code], timeout=3)
+    assert (done.returncode, attempts, gone(wait_for(tmp_path / "grandchild.pid"))) == ("timeout", [], True)
+
+
+def test_a_visible_check_past_its_bound_is_recorded_as_timed_out_never_as_a_result(tmp_path, monkeypatch):  # N2
+    monkeypatch.setattr(host, "VISIBLE_SEC", 0.5)
+    (tmp_path / "empty.diff").write_text("")
+    result = host.visible_check(REAL, tmp_path / "empty.diff", ROOT)
+    assert (result["passed"], result["timed_out"]) == (None, "the visible check ran past 0.5 s")
+
+
+def test_a_hidden_check_past_its_bound_is_recorded_as_timed_out_never_as_a_result(tmp_path, monkeypatch):  # N2
+    monkeypatch.setattr(host, "CHECK_SEC", 0.5)
+    (tmp_path / "empty.diff").write_text("")
+    result = host.hidden_check(REAL, tmp_path / "empty.diff", ROOT)
+    assert (result["passed"], result["timed_out"]) == (None, "the hidden tests ran past 0.5 s")
+
+
+def test_a_summary_past_its_bound_refuses_so_the_pool_is_an_incident(tmp_path, monkeypatch):  # N2
+    pool = tmp_path / "pool"
+    (pool / "records").mkdir(parents=True)
+    (pool / "records" / "mapping.json").write_text(json.dumps({"clones": {"a": {}, "b": {}}}))
+    monkeypatch.setattr(host, "CHECK_SEC", 0.25)
+    with pytest.raises(SystemExit, match="summarize of .* ran past 0.5 s"):
+        host.summarize(pool, tmp_path / "criterion.json")
