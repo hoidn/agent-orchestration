@@ -429,3 +429,201 @@ def test_the_launcher_s_fake_token_form_is_accepted_and_an_empty_one_ends_before
     empty = json.loads((KIT / "fixtures" / "token-forced-empty-RuntimeError.json").read_text())
     assert (ladder.token_refusal("lh-fake-slot-" + "0a" * 16), empty["n_events"],
             "CLAUDE_FORCE_OAUTH" in empty["exception_message"]) == (None, 0, True)
+
+
+# ---- Money (Task 5, second checkbox) ---------------------------------------------------------------------------
+
+CRITERION = json.loads((KIT / "ladder.json").read_text())
+
+
+def _entry(task="wal-recovery-ordering", effort="low", rnd=1, kind="round"):
+    return {"round": rnd, "task": task, "effort": effort, "kind": kind}
+
+
+def _root(short):
+    root = short / "state"
+    ladder.ensure_state(root)
+    return root
+
+
+RESERVE = """
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("lh_ladder", sys.argv[1])
+ladder = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ladder)
+root, n = ladder.Path(sys.argv[2]), int(sys.argv[3])
+entry = {"round": n, "task": "wal-recovery-ordering", "effort": ("low", "medium", "high")[n % 3], "kind": "round"}
+got = ladder.reserve(root, entry, json.loads((ladder.KIT / "ladder.json").read_text()), 0.0)
+print(json.dumps(got if isinstance(got, dict) else got.reason))
+"""
+
+
+def test_sixty_concurrent_launches_never_commit_more_than_the_ceiling(short):
+    """Sixty launcher processes reserve at once; each reservation is wal-recovery-ordering's cap plus the margin,
+    USD 4.00, so exactly 50 fit in USD 200."""
+    root = _root(short)
+    procs = [subprocess.Popen([sys.executable, "-I", "-c", RESERVE, str(KIT / "ladder.py"), str(root), str(n)],
+                              stdout=subprocess.PIPE, text=True) for n in range(60)]
+    results = [json.loads(proc.communicate(timeout=WAIT * 3)[0]) for proc in procs]
+    starts, committed, open_ = ladder.tally(root, CRITERION, 0.0)
+    slots = json.loads((root / "passthrough" / "slots.json").read_text())
+    reserved = [r for r in results if isinstance(r, dict)]
+    assert (len(reserved), starts, committed, len(open_), len({r["id"] for r in reserved}),
+            len(set(slots["slots"])), {r for r in results if not isinstance(r, dict)}) == (
+        50, 50, 200.0, 50, 50, 50, {"does not fit"})
+
+
+def test_a_slot_that_does_not_fit_waits_and_a_cheaper_one_behind_it_is_never_started(short):
+    root = _root(short)
+    held = ladder.reserve(root, _entry("vf2-speedup-networkx"), CRITERION, 170.0)  # 18.37 of the 30 left
+    queue = [_entry("rs-archive-clone"), _entry("wal-recovery-ordering")]  # 23.92 does not fit, 4.00 would
+    waiting = ladder.next_start(root, queue, CRITERION, 170.0)
+    ladder.settle(root, held, {"usd": 18.37, "class": "observation"})
+    ended = ladder.next_start(root, queue, CRITERION, 170.0)
+    starts, _, open_ = ladder.tally(root, CRITERION, 170.0)
+    assert (waiting[0], ended[0], ended[1], starts, open_) == (
+        "wait", "end", "nothing in flight and the next slot's reservation does not fit", 1, [])
+
+
+def test_the_head_of_the_queue_starts_when_it_fits(short):
+    root = _root(short)
+    action, attempt = ladder.next_start(root, [_entry("rs-archive-clone")], CRITERION, 0.0)
+    record = json.loads((root / "slots" / attempt["id"] / "slot.json").read_text())
+    assert (action, record["reservation_usd"], record["cap_usd"], bool(ladder.FAKE_TOKEN.fullmatch(record["token"])),
+            record["launcher"]["pid"], record["launcher"]["start"] == ladder.process_start(os.getpid())) == (
+        "start", 23.92, 22.92, True, os.getpid(), True)
+
+
+@pytest.mark.parametrize("kind", ["round", "rerun after a cut"])
+def test_start_241_is_refused(short, kind):
+    root = _root(short)
+    for n in range(240):
+        ladder.settle(root, ladder.reserve(root, _entry(rnd=n), CRITERION, 0.0), {"usd": 0.01, "class": "observation"})
+    head = {**_entry(), "rerun_of": "001"} if kind != "round" else _entry()
+    assert ladder.next_start(root, [head], CRITERION, 0.0) == ("end", "240 starts")
+
+
+def test_a_pre_session_failure_counts_against_neither_the_starts_nor_the_ceiling(short):
+    root = _root(short)
+    ladder.settle(root, ladder.reserve(root, _entry(), CRITERION, 0.0), {"usd": 0.0, "class": "pre_session_failure"})
+    ladder.settle(root, ladder.reserve(root, _entry(), CRITERION, 0.0), {"usd": 0.5, "class": "cut"})
+    starts, committed, _ = ladder.tally(root, CRITERION, 0.0)
+    assert (starts, committed) == (1, 0.5)
+
+
+def test_a_settled_slot_leaves_the_slots_file_and_its_token_is_retired(short):
+    root = _root(short)
+    one, two = (ladder.reserve(root, _entry(rnd=n), CRITERION, 0.0) for n in (1, 2))
+    ladder.settle(root, one, {"usd": 0.1, "class": "observation"})
+    slots = json.loads((root / "passthrough" / "slots.json").read_text())
+    assert ({name: s["token"] for name, s in slots["slots"].items()}, slots["total_usd"]) == (
+        {two["id"]: two["token"]}, 200.0)
+
+
+def test_the_live_probe_s_priced_usage_is_settled_into_committed_and_off_the_passthrough_s_total(short):
+    root = _root(short)
+    attempt = ladder.reserve(root, _entry(), CRITERION, 0.37)
+    slots = json.loads((root / "passthrough" / "slots.json").read_text())
+    assert (ladder.tally(root, CRITERION, 0.37)[1], slots["total_usd"], attempt["reservation_usd"]) == (
+        4.37, 199.63, 4.0)
+
+
+def test_a_live_launch_without_the_live_probe_s_request_log_is_refused(short):
+    ctx = ladder.Ctx({"HOME": str(short), "LH_SPEND_AUTHORIZED": "yes"})
+    with pytest.raises(ladder.Refused, match="live probe"):
+        ladder.prior_usd(ctx)
+
+
+def test_the_live_probe_s_usage_is_read_from_its_request_log(short):
+    log = short / ".local/state/lh-probe/passthrough/requests.jsonl"
+    log.parent.mkdir(parents=True)
+    log.write_text("".join(json.dumps(r) + "\n" for r in [{"slot": "probe-low", "usd": 0.01},
+                                                         {"slot": None, "status": 403, "refused": "x"},
+                                                         {"slot": "probe-medium", "usd": 0.02}]))
+    assert round(ladder.prior_usd(ladder.Ctx({"HOME": str(short), "LH_SPEND_AUTHORIZED": "yes"})), 9) == 0.03
+
+
+# Settlement: the largest of four figures (D4).
+
+def _usage(inp, out, read=0, write=0):
+    return {"input_tokens": inp, "output_tokens": out, "cache_read_input_tokens": read,
+            "cache_creation_input_tokens": write}
+
+
+def _trial(attempt_dir, result=None, session=None, stream_extra=()):
+    """A harness trial in the attempt's job directory: its stream (the last line `result`) and session file."""
+    trial = attempt_dir / "jobs" / attempt_dir.name / "wal-recovery-ordering__abcdefg"
+    (trial / "agent" / "sessions" / "projects" / "-app").mkdir(parents=True)
+    lines = [{"type": "system", "subtype": "init"}, *stream_extra] + ([{"type": "result", **result}] if result else [])
+    (trial / "agent" / "claude-code.txt").write_text("".join(json.dumps(e) + "\n" for e in lines))
+    if session is not None:
+        (trial / "agent" / "sessions" / "projects" / "-app" / "s.jsonl").write_text(
+            "".join((s if isinstance(s, str) else json.dumps(s)) + "\n" for s in session))
+    return trial
+
+
+def _assistant(mid, usage):
+    return {"type": "assistant", "message": {"id": mid, "model": "claude-haiku-5-5", "usage": usage}}
+
+
+def _model_usage(inp, out):
+    return {"claude-haiku-5-5": {"inputTokens": inp, "outputTokens": out, "cacheReadInputTokens": 0,
+                                 "cacheCreationInputTokens": 0}}
+
+
+PRICE = ladder.price_check.price
+
+
+def _figures_case(short, which):
+    """Four figures, each made the largest in turn: (attempt dir, rows, the figure that must settle)."""
+    root = _root(short)
+    attempt = ladder.reserve(root, _entry(), CRITERION, 0.0)
+    big = {"meter": 0, "session": 0, "result": 0, "model_usage": 0, which: 1}
+    session = [_assistant("m1", _usage(1000 + 9000 * big["session"], 100))]
+    result = {"total_cost_usd": 0.0002 + 0.01 * big["result"], "modelUsage": _model_usage(1000 + 50_000 * big["model_usage"], 100),
+              "usage": _usage(10 ** 9, 10 ** 9)}  # never read: it would dwarf every figure
+    _trial(root / "slots" / attempt["id"], result, session)
+    rows = [{"slot": attempt["id"], "status": 200, "usd": 0.00015 + 0.02 * big["meter"]}]
+    want = {"meter": rows[0]["usd"], "session": PRICE(session[0]["message"]["usage"], ladder.RULE),
+            "result": result["total_cost_usd"], "model_usage": (1000 + 50_000) * 0.10 / 1e6 + 100 * 0.50 / 1e6}
+    return root / "slots" / attempt["id"], rows, want[which]
+
+
+@pytest.mark.parametrize("which", ["meter", "session", "result", "model_usage"])
+def test_settlement_takes_the_largest_of_four_figures_and_never_reads_the_result_s_usage(short, which):
+    attempt_dir, rows, want = _figures_case(short, which)
+    settled = ladder.settlement(attempt_dir, rows, 4.0)
+    assert (round(settled["usd"], 12), settled["unreadable"]) == (round(want, 12), [])
+
+
+def test_settlement_counts_a_message_id_once(short):
+    root = _root(short)
+    attempt = ladder.reserve(root, _entry(), CRITERION, 0.0)
+    one = _assistant("m1", _usage(5000, 500))
+    _trial(root / "slots" / attempt["id"], {"total_cost_usd": 0.0}, [one, one, one, _assistant("m2", _usage(10, 1))])
+    settled = ladder.settlement(root / "slots" / attempt["id"], [], 4.0)
+    assert settled["figures"]["session"] == pytest.approx(PRICE(_usage(5000, 500), ladder.RULE)
+                                                          + PRICE(_usage(10, 1), ladder.RULE), rel=1e-12)
+
+
+@pytest.mark.parametrize("broken", ["session line", "stream line", "passthrough row"])
+def test_unreadable_usage_settles_at_the_full_reservation(short, broken):
+    root = _root(short)
+    attempt = ladder.reserve(root, _entry(), CRITERION, 0.0)
+    session = [_assistant("m1", _usage(10, 1))] + (["{not json"] if broken == "session line" else [])
+    trial = _trial(root / "slots" / attempt["id"], {"total_cost_usd": 0.0001}, session)
+    if broken == "stream line":
+        with open(trial / "agent" / "claude-code.txt", "a") as fh:
+            fh.write("{not json\n{\"type\": \"x\"}\n")
+    rows = [{"slot": attempt["id"], "status": 200, "usd": "unpriced" if broken == "passthrough row" else 0.0001}]
+    settled = ladder.settlement(root / "slots" / attempt["id"], rows, attempt["reservation_usd"])
+    assert (settled["usd"], bool(settled["unreadable"])) == (4.0, True)
+
+
+def test_a_session_with_no_trial_is_settled_by_the_meter_alone(short):
+    """A timeout kill or a dead launcher leaves no result event; figure 1 settles it (D4)."""
+    root = _root(short)
+    attempt = ladder.reserve(root, _entry(), CRITERION, 0.0)
+    rows = [{"slot": attempt["id"], "status": 200, "usd": 0.25}, {"slot": attempt["id"], "status": 403, "refused": "x"}]
+    assert ladder.settlement(root / "slots" / attempt["id"], rows, 4.0) == {
+        "usd": 0.25, "figures": {"meter": 0.25, "session": None, "result": None, "model_usage": None}, "unreadable": []}

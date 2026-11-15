@@ -38,6 +38,7 @@ import re
 import socket
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 
@@ -344,6 +345,221 @@ def token_refusal(token):
     """A slot's fake token not in the launcher's form; an empty one would end before the session as a
     RuntimeError naming CLAUDE_FORCE_OAUTH (fixture token-forced-empty-RuntimeError)."""
     return None if isinstance(token, str) and FAKE_TOKEN.fullmatch(token) else "a slot without a fake token in the launcher's form"
+
+
+# ---- state and money (D4: reservation, settlement, the ceiling) ---------------------------------------------
+
+price_check = _kit("price_check")
+RULE = price_check.load_rule()
+sys.path.insert(0, str(ROOT))
+from orchestrator.providers import pricing, usage  # noqa: E402  (the package's usage reader and price table)
+
+TABLE = pricing.load_price_table(ROOT / "orchestrator" / "providers" / "price_table.json")
+STREAM_JSON = "claude_stream_json_stdout"  # usage.py's metadata mode for the CLI's stream
+
+
+class Full:
+    """A start that cannot be made now: `reason` is "240 starts" or "does not fit"."""
+
+    def __init__(self, reason):
+        self.reason = reason
+
+
+def ensure_state(root):
+    """The state root, its passthrough and relay directories (mode 700) and an empty slots file."""
+    for path in (root, root / "passthrough", root / "relay", root / "slots"):
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not (root / "passthrough" / "slots.json").exists():
+        _write_json(root / "passthrough" / "slots.json", {"total_usd": 200.0, "total_requests": None, "slots": {}})
+
+
+def _write_json(path, doc):
+    """Replace `path` whole (a reader never sees half a file)."""
+    tmp = path.with_name(path.name + ".new")
+    tmp.write_text(json.dumps(doc, indent=1) + "\n")
+    os.replace(tmp, path)
+
+
+class _Lock:
+    """The one lock under which starts are counted, reserved and settled, shared by every launcher process."""
+
+    def __init__(self, root):
+        self.path = root / "money.lock"
+
+    def __enter__(self):
+        import fcntl
+        self.fh = open(self.path, "a")
+        fcntl.flock(self.fh, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        self.fh.close()
+
+
+def process_start(pid):
+    """A process's start time in clock ticks since boot (/proc/<pid>/stat field 22), or None when it is gone."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    return int(stat.rsplit(")", 1)[1].split()[19])
+
+
+def attempts(root):
+    """Every attempt: its slot.json with its settled.json, if any, under `settled`; in claim order."""
+    found = []
+    for path in sorted((root / "slots").iterdir()) if (root / "slots").is_dir() else []:
+        if (path / "slot.json").is_file():
+            settled = path / "settled.json"
+            found.append({**_read_json(path / "slot.json"), "settled": _read_json(settled) if settled.is_file() else None})
+    return found
+
+
+def _counts(ladder, attempt):
+    """(counts as a start, counts against the ceiling) for one attempt: open ones count fully."""
+    if attempt["settled"] is None:
+        return True, True
+    cls = ladder["classification"]["classes"][attempt["settled"]["class"]]
+    return bool(cls["starts"]), bool(cls["usd"])
+
+
+def tally(root, ladder, prior):
+    """(starts, committed USD, open attempts): committed is the live probe's usage + the settled cost of every
+    start + every open reservation (D4)."""
+    every = attempts(root)
+    starts = sum(_counts(ladder, a)[0] for a in every)
+    settled = sum(a["settled"]["usd"] for a in every if a["settled"] and _counts(ladder, a)[1])
+    open_ = [a for a in every if a["settled"] is None]
+    return starts, round(prior + settled + sum(a["reservation_usd"] for a in open_), 6), open_
+
+
+def cap(ladder, task):
+    return next(t["cap_usd"] for t in ladder["tasks"]["list"] if t["name"] == task)
+
+
+def _slots_file(root, ladder, prior):
+    """The passthrough's slots file: every open attempt's fake token and cap; the total is the ceiling less the
+    live probe's usage."""
+    slots = {a["id"]: {"token": a["token"], "cap_usd": a["cap_usd"], "cap_requests": None}
+             for a in attempts(root) if a["settled"] is None}
+    total = round(ladder["ceiling"]["total_usd"] - prior, 6)
+    _write_json(root / "passthrough" / "slots.json", {"total_usd": total, "total_requests": None, "slots": slots})
+
+
+def reserve(root, entry, ladder, prior):
+    """Claim an attempt for `entry` (round, task, effort, kind) under the lock if it fits: the new attempt, or Full.
+    Its directory is claimed by mkdir; its fake token goes into the slots file before the lock is let go."""
+    reservation = round(cap(ladder, entry["task"]) + ladder["ceiling"]["reservation"]["margin_usd"], 2)
+    with _Lock(root):
+        starts, committed, _ = tally(root, ladder, prior)
+        if starts >= ladder["ceiling"]["starts"]:
+            return Full("240 starts")
+        if round(committed + reservation, 6) > ladder["ceiling"]["total_usd"]:
+            return Full("does not fit")
+        index = len(list((root / "slots").iterdir())) + 1
+        name = f"{index:03d}-r{entry['round']}-{entry['task']}-{entry['effort']}"
+        (root / "slots" / name).mkdir(mode=0o700)  # the claim: a second claimant fails here
+        attempt = {**entry, "id": name, "index": index, "cap_usd": cap(ladder, entry["task"]),
+                   "reservation_usd": reservation, "token": "lh-fake-slot-" + os.urandom(16).hex(),
+                   "launcher": {"pid": os.getpid(), "start": process_start(os.getpid())}, "opened": time.time()}
+        _write_json(root / "slots" / name / "slot.json", attempt)
+        _slots_file(root, ladder, prior)
+    return attempt
+
+
+def settle(root, attempt, record, ladder=None, prior=0.0):
+    """Close the attempt: its settlement replaces its reservation, and its fake token leaves the slots file."""
+    ladder = ladder or _read_json(KIT / "ladder.json")
+    with _Lock(root):
+        _write_json(root / "slots" / attempt["id"] / "settled.json", {**record, "closed": time.time()})
+        _slots_file(root, ladder, prior)
+
+
+def next_start(root, queue, ladder, prior):
+    """("start", attempt) for the head of the queue, ("wait", why) or ("end", why). Only the head is ever tried: a
+    slot that does not fit waits for the attempts in flight, and the launcher never skips ahead (D4, D7.4)."""
+    if not queue:
+        return "end", "the schedule is done"
+    got = reserve(root, queue[0], ladder, prior)
+    if isinstance(got, dict):
+        return "start", got
+    if got.reason == "240 starts":
+        return "end", "240 starts"
+    if tally(root, ladder, prior)[2]:
+        return "wait", "the next slot's reservation does not fit while attempts are in flight"
+    return "end", "nothing in flight and the next slot's reservation does not fit"
+
+
+def prior_usd(ctx):
+    """The live probe's priced usage (D4: settled into committed before the first attempt), from its request log.
+    In a rehearsal, LH_REHEARSAL/probe/requests.jsonl stands in for it, and none means none."""
+    log = (ctx.rehearsal / "probe" if ctx.rehearsal else ctx.home / ".local/state/lh-probe/passthrough") / "requests.jsonl"
+    if ctx.live and not log.is_file():
+        raise Refused(f"the live probe's priced usage cannot be read: no {log}")
+    return sum(row.get("usd") or 0.0 for row in _jsonl(log))
+
+
+def trial_dir(attempt_dir):
+    """The harness's trial directory of an attempt (jobs/<job>/<trial>/), or None."""
+    found = sorted(p for p in (attempt_dir / "jobs").glob("*/*") if p.is_dir())
+    return found[0] if found else None
+
+
+def stream_events(trial):
+    """The agent's stream (agent/claude-code.txt) as events; ValueError on a line that is not one."""
+    path = trial / "agent" / "claude-code.txt" if trial else None
+    if path is None or not path.is_file():
+        return []
+    lines = [line for line in path.read_text().splitlines() if line.strip()]
+    return [json.loads(line) for line in lines]
+
+
+def last_result(events):
+    found = [e for e in events if isinstance(e, dict) and e.get("type") == "result"]
+    return found[-1] if found else None
+
+
+def _meter(rows):
+    """Figure 1: the passthrough's meter, the priced usage of the slot's forwarded requests."""
+    forwarded = [row for row in rows if "refused" not in row]
+    if any(not isinstance(row.get("usd") or 0.0, (int, float)) for row in forwarded):
+        raise ValueError("a meter row without a price")
+    return sum(row.get("usd") or 0.0 for row in forwarded)
+
+
+def _session(trial):
+    """Figure 2: the session file's rows priced by the rule, one row per message id."""
+    return sum(price_check.price(u, RULE) for u in price_check.requests(trial)) if trial else None
+
+
+def _model_usage(trial):
+    """Figure 4: the result's modelUsage at the base rates, by the package's usage reader and price table."""
+    path = trial / "agent" / "claude-code.txt" if trial else None
+    if path is None or not path.is_file():
+        return None
+    read = usage.usage_from_stdout(STREAM_JSON, path.read_bytes(), model=MODEL)
+    if read.get("status") != "reported":
+        if read.get("reason") == "malformed":
+            raise ValueError("the stream is malformed")
+        return None
+    return pricing.priced(read["rows"], TABLE) if read["source"] == "result.modelUsage" else None
+
+
+def settlement(attempt_dir, rows, reservation):
+    """The largest of the four figures of D4; the result's `usage` and the stream events' usage are never read.
+    A figure that cannot be read settles the attempt at its full reservation."""
+    trial, figures, unreadable = trial_dir(attempt_dir), {}, []
+    readers = {"meter": lambda: _meter(rows), "session": lambda: _session(trial),
+               "result": lambda: (last_result(stream_events(trial)) or {}).get("total_cost_usd"),
+               "model_usage": lambda: _model_usage(trial)}
+    for name, read in readers.items():
+        try:
+            figures[name] = read()
+        except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:  # unreadable, never zero
+            figures[name], unreadable = None, unreadable + [f"{name}: {type(exc).__name__}"]
+    known = [v for v in figures.values() if isinstance(v, (int, float))]
+    usd = reservation if unreadable else max(known, default=0.0)
+    return {"usd": usd, "figures": figures, "unreadable": unreadable}
 
 
 # ---- the command line ---------------------------------------------------------------------------------------
