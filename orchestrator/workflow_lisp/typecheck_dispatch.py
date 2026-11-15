@@ -1225,5 +1225,5 @@ def _typecheck(
             typed_factory=_typed,
         )
     if type(expr) is PromptApplicationExpr:
-        refuse_prompt_application(expr, recurse=recurse, type_env=context.type_env)
+        return refuse_prompt_application(expr, recurse=recurse, type_env=context.type_env)
     raise TypeError(f"unsupported expression node: {type(expr)!r}")

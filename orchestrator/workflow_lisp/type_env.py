@@ -1236,7 +1236,7 @@ def _resolve_applied_type_expr(
     """
 
     from .generic_unions import resolve_generic_union_application
-    from .prompt_values import resolve_prompt_type
+    from .prompt_values import names_builtin_prompt, resolve_prompt_type
 
     scope = {
         "type_refs": type_refs,
@@ -1249,7 +1249,7 @@ def _resolve_applied_type_expr(
         "local_type_params": local_type_params,
     }
     resolve_arg = lambda arg: _resolve_parsed_type_expr(arg, authored_name=_render_type_expr(arg), **scope)  # noqa: E731
-    if parsed.head == "Prompt":
+    if names_builtin_prompt(parsed.head, type_refs=type_refs, import_scope=import_scope):
         return resolve_prompt_type(parsed, admitted=prompt_parameter, resolve_arg=resolve_arg, span=span,
                                    form_path=form_path, expansion_stack=expansion_stack)
     return resolve_generic_union_application(
