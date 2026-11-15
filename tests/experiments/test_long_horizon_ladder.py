@@ -617,8 +617,8 @@ PENDING_OR_FILLED = {
     "network.agent_phase.allowed_hosts", "host.cpu_set", "host.disk_plan", "refusal.form_reasons",
     "classification.passthrough_log", "usage_limits.vendor_headers_confirmed", "allowance_guard.utilisation_header",
     "readout.contamination_scan.terms", "readout.contamination_scan.canary_sha256", "readout.graded_outcome.verifiers",
-    "schedule.order.seed", "schedule.order.hash", "readout.fall_bound.seed"}
-TYPE_NAMES = {"array", "object", "string", "sha256", "scalar"}
+    "schedule.order.seed", "schedule.order.hash", "readout.fall_bound.seed", "readout.cost.dominated_p_at_most"}
+TYPE_NAMES = {"array", "object", "string", "sha256", "scalar", "number"}
 
 
 def test_every_null_is_a_pending_field_and_no_field_leaves_the_list_without_a_record():
@@ -628,6 +628,12 @@ def test_every_null_is_a_pending_field_and_no_field_leaves_the_list_without_a_re
     assert (set(manifest.nulls(ladder)), {e["field"] for e in entries},
             [e["field"] for e in entries if e.get("type") not in TYPE_NAMES or not e.get("filled_by")]) == (
         {p["field"] for p in ladder["pending"]}, PENDING_OR_FILLED, [])
+
+
+@pytest.mark.parametrize("value, typed", [(0.05, True), (4, True), (float("nan"), False), (float("inf"), False),
+                                          (True, False), ("0.05", False)])
+def test_a_number_filled_field_is_a_finite_integer_or_decimal(value, typed):
+    assert _load("lh_manifest", KIT / "manifest.py")._typed(value, "number") is typed
 
 
 def _kit_copy(tmp_path):

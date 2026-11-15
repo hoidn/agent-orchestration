@@ -25,7 +25,8 @@ neither imports the other. Standard library only.
                     "class"           the class the launcher decided: the row's class, or "stop" when the launcher
                                       stopped the tranche on this attempt (then "stop_cause" names why)
                     "stop_cause"      null, or one of LAUNCHER_STOPS: a stop of D7.7 the launcher sees in an attempt
-                                      whose row is not a stop row; required exactly then
+                                      whose row is not a stop row; required exactly then, and only where the cause
+                                      can occur (LAUNCHER_STOPS: on a session's start, on the smoke's slot, or on any)
                     "reward"          the verifier's reward, 0 or 1, or null; read only for an observation, where
                                       null is 0 (D5), except after a normal ending, which is regraded first (D5)
                     "excluded"        null, or why an observation is excluded after all: "no reward after regrades"
@@ -42,7 +43,8 @@ neither imports the other. Standard library only.
                     "graded"          null, or {"passed", "total"} sub-tests where the verifier reports them (D6)
                     "egress_refused"  {address: count} of refused connections (D3); excludes nothing
                   }]; per slot, in start order, a start follows only a cut or a pre-session failure, and nothing
-                  follows three pre-session failures in a row (D5: the slot is lost after the third)
+                  follows the slot's third pre-session failure, counted in all (D5: relaunched at most twice, lost
+                  after the third)
   allowance       null, or {"weekly_points": meter points of a weekly allowance the tranche used, summed from the
                   owner's readings, finite and not negative, "readings": the ledger rows they come from} (D6)
 
@@ -65,11 +67,17 @@ import re
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
 EXCLUSIONS = ("no reward after regrades", "indeterminate")
 ENDS = ("schedule", "ceiling", "starts", "stop")
-# The stops of D7.7 the launcher sees in an attempt's own files whatever its D5 row; the first five are
-# feat/lh-launcher's words (ladder.py init_stop, stream_stop, _launcher_stop at 0ff18eda).
-LAUNCHER_STOPS = ("an init event with another tool list", "an init event with another CLI version",
-                  "an init event with another credential source", "a sign of paid extra usage in the session's stream",
-                  "a subagent file", "a match of token_scan.py", "a failed smoke check")
+# The stops of D7.7 the launcher sees in an attempt's own files whatever its D5 row, each with where it can occur:
+# "a session" (a start that is not a pre-session failure: the init event, the stream and the subagent files come
+# from a session), "the smoke's slot" (D7.1, smoke_cell) or "any start" (token_scan.py reads every teardown's files).
+# The first five are feat/lh-launcher's words (ladder.py init_stop, stream_stop, _launcher_stop at 0ff18eda).
+LAUNCHER_STOPS = {"an init event with another tool list": "a session",
+                  "an init event with another CLI version": "a session",
+                  "an init event with another credential source": "a session",
+                  "a sign of paid extra usage in the session's stream": "a session",
+                  "a subagent file": "a session",
+                  "a match of token_scan.py": "any start",
+                  "a failed smoke check": "the smoke's slot"}
 AGAIN_AFTER = ("cut", "pre_session_failure")  # D5: the only classes whose slot is run again
 NUMBER = (int, float)
 EXPORT = {"label": str, "earlier_labels": list, "end": (dict, type(None)), "slots": list, "starts": list,
@@ -215,13 +223,36 @@ def _contamination(start, known, where):
         raise RecordError(f"{where}: contamination {unknown} names no frozen term's SHA-256 (D6)")
 
 
-def _class(start, row, where):
-    """The launcher's class, checked against the row: the row's class, or a stop with a launcher cause (D5, D7.7)."""
+def smoke_cell(ladder):
+    """The smoke's (task, effort, round) (D7.1): schedule.smoke's task, or, when it did not qualify, the first
+    qualified task in tasks.list order (tasks.json's) that is not load-sensitive; None when no task qualifies."""
+    smoke, tasks = ladder["schedule"]["smoke"], ladder["tasks"]
+    qualified = tasks["qualified"]
+    if qualified is None or smoke["task"] in qualified:
+        return smoke["task"], smoke["effort"], 1
+    task = next((t["name"] for t in tasks["list"]
+                 if t["name"] in qualified and t["name"] not in (tasks["load_sensitive"] or [])), None)
+    return task and (task, smoke["effort"], 1)
+
+
+def _stop_seen(cause, row, slot, ladder):
+    """Whether a launcher stop with this cause can occur on a start of this row and slot (LAUNCHER_STOPS)."""
+    seen = LAUNCHER_STOPS.get(cause)
+    if seen == "the smoke's slot":
+        return (slot["task"], slot["effort"], slot["round"]) == smoke_cell(ladder)
+    return seen == "any start" or (seen == "a session" and row["class"] != "pre_session_failure")
+
+
+def _class(start, row, slot, ladder, where):
+    """The launcher's class, checked against the row: the row's class, or a stop with a launcher cause where that
+    cause can occur (D5, D7.7)."""
     cls, cause = start["class"], start["stop_cause"]
-    if (cls == row["class"] and cause is None) or (cls == "stop" != row["class"] and cause in LAUNCHER_STOPS):
+    if (cls == row["class"] and cause is None) or (cls == "stop" != row["class"]
+                                                   and _stop_seen(cause, row, slot, ladder)):
         return cls
     raise RecordError(f"{where}: class {cls!r} with stop_cause {cause!r} does not fit row {row['row']} "
-                      f"({row['class']}): the class is the row's, or 'stop' with a cause of {LAUNCHER_STOPS}")
+                      f"({row['class']}) on slot {slot['slot']!r}: the class is the row's, or 'stop' with a cause of "
+                      f"LAUNCHER_STOPS where it can occur, {LAUNCHER_STOPS}")
 
 
 def _exclusion(start, cls, normal, where):
@@ -263,29 +294,29 @@ def _start(start, slots, labels, ladder):
     if row is None or row["class"] == "ruling":
         why = "awaits a recorded ruling (D5 row 16)" if row else "is no row of D5"
         raise RecordError(f"{where}: row {start['row']} {why}")
-    cls = _class(start, row, where)
+    slot = slots[start["slot"]]
+    cls = _class(start, row, slot, ladder, where)
     _usage(start, where)
     _contamination(start, frozen_term_digests(ladder), where)
     normal = next(r["row"] for r in rows.values() if r["ending"] == "Normal")
     counted, success = _outcome(start, cls, normal, where)
-    slot = slots[start["slot"]]
     return start | {key: slot[key] for key in ("task", "effort", "round", "pilot")} | {
         "flagged": bool(row.get("flagged")) and cls == "observation", "ending": row["ending"], "counted": counted,
         "success": success}
 
 
 def _sequence(slot, starts):
-    """A slot's starts in start order: each follows a cut or a pre-session failure, and none follows three
-    pre-session failures in a row (D5)."""
-    in_a_row = 0
+    """A slot's starts in start order: each follows a cut or a pre-session failure, and none follows the slot's
+    third pre-session failure, counted in all (D5)."""
+    failures = 0
     for before, after in zip(starts, starts[1:]):
-        in_a_row = in_a_row + 1 if before["class"] == "pre_session_failure" else 0
+        failures += before["class"] == "pre_session_failure"
         if before["class"] not in AGAIN_AFTER:
             raise RecordError(f"slot {slot!r}: start {after['start']} follows start {before['start']}, a "
                               f"{before['class']}: a slot is run again only after a cut or a pre-session failure (D5)")
-        if in_a_row == 3:
-            raise RecordError(f"slot {slot!r}: start {after['start']} follows three pre-session failures in a row: "
-                              "the slot is lost after the third (D5)")
+        if failures == 3:
+            raise RecordError(f"slot {slot!r}: start {after['start']} follows the slot's third pre-session failure: "
+                              "it is relaunched at most twice and lost after the third (D5)")
 
 
 def _once(starts):
