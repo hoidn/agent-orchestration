@@ -24,14 +24,14 @@
 #
 # Usage: oracle_check.sh <task>...      (names as in tasks.json without the "terminal-bench/" prefix)
 # Env: LH (default ~/lh-cache), JOBS (default $LH/jobs/oracle), REPEATS (1), CONCURRENCY (1), CPUS (8-31),
-#      GATE (24), INSTALL (0), KEEP_IMAGES (0)
+#      GATE (24), INSTALL (0), KEEP_IMAGES (0), LAUNCH_GAP_S (5: seconds between two launches)
 # Needs: $LH/hvenv (harbor 0.25.0 + podman-compose 1.6.0), $LH/logs/containers-override.conf (README), taskset.
 set -uo pipefail
 LH=${LH:-$HOME/lh-cache}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)  # the repository root, two levels above this script
 JOBS=${JOBS:-$LH/jobs/oracle} REPEATS=${REPEATS:-1} CONCURRENCY=${CONCURRENCY:-1} CPUS=${CPUS:-8-31}
-GATE=${GATE:-24} INSTALL=${INSTALL:-0} KEEP_IMAGES=${KEEP_IMAGES:-0}
+GATE=${GATE:-24} INSTALL=${INSTALL:-0} KEEP_IMAGES=${KEEP_IMAGES:-0} LAUNCH_GAP_S=${LAUNCH_GAP_S:-5}
 STOP_GB=25 GATE_WAIT_S=7200 CLI_VERSION=2.1.311 MODEL=claude-haiku-5-5
 # D3's list as drafted for the oracle passes: the relay, the Python, Node and Rust indexes, the package
 # mirrors of the three base distributions (Debian, Ubuntu, Fedora). Task 3 freezes the ladder's list.
@@ -190,7 +190,7 @@ check_task() {  # <label>
       room_ok $(free_bytes) || { echo "disk stop" | tee -a "$JOBS/oracle_check.log"; wait; return 3; }
       wait_gate || { wait; return 4; }
       trial "$label" "$agent" "$round" --agent "$agent" &
-      sleep 5
+      sleep "$LAUNCH_GAP_S"
     done
   done
   wait

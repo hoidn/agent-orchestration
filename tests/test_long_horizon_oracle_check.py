@@ -77,3 +77,39 @@ def test_the_uidfix_refuses_a_file_without_exactly_one_bound_line(tmp_path, text
     worker = tmp_path / "app_worker.py"
     worker.write_text(text)
     assert (_call("uidfix", worker).returncode, worker.read_text()) == (2, text)
+
+
+# ---- the schedule of one task, with the harness and the host replaced by stand-ins ---------------
+
+STAND_INS = '''
+prepare() { :; }
+free_bytes() { echo "$FREE $FREE"; }
+wait_gate() { [ "$OPEN" = 1 ]; }
+trial() { echo "start $2 $3" >> "$JOBS/log"; sleep 1; echo "end $2 $3" >> "$JOBS/log"; }
+'''
+
+
+def _schedule(tmp_path, repeats, concurrency, free=30 * 10**9, gate_open=1):
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "JOBS": str(tmp_path), "REPEATS": str(repeats), "CONCURRENCY": str(concurrency),
+           "LAUNCH_GAP_S": "0", "FREE": str(free), "OPEN": str(gate_open)}
+    done = subprocess.run(["bash", "-c", 'source "$1" && eval "$2" && check_task t1', "lh-test", str(SCRIPT), STAND_INS],
+                          capture_output=True, text=True, env=env)
+    log = (tmp_path / "log").read_text().split("\n") if (tmp_path / "log").exists() else []
+    running = peak = 0
+    for line in filter(None, log):
+        running += 1 if line.startswith("start") else -1
+        peak = max(peak, running)
+    return done.returncode, sorted(line for line in log if line.startswith("start")), peak
+
+
+def test_every_round_runs_the_reference_and_the_untouched_trial_at_most_concurrency_at_once(tmp_path):
+    rc, starts, peak = _schedule(tmp_path, repeats=3, concurrency=2)
+    assert (rc, len(starts), peak) == (0, 6, 2)
+
+
+def test_a_gate_that_stays_closed_ends_the_task_with_exit_4_before_any_trial(tmp_path):
+    assert _schedule(tmp_path, repeats=2, concurrency=2, gate_open=0)[:2] == (4, [])
+
+
+def test_low_free_space_ends_the_task_with_exit_3_before_any_trial(tmp_path):
+    assert _schedule(tmp_path, repeats=2, concurrency=2, free=24 * 10**9)[:2] == (3, [])
