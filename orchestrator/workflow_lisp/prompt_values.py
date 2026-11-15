@@ -84,23 +84,27 @@ def refuse_prompt_name(expr, type_ref) -> None:
                 expansion_stack=expr.expansion_stack)
 
 
-def refuse_provider_values(body, *, provider_names: Iterable[str]) -> None:
+def refuse_provider_values(body, *, provider_names: Iterable[str], bound: Iterable[str]) -> None:
     """A provider extern named in a value position of a body the entry reaches (defect D7).
 
     The positions are those whose lowering reads the name as a value: a binding, a field, a list item, an
-    `if`, `cond` or `match` value, an argument, and the body's own result.
+    `if`, `cond` or `match` value, an argument, and the body's own result. Only a free name is the extern: a
+    parameter of the owner (`bound`) or a local binder of the same name is not.
     """
 
-    from .expression_traversal import iter_child_exprs, walk_expr
+    from .expression_traversal import iter_child_exprs, map_expr, walk_expr
     from .expressions import (BindProcExpr, CallExpr, CondExpr, FunctionCallExpr, IfExpr, LetStarExpr, ListExpr,
-                              MatchExpr, NameExpr, ProcedureCallExpr, RecordExpr, UnionVariantExpr)
+                              MatchExpr, ProcedureCallExpr, RecordExpr, UnionVariantExpr)
 
     names = frozenset(provider_names)
+    externs: list = []
+    map_expr(body, lambda name: externs.append(name) or name, bound=frozenset(bound))
+    extern_ids = {id(name) for name in externs if name.name in names}
     value_parents = (LetStarExpr, RecordExpr, UnionVariantExpr, ListExpr, IfExpr, CondExpr, MatchExpr,
                      ProcedureCallExpr, FunctionCallExpr, BindProcExpr, CallExpr)
     candidates = [body] + [child for node in walk_expr(body) if isinstance(node, value_parents)
                            for child in iter_child_exprs(node)]
     for expr in candidates:
-        if isinstance(expr, NameExpr) and expr.name in names:
+        if id(expr) in extern_ids:
             _refuse(f"provider `{expr.name}` is a value only as the provider of `provider-result` or `agent`",
                     span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)

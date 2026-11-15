@@ -536,7 +536,8 @@ class Builder:
 
         owner = callable_def.definition.name
         procedures = source_program.procedures
-        refuse_provider_values(callable_def.typed_body.expr, provider_names=_provider_extern_names(source_program))
+        refuse_provider_values(callable_def.typed_body.expr, provider_names=_provider_extern_names(source_program),
+                               bound={*value_env, *(name for name, _ in callable_def.signature.params)})
         facts = ControlFacts(signature=callable_def.signature, type_env=type_env,
             local_type_bindings=value_env, typed_procedures=procedures,
             workflow_catalog=workflow_catalog_for(source_program, owner),

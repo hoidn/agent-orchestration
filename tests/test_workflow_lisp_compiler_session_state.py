@@ -8,6 +8,7 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.prompts import PromptCatalog as _PromptCatalog
 
 if TYPE_CHECKING:
     from orchestrator.workflow_lisp.compiler_session import (
@@ -31,6 +32,11 @@ if TYPE_CHECKING:
     from orchestrator.workflow_lisp.prompts import PromptCatalog
     from orchestrator.workflow_lisp.typecheck_context import LoopTypecheckContext
     from orchestrator.workflow_lisp.workflows import WorkflowSignature
+
+
+def _empty_prompt_catalog() -> _PromptCatalog:
+    """A distinct catalog: the elaborator reads the catalog of every list head (the prompt head rule)."""
+    return _PromptCatalog(definitions_by_name={})
 
 
 def _write_module(path: Path, source: str) -> None:
@@ -166,11 +172,11 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
     outer_procedure_resolver = cast("NameResolver", object())
     outer_function_resolver = cast("NameResolver", object())
     outer_workflow_resolver = cast("NameResolver", object())
-    outer_prompt_catalog = cast("PromptCatalog", object())
+    outer_prompt_catalog = _empty_prompt_catalog()
     inner_procedure_resolver = cast("NameResolver", object())
     inner_function_resolver = cast("NameResolver", object())
     inner_workflow_resolver = cast("NameResolver", object())
-    inner_prompt_catalog = cast("PromptCatalog", object())
+    inner_prompt_catalog = _empty_prompt_catalog()
     state.procedure_name_resolver = cast("NameResolver", object())
     state.function_name_resolver = cast("NameResolver", object())
     state.workflow_name_resolver = cast("NameResolver", object())
@@ -183,7 +189,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
     state.let_proc_depth = 2
     state.guidance_example = True
     state.target_dsl_version = "2.40"
-    state.prompt_catalog = cast("PromptCatalog", object())
+    state.prompt_catalog = _empty_prompt_catalog()
     baseline = state.__dict__.copy()
 
     def syntax(source: str) -> SyntaxNode:

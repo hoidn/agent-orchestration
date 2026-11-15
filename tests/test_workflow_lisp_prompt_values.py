@@ -191,6 +191,21 @@ def test_provider_used_as_a_value_refuses_with_one_diagnostic(tmp_path, position
     assert outcome(tmp_path, body, *definitions) == ("refused", "prompt_value_escape")
 
 
+SHADOWS_PROVIDER = {
+    "a let* binding": ("(let* ((providers.a 1)) providers.a)", (), "sha256:061d33e31ce4586cc32b2f5d22001309f8e77417707c859cf897c374a091e54f"),
+    "a let* binding in a procedure": ("(f 1)", ("(defproc f ((k Int)) -> Int (let* ((providers.a k)) providers.a))",),
+                                      "sha256:a72a552c03e37b2cc75dacfe6a96b98d324bb2e7b2252118000e5bc2ad956944"),
+}
+
+
+@pytest.mark.parametrize("position", sorted(SHADOWS_PROVIDER))
+def test_binding_named_like_a_provider_keeps_its_digest(tmp_path, position):
+    """A name bound over a provider extern's name is that binding, not the provider (recorded by the base build)."""
+    body, definitions, recorded = SHADOWS_PROVIDER[position]
+
+    assert outcome(tmp_path, body, *definitions) == ("builds", recorded)
+
+
 UNREACHED_PROVIDER = "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"
 NAMES_PROVIDER = {
     "a record field": "(defrecord H (p Provider))",
