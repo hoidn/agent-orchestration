@@ -2307,7 +2307,6 @@ def test_real_stdio_definition_reaches_compiler_owned_builtin_stdlib(
             / "orchestrator"
             / "workflow_lisp"
             / "stdlib_modules"
-            / "w3"
             / "std"
             / "improve.orc"
         ).resolve().as_uri()

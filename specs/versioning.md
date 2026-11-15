@@ -998,18 +998,14 @@ own delivery status and captured evidence.
     Declared provider/prompt externs remain available in local bodies without
     becoming captures; eligible lexical aliases retain ordinary admission rules.
     No runtime closure, nesting, recursion or effect-annotation change is added.
-  - One builtin `std/improve` API is selected per source import graph by the
-    entry target. At 2.35, retain the `stdlib_modules/std/improve.orc` API and
-    path. The source-floor migration changes its header to 2.35 with behavioral
-    comparison, superseding the earlier byte-preservation rule. At 2.36,
-    replace only that builtin candidate with
-    `stdlib_modules/w3/std/improve.orc` and its actual source root; its source
-    header also migrates to 2.35. The API is `improve(initial, review, revise, limit)`,
-    with `review(S) -> Decision[F B]` and `revise(S F) -> S`.
-    Every source importer sees this one API; five-argument source callers must
-    migrate when the graph is retargeted. Defining-module syntax admission,
-    other roots and ambiguity checks remain unchanged. Compatible 2.35+ and
-    type-only imports are admitted; both builtin variants are never exposed.
+  - One builtin `std/improve` API: `stdlib_modules/std/improve.orc`, at target
+    2.40 (lane D stage 4, Task 4a, which removed the five-argument module and the
+    entry-target selection of a second root), with
+    `improve(initial, review, revise, limit)`, `review(S) -> Decision[F B]` and
+    `revise(S F) -> S`. An importer below 2.39 refuses with
+    `evaluated_execution_target_direction_invalid`; a five-argument call refuses
+    with `procedure_arity_mismatch`. Defining-module syntax admission,
+    other roots and ambiguity checks remain unchanged.
   - Complete imported snapshots retain producer authority without reopening
     or retargeting source. Admitted 2.35+ helper authority remains usable;
     differing canonical overlap still refuses

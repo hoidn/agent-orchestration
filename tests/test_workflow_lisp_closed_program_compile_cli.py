@@ -276,7 +276,7 @@ def _write_specialized_callee_workspace(root: Path) -> dict[str, Path]:
     source = files["source_root"] / "cp" / "if_in_hook.orc"
     source.parent.mkdir(parents=True)
     fixture = Path(__file__).parent / "fixtures" / "workflow_lisp" / "closed_program" / "if_in_hook.orc"
-    source.write_text(fixture.read_text().replace("TARGET", TARGET))
+    source.write_text(fixture.read_text())
     (root / "probe.py").write_text(
         "import json\n"
         "import sys\n\n"

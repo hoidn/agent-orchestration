@@ -1,4 +1,4 @@
-"""Retained 2.35 proposal and reviewed-change dataflow across public resume."""
+"""Proposal and reviewed-change measurement variants (phase 6A pilot): dataflow across public resume."""
 
 from __future__ import annotations
 

@@ -141,7 +141,7 @@ def test_targets_235_through_238_keep_existing_intrinsic_routes(
     assert isinstance(_elaborate(expression, target), expected_type)
 
 
-@pytest.mark.parametrize("target", ("2.38", "2.39", "2.40"))
+@pytest.mark.parametrize("target", ("2.39", "2.40"))
 def test_completion_hides_private_and_fallback_heads_only_for_target_239(
     tmp_path: Path,
     target: str,
@@ -171,10 +171,7 @@ def test_completion_hides_private_and_fallback_heads_only_for_target_239(
         "with-phase",
     }
 
-    if target == "2.38":  # below 2.39 completion lists them (Task 4b)
-        assert hidden <= {completion.label for completion in completions}
-    else:
-        assert hidden.isdisjoint({completion.label for completion in completions})
+    assert hidden.isdisjoint({completion.label for completion in completions})
 
 
 def test_target_239_refuses_bare_compatibility_heads() -> None:

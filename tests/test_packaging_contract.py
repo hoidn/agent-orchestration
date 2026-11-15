@@ -105,7 +105,7 @@ def test_built_wheel_excludes_demo_packages_and_model_weights(
     with zipfile.ZipFile(built_orchestrator_wheel) as archive:
         members = archive.namelist()
         assert "orchestrator/workflow_lisp/stdlib_modules/std/improve.orc" in members
-        assert "orchestrator/workflow_lisp/stdlib_modules/w3/std/improve.orc" in members
+        assert "orchestrator/workflow_lisp/stdlib_modules/w3/std/improve.orc" not in members
     assert not any(member.startswith("orchestrator/demo/") for member in members)
     assert not any(member.endswith(".pt") for member in members)
 
@@ -129,7 +129,7 @@ def _workspace_snapshot(
     return snapshot
 
 
-def test_installed_wheel_uses_alternate_source_and_lsp_keeps_evaluated_boundary(
+def test_installed_wheel_uses_packaged_std_improve_and_lsp_keeps_evaluated_boundary(
     tmp_path: Path,
     built_orchestrator_wheel: Path,
     installed_orchestrator_python: tuple[Path, Path],
@@ -172,15 +172,10 @@ def test_installed_wheel_uses_alternate_source_and_lsp_keeps_evaluated_boundary(
     assert origin.is_relative_to(environment_root)
     assert package_root == origin.parent
 
-    legacy_relative = "orchestrator/workflow_lisp/stdlib_modules/std/improve.orc"
-    alternate_relative = "orchestrator/workflow_lisp/stdlib_modules/w3/std/improve.orc"
     with zipfile.ZipFile(built_orchestrator_wheel) as archive:
-        expected_legacy = archive.read(legacy_relative)
-        expected_alternate = archive.read(alternate_relative)
-    installed_legacy = package_root / "workflow_lisp/stdlib_modules/std/improve.orc"
-    installed_alternate = package_root / "workflow_lisp/stdlib_modules/w3/std/improve.orc"
-    assert installed_legacy.read_bytes() == expected_legacy
-    assert installed_alternate.read_bytes() == expected_alternate
+        expected_improve = archive.read("orchestrator/workflow_lisp/stdlib_modules/std/improve.orc")
+    installed_improve = package_root / "workflow_lisp/stdlib_modules/std/improve.orc"
+    assert installed_improve.read_bytes() == expected_improve
 
     observer_root = tmp_path / "installed-resolver-observer"
     observer_root.mkdir()
@@ -250,7 +245,6 @@ compiler.resolve_module_graph = _observe_resolve_module_graph
 
     workspace, entry_path, _caller_roots = _write_std_improve_parity_workspace(
         tmp_path / "installed-workspace",
-        target="2.36",
     )
     cli_provenance = tmp_path / "installed-cli-provenance.jsonl"
     cli = subprocess.run(
@@ -273,11 +267,11 @@ compiler.resolve_module_graph = _observe_resolve_module_graph
     )
     assert cli.returncode == 0, cli.stdout + cli.stderr
 
-    expected_selected_path = installed_alternate.resolve()
+    expected_selected_path = installed_improve.resolve()
     expected_selected_root = (
-        package_root / "workflow_lisp/stdlib_modules/w3"
+        package_root / "workflow_lisp/stdlib_modules"
     ).resolve()
-    expected_sha256 = hashlib.sha256(installed_alternate.read_bytes()).hexdigest()
+    expected_sha256 = hashlib.sha256(installed_improve.read_bytes()).hexdigest()
 
     def assert_selected_source(receipt_path: Path) -> None:
         rows = [
