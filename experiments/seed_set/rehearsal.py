@@ -12,7 +12,9 @@ call that succeeds then printing a limit warning on stderr, which must close not
 the probe one start that would pass the redraw tranche's priced ceiling is tried on the rehearsal's ledger (R4).
 With `--cut-in smoke` the limit cuts the smoke's Haiku `direct` run instead: the other programs run after the
 resume, the smoke check must fail, and the rehearsal ends after showing that neither the probe nor the calibration
-may start (review3 X1). The process runs with an empty HOME, no
+may start (review3 X1). In the calibration the stand-in Sonnet's code on the first task makes one hidden test hang
+past the kit's bound on one hidden test (fix round 3, ruling 1): the test must count as failed and the task's pools
+be summarised (`hidden_hang`). The process runs with an empty HOME, no
 provider credentials, a closed PATH behind the Thread M no-provider stubs, and a ledger under ROOT/state (the
 study's own ledger is never opened). The stand-in fixes T1 and T2 always, every second T3 task (two of the four
 probe tasks), never T4 or T5; Sonnet fixes everything; on the smoke task Haiku fixes from its second attempt.
@@ -42,7 +44,7 @@ import time
 from pathlib import Path
 
 from experiments.compare.repos import dump, load
-from experiments.seed_set import ladder, layout, probing, rules, spend, study, units
+from experiments.seed_set import ladder, layout, probing, reaper, rules, spend, study, units
 from tests.agent_session_shims import closed_path
 from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, open_up, write_test_sandbox_config
 from tests.experiments.seed_set_offline_support import STUB, stand_in_terms
@@ -148,9 +150,10 @@ def smoke(s):
     return rules.smoke_check(s)
 
 
-def calibration(s, count):
+def calibration(s, count, pids):
     tranche("calibration")
     tasks = layout.tranche_tasks(s, "calibration")[:count]
+    hung = hang_one_hidden_test(s, tasks[0], pids)
     for arm in layout.PLANNED["calibration"]:
         study.candidates(s, "calibration", arm, tasks)
     relaunch = study.candidates(s, "calibration", "direct", tasks)  # every planned run started: nothing
@@ -166,7 +169,37 @@ def calibration(s, count):
             beyond = "reserved"
         except SystemExit as error:
             beyond = str(error)
-    return {"relaunched": len(relaunch), "early_look": look["passed"], "judge_beyond_cap": beyond}
+    stand_in(Path(os.environ["SEED_SET_STUB_PLAN"]), conftest_sleep=None)
+    return {"relaunched": len(relaunch), "early_look": look["passed"], "judge_beyond_cap": beyond,
+            "hidden_hang": hang_result(s, *hung, pids)}
+
+
+HANG_SEC = 300  # past host.HIDDEN_TEST_SEC (240 s), inside the 600 s backstop of a clone
+
+
+def hang_one_hidden_test(s, task, pids):
+    """The stand-in Sonnet's code on `task` makes one of its hidden tests (the second, past the check's first pytest)
+    sleep `HANG_SEC` in host-side checks; returns (task, the test's node id)."""
+    nodes = [line.strip() for line in (layout.task_dir(s, task) / "hidden_tests.txt").read_text().splitlines()
+             if "::" in line]
+    node = nodes[min(1, len(nodes) - 1)]
+    pids.mkdir(mode=0o700)
+    stand_in(Path(os.environ["SEED_SET_STUB_PLAN"]), conftest_sleep={"seconds": HANG_SEC, "pids": str(pids),
+                                                                       "task": task, "model": S, "node": node})
+    return task, node
+
+
+def hang_result(s, task, node, pids):
+    """Per pool of `task`: summarised with the Sonnet clone's failing hidden tests, or its incident; how many times
+    the test hung, and the hanging processes still alive (none is due)."""
+    pools = {}
+    for directory in sorted((s.results / "pools").glob(f"{task}-*")):
+        pools[directory.name] = ({"sonnet_hidden_failed": [c["hidden_failed"] for c in load(directory / "results.json")[
+            "clones"].values() if c["arm"] == "direct_sonnet"]} if (directory / "results.json").is_file()
+            else {"incident": load(directory / "incident.json")["reason"]})
+    hung = [int(name) for name in os.listdir(pids)]
+    return {"task": task, "node": node, "pools": pools, "times_hung": len(hung),
+            "still_running": [pid for pid in hung if reaper.stat(pid)]}
 
 
 def usage_limit(plan_file, limit):
@@ -334,7 +367,7 @@ def stages(root, s, count, withheld_only=False, cut_in="probe"):
     out["usage_limit"] = probe_with_a_cut(s)
     out["probe"] = probing.probe_readout(s)
     out["ceiling"] = beyond_the_ceiling(s)
-    out["calibration"] = calibration(s, count)
+    out["calibration"] = calibration(s, count, root / "hang-pids")
     report = study.write_readout(s)
     gates_ = report["calibration"] or {}
     out |= {"decision": gates_.get("decision"), "anchor_failures": report["anchor_failures"],
