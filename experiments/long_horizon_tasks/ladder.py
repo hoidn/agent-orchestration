@@ -1706,13 +1706,23 @@ def runtime_check(ctx, attempt_dir, export):
     codes += [2 for name in names if not (sampled / f"{name}.environ").is_file()]
     codes += [token_scan(ctx, attempt_dir / "containers")] if names else []  # no container: nothing to scan
     agents = [n for n in names if n.endswith("_main_1")]
-    if (names or had_session(attempt_dir)) and (not names or export and not agents):
-        codes.append(2)
-    for name in agents if export else []:
+    codes += [2] if _unfound(attempt_dir, names, agents, export) else []
+    return _scan_verdict(_exports(ctx, agents if export else [], codes), RUNTIME_MATCH, RUNTIME_INCOMPLETE)
+
+
+def _unfound(attempt_dir, names, agents, export):
+    """B2: an attempt that had a session or containers, whose containers or (with an export due) agent container
+    were not found."""
+    return bool(names or had_session(attempt_dir)) and (not names or (export and not agents))
+
+
+def _exports(ctx, agents, codes):
+    """The joint exit of `codes` and each agent container's exported file system, scanned until a match."""
+    for name in agents:
         if 1 in codes:
             break
-        codes.append(_export_scan(ctx, name))
-    return _scan_verdict(_worst(codes), RUNTIME_MATCH, RUNTIME_INCOMPLETE)
+        codes = codes + [_export_scan(ctx, name)]
+    return _worst(codes)
 
 
 def sample_environ(ctx, attempt_dir, names):
