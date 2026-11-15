@@ -31,6 +31,7 @@ STAND_IN_VALUES = {"readout.contamination_scan.terms": [TERM],
                    "readout.fall_bound.seed": 20261114}
 STANDINS = {p["field"]: STAND_IN_VALUES[p["field"]] for p in LADDER["pending"] if p["field"].startswith("readout.")}
 CEILING = {"by": "ceiling", "cause": None}
+ROW_CLASS = {row["row"]: row["class"] for row in LADDER["classification"]["rows"]}
 
 
 def with_values(ladder, values):
@@ -45,17 +46,23 @@ def with_values(ladder, values):
     return out
 
 
+SAMPLES = {"array": ["x"], "object": {"x": 1}, "string": "x", "sha256": "0" * 64, "scalar": 1, "number": 1}
+
+
 def filled(ladder=LADDER):
-    """The criterion as the freeze leaves it: every pending readout field filled with its stand-in."""
-    out = with_values(ladder, STANDINS)
-    out["pending"] = [p for p in out["pending"] if p["field"] not in STANDINS]
+    """The criterion as the freeze leaves it: every pending field filled (a readout field with its stand-in, any other
+    with a sample of its type) and moved to `filled` with a source."""
+    values = {p["field"]: STANDINS.get(p["field"], SAMPLES[p["type"]]) for p in ladder["pending"]}
+    out = with_values(ladder, values)
+    out["filled"] = out["filled"] + [p | {"source": "a test"} for p in out["pending"]]
+    out["pending"] = []
     return out
 
 
 def start(slot, number, label, reward):
-    return {"slot": slot, "start": number, "label": label, "row": 5, "reward": reward, "excluded": None,
-            "contamination": [], "usd": 1.0, "minutes": 30.0, "tokens": {kind: 10 for kind in TOKEN_KINDS},
-            "graded": None, "egress_refused": {}}
+    return {"slot": slot, "start": number, "label": label, "row": 5, "class": "observation", "stop_cause": None,
+            "reward": reward, "excluded": None, "contamination": [], "usd": 1.0, "minutes": 30.0,
+            "tokens": {kind: 10 for kind in TOKEN_KINDS}, "api_retry": 0, "graded": None, "egress_refused": {}}
 
 
 def _outcomes(outcome):
@@ -66,7 +73,8 @@ def _outcomes(outcome):
 
 def export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot=()):
     """table: {task: {effort: [outcome of round 1, 2, ...]}}. An outcome is 0 or 1 (an observation ending normally),
-    "-" (a slot not started), a dict of start fields, or a list of such dicts (one slot's starts, in order)."""
+    "-" (a slot not started), a dict of start fields, or a list of such dicts (one slot's starts, in order). A start's
+    class is its row's unless the dict names one."""
     slots, starts = [], []
     for task, by_effort in table.items():
         for effort, outcomes in by_effort.items():
@@ -75,7 +83,8 @@ def export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot
                 slots.append({"slot": slot, "task": task, "effort": effort, "round": number,
                               "pilot": (task, effort, number) in pilot})
                 for fields in _outcomes(outcome):
-                    starts.append(start(slot, len(starts) + 1, label, None) | fields)
+                    made = start(slot, len(starts) + 1, label, None) | fields
+                    starts.append(made | {"class": fields.get("class", ROW_CLASS[made["row"]])})
     return {"label": label, "earlier_labels": [{"label": old, "ended_by": f"ledger row ending {old[:8]}"}
                                                for old in earlier],
             "end": end, "slots": slots, "starts": starts, "allowance": allowance}

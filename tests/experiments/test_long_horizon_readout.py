@@ -9,6 +9,7 @@ import hashlib
 import itertools
 import json
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -78,16 +79,29 @@ def test_a_cell_over_five_is_refused():
         readout.cell_label(1, 6, RULES["cell"])
 
 
-@pytest.mark.parametrize("K, n, label", [(0, 15, "floor"), (1, 15, "screened in"), (5, 15, "screened in"),
-                                         (6, 15, "above the band"), (15, 15, "above the band")])
-def test_at_15_attempts_the_pooled_label_reads_k_over_n_against_1_15_and_1_3_inclusive(K, n, label):
-    assert readout.pooled_label(K, n, RULES["pooled"]) == label
+def _counted(ks, ns=(5, 5, 5)):
+    return {effort: (k, n) for effort, k, n in zip(EFFORTS, ks, ns)}
 
 
-@pytest.mark.parametrize("K, n", [(4, 14), (1, 14), (0, 14), (1, 2), (0, 0)])
-def test_with_fewer_than_15_attempts_a_task_is_not_screened(K, n):
-    """Coordinator ruling R4: the screen is applied only at the planned count; the task is neither in nor out."""
-    assert readout.pooled_label(K, n, RULES["pooled"]) == f"not screened: {n} of 15 attempts"
+@pytest.mark.parametrize("ks, label", [((0, 0, 0), "floor"), ((1, 0, 0), "screened in"), ((2, 2, 1), "screened in"),
+                                       ((2, 2, 2), "above the band"), ((5, 5, 5), "above the band")])
+def test_at_15_attempts_the_pooled_label_reads_k_over_n_against_1_15_and_1_3_inclusive(ks, label):
+    assert readout.pooled_label(_counted(ks), RULES["pooled"]) == label
+
+
+@pytest.mark.parametrize("ks, ns, label", [((1, 0, 0), (5, 5, 4), "screened in"), ((2, 2, 1), (5, 5, 4), "above the band"),
+                                           ((2, 1, 1), (4, 4, 4), "screened in"), ((0, 0, 0), (4, 4, 4), "floor"),
+                                           ((2, 2, 1), (4, 4, 4), "above the band")])
+def test_with_four_or_more_scored_observations_at_every_effort_the_task_is_screened(ks, ns, label):
+    """Coordinator ruling (R4 revised after review): 12 to 15 attempts, at least four at each effort; the band is
+    applied to K/n (4 of 12 is 1/3, in; 5 of 14 and 5 of 12 are above)."""
+    assert readout.pooled_label(_counted(ks, ns), RULES["pooled"]) == label
+
+
+@pytest.mark.parametrize("ns", [(5, 5, 3), (4, 4, 3), (5, 0, 5), (0, 0, 0)])
+def test_with_fewer_than_four_at_an_effort_the_task_is_not_screened_and_the_counts_are_printed(ns):
+    label = readout.pooled_label(_counted((1, 0, 0), ns), RULES["pooled"])
+    assert label == f"not screened: {sum(ns)} of 15 attempts (low {ns[0]}, medium {ns[1]}, high {ns[2]})"
 
 
 ALL_TRIPLES = [dict(zip(EFFORTS, ks)) for ks in itertools.product(range(6), repeat=3)]
@@ -99,7 +113,7 @@ def _cells(triple):
 
 
 def test_the_screen_admits_the_55_triples_whose_pooled_count_is_1_to_5_of_15():
-    admitted = [t for t in ALL_TRIPLES if readout.pooled_label(sum(t.values()), 15, RULES["pooled"]) == "screened in"]
+    admitted = [t for t in ALL_TRIPLES if readout.pooled_label(_cells(t), RULES["pooled"]) == "screened in"]
     assert admitted == SCREENED and len(SCREENED) == 55
 
 
@@ -280,7 +294,7 @@ def test_a_final_readout_of_a_filled_criterion_is_not_stamped():
 
 EXCLUDING = {TASKS[0]: {
     "low": [[{"row": 10, "reward": 1}, 1], 1, {"row": 15, "reward": 1}, [{"row": 1}, 0],
-            {"reward": 1, "excluded": "contaminated", "contamination": [TERM_SHA256]}],
+            {"reward": 1, "contamination": [TERM_SHA256]}],
     "medium": [{"row": 13}, {"row": 4}, {"row": 2}, {"excluded": "no reward after regrades"},
                {"row": 9, "reward": 0}],
     "high": [0, 0, 0, 0, {"reward": 0, "excluded": "indeterminate"}]}}
@@ -295,7 +309,8 @@ def test_every_excluded_class_of_d5_and_every_excluded_observation_is_listed():
         ("medium", 1, "stop", LADDER["classification"]["rows"][12]["ending"]),
         ("medium", 2, "infrastructure_failure", "The host, Podman, the passthrough or the launcher died"),
         ("medium", 3, "stop", "The CLI read no credential, or the harness found none"),
-        ("medium", 4, "observation", "no reward after regrades"), ("high", 5, "observation", "indeterminate")])
+        ("medium", 4, "infrastructure_failure", "no reward after regrades"),
+        ("high", 5, "observation", "indeterminate")])
 
 
 def test_an_excluded_attempt_enters_neither_k_nor_n():
@@ -360,7 +375,7 @@ def test_observations_under_two_labels_are_never_pooled_in_a_cell_or_a_task():
     task = result["tasks"][TASKS[0]]
     assert ((task["cells"]["low"]["k"], task["cells"]["low"]["n"]), (task["pooled"]["K"], task["pooled"]["n"]),
             task["pooled"]["label"], result["effort"]["triples"]) == (
-        (0, 3), (0, 9), "not screened: 9 of 15 attempts", 6)
+        (0, 3), (0, 9), "not screened: 9 of 15 attempts (low 3, medium 3, high 3)", 6)
 
 
 def test_an_earlier_label_s_observations_are_counted_apart_with_its_label_and_ledger_row():
@@ -516,7 +531,7 @@ def _family(export, **kwargs):
 
 
 def _dropped(*tasks):
-    return [{"task": task, "reason": f"ledger row dropping {task}"} for task in tasks]
+    return [{"task": task, "reason": f"ledger row 2026-11-30: {task} dropped"} for task in tasks]
 
 
 def test_family_json_names_the_criterion_the_configuration_label_and_each_task_s_digests():
@@ -596,18 +611,81 @@ def test_the_command_writes_no_family_json_for_a_readout_in_progress(tmp_path, c
     assert (code, "in progress" in capsys.readouterr().err, (tmp_path / "family.json").exists()) == (2, True, False)
 
 
-def test_a_final_readout_reads_the_criterion_of_its_label_only():
-    """The manifest whose SHA-256 is the label must hold the SHA-256 of the ladder.json the readout applies."""
-    ladder = b'{"criterion": "frozen"}'
-    manifest = json.dumps({"files": {readout.LADDER_PATH: hashlib.sha256(ladder).hexdigest()}}).encode()
-    label = hashlib.sha256(manifest).hexdigest()
-    refusals = []
-    for args in ((ladder, manifest, "f" * 64), (b'{"criterion": "edited"}', manifest, label)):
-        with pytest.raises(readout.ReadoutError) as caught:
-            readout.bound(*args)
-        refusals.append(str(caught.value).split(":")[0])
-    assert (readout.bound(ladder, manifest, label), refusals) == (
-        None, ["the label is not this manifest's SHA-256", "ladder.json is not the manifest's"])
+FINAL_FILES = {name: f"{name} as frozen".encode() for name in ("ladder.json", "tasks.json", "readout.py",
+                                                                 "slot_record.py")}
+
+
+def _manifest(frozen=True, files=FINAL_FILES):
+    recorded = {f"experiments/long_horizon_tasks/{name}": hashlib.sha256(data).hexdigest()
+                for name, data in files.items()}
+    return json.dumps({"frozen": frozen, "files": recorded}).encode()
+
+
+def _refusal(files, manifest, label):
+    with pytest.raises(readout.ReadoutError) as caught:
+        readout.bound(files, manifest, label)
+    return str(caught.value).split(":")[0]
+
+
+def test_a_final_readout_reads_the_frozen_criterion_of_its_label():
+    manifest = _manifest()
+    assert readout.bound(FINAL_FILES, manifest, hashlib.sha256(manifest).hexdigest()) is None
+
+
+def test_a_final_readout_is_refused_on_an_unfrozen_manifest_or_another_label():
+    unfrozen, frozen = _manifest(frozen=False), _manifest()
+    assert (_refusal(FINAL_FILES, unfrozen, hashlib.sha256(unfrozen).hexdigest()),
+            _refusal(FINAL_FILES, frozen, "f" * 64)) == (
+        "the manifest is not frozen", "the label is not this manifest's SHA-256")
+
+
+@pytest.mark.parametrize("name", FINAL_FILES)
+def test_a_final_readout_is_refused_when_a_file_it_reads_is_not_the_manifest_s(name):
+    manifest = _manifest()
+    edited = FINAL_FILES | {name: b"edited after the freeze"}
+    assert _refusal(edited, manifest, hashlib.sha256(manifest).hexdigest()) == f"{name} is not the manifest's"
+
+
+def test_a_final_readout_is_refused_while_any_field_is_pending():
+    """Not only a readout field: an unfrozen criterion with every readout field filled is refused too (M3)."""
+    readout_only = with_values(LADDER, STANDINS) | {"pending": [p for p in LADDER["pending"]
+                                                                if not p["field"].startswith("readout.")]}
+    with pytest.raises(readout.ReadoutError) as caught:
+        _compute(_export(FAMILY), ladder=readout_only, standins=None)
+    assert all(p["field"] in str(caught.value) for p in readout_only["pending"]) and readout_only["pending"]
+
+
+def _kit_copy(tmp_path):
+    """The kit, the price table and the ladder test (the manifest covers both) in a scratch repository."""
+    repo = tmp_path / "repo"
+    shutil.copytree(KIT, repo / "experiments" / "long_horizon_tasks", ignore=shutil.ignore_patterns("__pycache__"))
+    (repo / "orchestrator" / "providers").mkdir(parents=True)
+    shutil.copy(ROOT / "orchestrator" / "providers" / "price_table.json", repo / "orchestrator" / "providers")
+    (repo / "tests" / "experiments").mkdir(parents=True)
+    shutil.copy(ROOT / "tests" / "experiments" / "test_long_horizon_ladder.py", repo / "tests" / "experiments")
+    return repo / "experiments" / "long_horizon_tasks"
+
+
+def _command(kit, *args):
+    return subprocess.run([sys.executable, "-I", str(kit / "readout.py"), *args], capture_output=True, text=True,
+                          env={"PATH": "/nonexistent"})
+
+
+def test_the_command_reads_a_frozen_criterion_unstamped_and_refuses_an_unfrozen_one(tmp_path):
+    kit = _kit_copy(tmp_path)
+    run = lambda *a: subprocess.run([sys.executable, "-I", str(kit / "manifest.py"), *a], capture_output=True,
+                                    text=True, check=True)
+    run("write")
+    unfrozen = _command(kit, str(_write(tmp_path / "u.json", _export(FAMILY, label=readout._sha256_of(
+        (kit / "manifest.json").read_bytes())))), "--family", str(tmp_path / "u-family.json"))
+    (kit / "ladder.json").write_text(json.dumps(filled(), indent=1))
+    run("write", "--freeze")
+    label = readout._sha256_of((kit / "manifest.json").read_bytes())
+    final = _command(kit, str(_write(tmp_path / "f.json", _export(FAMILY, label=label))), "--family",
+                     str(tmp_path / "family.json"))
+    family = json.loads((tmp_path / "family.json").read_text())
+    assert ((unfrozen.returncode, "pending" in unfrozen.stderr, (tmp_path / "u-family.json").exists()),
+            (final.returncode, "REHEARSAL" in final.stdout, family["rehearsal"])) == ((2, True, False), (0, False, False))
 
 
 # ---- D6's remaining lists: refused connections per attempt; no public figure -------------------------------------
@@ -647,25 +725,42 @@ def test_the_dominance_threshold_is_read_from_its_own_field_of_the_readout_group
 
 
 
-# ---- Ruling R4: the screen is applied at 15 attempts only; family.json waits for every task to be screened or dropped
+# ---- Ruling R4, revised after review (M4): screened with at least four scored attempts at each effort --------------
 
-def test_a_task_with_one_effort_short_after_a_ceiling_stop_is_not_screened_and_printed_with_its_count():
-    result = _compute(_export(PARTIAL))
-    task = result["tasks"][TASKS[3]]
-    row = next(line for line in _section(readout.render(result), "Tasks").splitlines()
-               if line.startswith(f"| {TASKS[3]} "))
-    short = "not screened: 14 of 15 attempts"
-    assert (task["pooled"]["label"], task["band_effort"], "1 of 14 (" in row, short in row) == (short, None, True, True)
+SHORT = PARTIAL | {TASKS[4]: {"low": [0] * 5, "medium": [1, 0, 0, 0, 0], "high": [0, 0, 0, {"row": 15}, {"row": 15}]}}
 
 
-def test_a_task_at_15_attempts_is_screened():
-    assert _compute(_export(PARTIAL))["tasks"][TASKS[0]]["pooled"]["label"] == "screened in"
+def _row(result, task):
+    return next(line for line in _section(readout.render(result), "Tasks").splitlines() if line.startswith(f"| {task} "))
 
 
-def test_family_json_is_refused_while_a_task_is_neither_screened_at_15_nor_dropped():
+@pytest.mark.parametrize("task, n, label", [(TASKS[0], 15, "screened in"), (TASKS[3], 14, "screened in"),
+                                            (TASKS[2], 12, "floor")])
+def test_a_task_with_four_or_more_at_every_effort_is_screened_at_its_count(task, n, label):
+    """15 attempts; 14 with 5, 5, 4 (a partial tail block); 12 with 4, 4, 4 (a dropped tail block)."""
+    result = _compute(_export(SHORT))
+    assert (result["tasks"][task]["pooled"]["n"], result["tasks"][task]["pooled"]["label"],
+            f"screened at {n} of 15 attempts" in _row(result, task)) == (n, label, True)
+
+
+def test_a_task_with_three_scored_attempts_at_one_effort_is_not_screened_and_its_counts_are_printed():
+    """13 attempts with 5, 5, 3 (two infrastructure failures): neither in nor out, its interval printed."""
+    result = _compute(_export(SHORT))
+    task, row = result["tasks"][TASKS[4]], _row(result, TASKS[4])
+    short = "not screened: 13 of 15 attempts (low 5, medium 5, high 3)"
+    assert (task["pooled"]["label"], task["band_effort"], "1 of 13 (" in row, short in row) == (short, None, True, True)
+
+
+def test_family_json_is_refused_while_a_task_is_neither_screened_nor_dropped():
     with pytest.raises(readout.ReadoutError) as caught:
-        _family(_export(PARTIAL))
-    assert [task for task in TASKS[:4] if task in str(caught.value)] == [TASKS[2], TASKS[3]]
+        _family(_export(SHORT))
+    assert [task for task in TASKS[:5] if task in str(caught.value).split("not screened:")[-1]] == [TASKS[4]]
+
+
+def test_family_json_is_written_after_a_dropped_tail_block_with_every_task_screened():
+    family = _family(_export(PARTIAL))
+    assert {t["task"]: t["pooled"]["n"] for group in family["tasks"].values() for t in group} == {
+        TASKS[0]: 15, TASKS[1]: 15, TASKS[2]: 12, TASKS[3]: 14}
 
 
 def test_family_json_lists_a_dropped_task_with_its_reason_and_outside_the_family():
@@ -674,7 +769,7 @@ def test_family_json_lists_a_dropped_task_with_its_reason_and_outside_the_family
     assert ({label: [t["task"] for t in group] for label, group in family["tasks"].items()},
             [t["pooled"]["reason"] for t in family["tasks"]["dropped"]]) == (
         {"screened in": [TASKS[0], TASKS[1]], "floor": [], "above the band": [], "dropped": [TASKS[2], TASKS[3]]},
-        [f"ledger row dropping {TASKS[2]}", f"ledger row dropping {TASKS[3]}"])
+        [f"ledger row 2026-11-30: {TASKS[2]} dropped", f"ledger row 2026-11-30: {TASKS[3]} dropped"])
 
 
 @pytest.mark.parametrize("dropped, message", [
@@ -706,3 +801,96 @@ def test_the_bound_on_the_fall_is_pinned_for_one_table_and_one_seed():
     reverse order the same seed gives 20.45...; with seed 20261115, 20.41..."""
     rule = RULES["fall_bound"] | {"seed": 20261114}
     assert (rule["resamples"], readout.fall_bound(PINNED, "low", "high", rule)) == (10000, 20.833333333333332)
+
+
+# ---- Fix round 1: M1 and M2 as the readout lists them; m1, m2, m7 to m12 ------------------------------------------
+
+def test_a_launcher_stop_on_a_normal_ending_is_listed_as_a_stop_with_its_cause_and_never_scored():
+    table = {TASKS[0]: {"low": [{"reward": 1, "class": "stop", "stop_cause": "a subagent file"}], "medium": [0],
+                        "high": [0]}}
+    result = _compute(_export(table, end=STOP))
+    listed = result["listed"]["exclusions"]
+    assert ((result["tasks"][TASKS[0]]["cells"]["low"]["k"], result["tasks"][TASKS[0]]["cells"]["low"]["n"]),
+            [(e["class"], e["reason"]) for e in listed],
+            "(stop): a subagent file" in _section(readout.render(result), "Listed")) == (
+        (0, 0), [("stop", "a subagent file")], True)
+
+
+def test_every_contaminated_attempt_of_any_class_is_listed_and_its_tasks_counted():
+    hit = {"contamination": [TERM_SHA256]}
+    table = {TASKS[0]: {"low": [[{"row": 10} | hit, 0]], "medium": [{"reward": 1} | hit], "high": [0]},
+             TASKS[1]: {"low": [{"row": 15} | hit], "medium": [0], "high": [0]}}
+    result = _compute(_export(table))
+    contaminated = result["listed"]["contaminated"]
+    text = _section(readout.render(result), "Listed")
+    assert ([(e["task"], e["class"]) for e in contaminated["attempts"]], contaminated["tasks"],
+            contaminated["stop_on_tasks"], "On 2 task(s)" in text, TERM in text) == (
+        [(TASKS[0], "cut"), (TASKS[0], "observation"), (TASKS[1], "infrastructure_failure")], [TASKS[0], TASKS[1]],
+        3, True, False)
+
+
+REVIEW_TABLE = {f"t{i:02}": {"triples": t, "successes": {"low": low, "medium": 0, "high": high}}
+                for i, (t, low, high) in enumerate([(2, 0, 1), (1, 1, 0), (5, 1, 1), (3, 0, 0), (2, 0, 2), (1, 1, 0),
+                                                    (5, 5, 0), (5, 2, 3), (1, 0, 1), (2, 0, 2), (4, 1, 3), (1, 0, 1),
+                                                    (4, 2, 2), (3, 1, 3), (3, 2, 2), (1, 1, 1)])}
+
+
+def test_the_bound_is_pinned_where_the_quantile_s_neighbours_differ():
+    """The reviewer's table (minor m1): the 9,499th, 9,500th and 9,501st smallest falls are 15.0943, 15.1515 and
+    15.2174, so an off-by-one in the quantile changes the bound."""
+    rule = RULES["fall_bound"] | {"seed": 20261114}
+    assert readout.fall_bound(REVIEW_TABLE, "low", "high", rule) == 15.151515151515152
+
+
+@pytest.mark.parametrize("level", [float("nan"), 1.5, -0.1])
+def test_a_dominance_level_that_is_not_a_probability_is_refused(level):
+    with pytest.raises(readout.ReadoutError, match="not a probability"):
+        readout.compute(with_values(LADDER, {"readout.cost.dominated_p_at_most": level}), _export(FAMILY), STANDINS)
+
+
+def test_the_allowance_and_the_cost_table_total_the_same_starts():
+    """A pre-session failure counts against neither the starts nor the USD (m7)."""
+    table = {TASKS[0]: {"low": [[{"row": 1, "usd": 5.0}, 1]], "medium": [0], "high": [0]}}
+    result = _compute(_export(table, allowance=ALLOWANCE))
+    assert result["allowance"]["usd"] == sum(c["usd_all_starts"] for c in result["cost"]["per_effort"].values()) == 3.0
+
+
+def test_the_readout_names_its_classes_and_its_ending_in_words():
+    text = readout.render(_compute(_export(EXCLUDING, end={"by": "schedule", "cause": None})))
+    assert ("Tranche: ended: the schedule ran out" in text, "(pre-session failure)" in text,
+            "(infrastructure failure): no reward after regrades" in text, "pre_session_failure" in text) == (
+        True, True, True, False)
+
+
+def test_after_a_stop_the_command_prints_the_readout_and_refuses_family_json(tmp_path, capsys):
+    paths = [_write(tmp_path / name, value) for name, value in (("e.json", _export(FAMILY, end=STOP)),
+                                                                ("s.json", STANDINS))]
+    code = readout.main([str(paths[0]), "--rehearsal", str(paths[1]), "--family", str(tmp_path / "family.json")])
+    out = capsys.readouterr()
+    assert (code, STOP["cause"] in out.out, "ended in a stop" in out.err, (tmp_path / "family.json").exists()) == (
+        2, True, True, False)
+
+
+def test_the_command_refuses_a_repeated_key_in_the_export(tmp_path, capsys):
+    text = json.dumps(_export(FAMILY)).replace('"reward": 1,', '"reward": 1, "reward": 0,', 1)
+    (tmp_path / "e.json").write_text(text)
+    code = readout.main([str(tmp_path / "e.json"), "--rehearsal", str(_write(tmp_path / "s.json", STANDINS))])
+    assert (code, "repeats the keys ['reward']" in capsys.readouterr().err) == (2, True)
+
+
+def test_the_readout_and_family_json_name_the_python_that_computed_them():
+    result = _compute(_export(FAMILY))
+    version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    assert (result["python"], f"Python {version}" in readout.render(result),
+            readout.family(result, CRITERION, TASKS_DOC)["python"]) == (version, True, version)
+
+
+def test_an_interim_readout_says_its_verdict_and_dominance_are_not_the_verdict():
+    text = readout.render(_compute(_export(FAMILY, end=None)))
+    effort, cost = _section(text, "Effort test"), _section(text, "Cost per effort")
+    assert ("not the verdict" in effort, "**Verdict:" in effort, "interim: not resolved" in cost) == (True, False, True)
+
+
+def test_a_drop_whose_reason_names_no_ledger_row_by_its_date_is_refused():
+    with pytest.raises(readout.ReadoutError, match="no ledger row"):
+        readout.compute(LADDER, _export(SHORT), STANDINS, [{"task": TASKS[4], "reason": "it was short"}])

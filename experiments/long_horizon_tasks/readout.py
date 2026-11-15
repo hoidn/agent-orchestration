@@ -14,16 +14,22 @@ import hashlib
 import importlib.util
 import json
 import math
+import platform
 import random
+import re
 import sys
 from collections import Counter, defaultdict
 from fractions import Fraction
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent
-LADDER_PATH = "experiments/long_horizon_tasks/ladder.json"
+KIT_PATH = "experiments/long_horizon_tasks"
 POOLED_LABELS = ("screened in", "floor", "above the band")
 NOT_SCREENED = "not screened"
+ENDED = {"schedule": "ended: the schedule ran out", "ceiling": "ended: the next slot's reservation did not fit the "
+         "USD ceiling", "starts": "ended: the 240 starts were made", "stop": "ended by a stop"}
+CLASS_WORDS = {"observation": "observation", "cut": "cut by a usage limit", "stop": "stop",
+               "infrastructure_failure": "infrastructure failure", "pre_session_failure": "pre-session failure"}
 DIGESTS = ("digest_4_1_0", "environment_image", "verifier_image", "overlay_digest")
 
 
@@ -86,14 +92,17 @@ def cell_label(k, n, rule):
     raise ReadoutError(f"readout.cell gives no label to {k} of {n}")
 
 
-def pooled_label(K, n, rule):
-    """D6's pooled label of a task, K successes of its n observations, under ladder.json's readout.pooled rule.
+def pooled_label(cells, rule):
+    """D6's pooled label of a task under ladder.json's readout.pooled rule; cells maps each effort to (k, n).
 
-    The screen is applied only at the planned count, readout.pooled.at_n (coordinator ruling R4); with fewer the task
-    is not screened, neither in nor out of the family.
+    A task is screened when every effort has at least readout.pooled.min_per_effort scored observations (coordinator
+    ruling, revised after review); the band is then applied to the pooled K/n. Below that the task is not screened,
+    neither in nor out of the family, and the label gives the counts per effort.
     """
-    if n != rule["at_n"]:
-        return f"{NOT_SCREENED}: {n} of {rule['at_n']} attempts"
+    K, n = (sum(column) for column in zip(*cells.values()))
+    if min(count for _, count in cells.values()) < rule["min_per_effort"]:
+        counts = ", ".join(f"{effort} {count}" for effort, (_, count) in cells.items())
+        return f"{NOT_SCREENED}: {n} of {rule['planned_n']} attempts ({counts})"
     if K == rule["floor_K"]:
         return "floor"
     band = rule["screened_in"]
@@ -107,8 +116,7 @@ def band_effort(cells, rules):
     Among the levels with at least one success, the one whose k/n is closest to readout.band_effort.closest_to,
     ties to the lower level. Refused for a task the pooled label does not screen in, which has none.
     """
-    total = [sum(column) for column in zip(*cells.values())]
-    if pooled_label(total[0], total[1], rules["pooled"]) != "screened in":
+    if pooled_label(cells, rules["pooled"]) != "screened in":
         raise ReadoutError(f"a band effort is defined for a screened-in task only; this one is not screened in: "
                            f"{cells}")
     rule = rules["band_effort"]
@@ -205,27 +213,37 @@ def effort_test(tasks, efforts, rules):
 def _criterion(ladder, standins):
     """(the criterion the readout applies, whether it is a rehearsal).
 
-    A final readout (standins None) is refused while ladder.json marks a readout field pending. A rehearsal takes a
-    stand-in for every pending readout field, and for nothing else.
+    A final readout (standins None) is refused while ladder.json marks any field pending. A rehearsal takes a
+    stand-in for every pending readout field, and for nothing else; it is stamped on every output.
     """
-    pending = [p["field"] for p in ladder["pending"] if p["field"].startswith("readout.")]
+    pending = [p["field"] for p in ladder["pending"]]
     if standins is None:
         if pending:
-            raise ReadoutError(f"ladder.json marks readout fields pending: {', '.join(pending)}; a final readout "
-                               "waits for them (a rehearsal names stand-ins with --rehearsal)")
-        return ladder, False
-    missing, extra = sorted(set(pending) - set(standins)), sorted(set(standins) - set(pending))
-    if missing or extra:
-        raise ReadoutError(f"a rehearsal gives a stand-in for each pending readout field; missing {missing}, "
-                           f"not pending {extra}")
+            raise ReadoutError(f"ladder.json marks fields pending: {', '.join(pending)}; a final readout waits for the "
+                               "freeze (a rehearsal names stand-ins for the readout fields with --rehearsal)")
+        criterion, rehearsal = ladder, False
+    else:
+        readout_pending = [field for field in pending if field.startswith("readout.")]
+        missing, extra = sorted(set(readout_pending) - set(standins)), sorted(set(standins) - set(readout_pending))
+        if missing or extra:
+            raise ReadoutError(f"a rehearsal gives a stand-in for each pending readout field; missing {missing}, "
+                               f"not pending {extra}")
+        criterion, rehearsal = _with(ladder, standins), True
+    level = criterion["readout"]["cost"]["dominated_p_at_most"]
+    if not (math.isfinite(level) and 0 <= level <= 1):
+        raise ReadoutError(f"readout.cost.dominated_p_at_most {level!r} is not a probability")
+    return criterion, rehearsal
+
+
+def _with(ladder, values):
     criterion = copy.deepcopy(ladder)
-    for field, value in standins.items():
+    for field, value in values.items():
         *path, key = field.split(".")
         target = criterion
         for part in path:
             target = target[part]
         target[key] = value
-    return criterion, True
+    return criterion
 
 
 # ---- compute: every figure, once ------------------------------------------------------------------------------------
@@ -257,7 +275,8 @@ def _placement(cells, rules, place, drops):
 
 
 def _placed(task, rules, dropped):
-    pooled = task["pooled"] | {"label": pooled_label(task["pooled"]["K"], task["pooled"]["n"], rules["pooled"])}
+    counts = {e: (c["k"], c["n"]) for e, c in task["cells"].items()}
+    pooled = task["pooled"] | {"label": pooled_label(counts, rules["pooled"])}
     if dropped:
         pooled |= {"label": "dropped", "reason": dropped}
     cells = {e: c | {"label": cell_label(c["k"], c["n"], rules["cell"])} for e, c in task["cells"].items()}
@@ -287,13 +306,33 @@ def _entry(start):
     return {key: start[key] for key in ("start", "slot", "task", "effort", "round", "row", "class", "ending")}
 
 
-def _listed(starts, efforts):
+def _why(start):
+    """Why a start enters no k or n: the launcher's stop cause, the exclusion, a contamination hit, else its ending."""
+    contaminated = "contaminated" if start["contamination"] and start["class"] == "observation" else None
+    reasons = [r for r in (start["stop_cause"], start["excluded"], contaminated) if r]
+    return "; ".join(reasons) or start["ending"]
+
+
+def _d5_class(start):
+    """The class D5 gives the start: no reward after regrades is an infrastructure failure (regrade case 1)."""
+    return "infrastructure_failure" if start["excluded"] == slot_record.EXCLUSIONS[0] else start["class"]
+
+
+def _contaminated(starts, ladder):
+    """Every start with a contamination hit, of any class, and the tasks they are on (D6; D7.7 counts them)."""
+    hits = [_entry(s) | {"contamination": s["contamination"]} for s in starts if s["contamination"]]
+    stop = next(rule["on_tasks"] for rule in ladder["stops"]["stops"] if "on_tasks" in rule)
+    return {"attempts": hits, "tasks": sorted({h["task"] for h in hits}), "stop_on_tasks": stop}
+
+
+def _listed(starts, efforts, ladder):
     """D6's lists: every start that enters no k or n, with its class and why; every flagged observation; the
     attempts cut by a usage limit, counted per effort; the pilot's attempts, marked (D7.2); the refused
     connections of each attempt (D3, D6), which exclude nothing."""
     cuts = Counter(s["effort"] for s in starts if s["class"] == "cut")
-    return {"exclusions": [_entry(s) | {"reason": s["excluded"] or s["ending"], "contamination": s["contamination"]}
+    return {"exclusions": [_entry(s) | {"reason": _why(s), "class": _d5_class(s), "contamination": s["contamination"]}
                            for s in starts if not s["counted"]],
+            "contaminated": _contaminated(starts, ladder),
             "flags": [_entry(s) for s in starts if s["counted"] and s["flagged"]],
             "cuts": {e: cuts[e] for e in efforts}, "pilot": [_entry(s) for s in starts if s["pilot"]],
             "egress": _egress(starts)}
@@ -314,10 +353,15 @@ def _means(observations):
                             for kind in slot_record.TOKEN_KINDS}}
 
 
+def _started(starts, classes):
+    """The starts that count as starts (classification.classes; a pre-session failure does not), for every total."""
+    return [s for s in starts if classes[s["class"]]["starts"]]
+
+
 def _level_cost(starts, effort, classes):
     """D6's cost of one effort level: means per observation; every start's cost over the level's successes."""
     observations = [s for s in starts if s["effort"] == effort and s["counted"]]
-    started = [s for s in starts if s["effort"] == effort and classes[s["class"]]["starts"]]
+    started = [s for s in _started(starts, classes) if s["effort"] == effort]
     successes, usd = sum(s["success"] for s in observations), sum(s["usd"] for s in started)
     return {"observations": len(observations)} | _means(observations) | {
         "starts": len(started), "usd_all_starts": usd, "successes": successes,
@@ -370,7 +414,7 @@ def _allowance(allowance, starts):
     """D6: the share of a weekly allowance the tranche used, in all and per priced dollar (every start, every label)."""
     if allowance is None:
         return None
-    usd = sum(s["usd"] for s in starts)
+    usd = sum(s["usd"] for s in starts)  # the starts that count (_started), of every label: one total with the cost
     return allowance | {"usd": usd, "points_per_usd": allowance["weekly_points"] / usd if usd else None}
 
 
@@ -391,12 +435,12 @@ def _effort(triples, efforts, rules, place):
             "fall_bound": fall_bound(triples, efforts[0], efforts[-1], rules["fall_bound"]), "per_task": triples}
 
 
-def _earlier(starts, export, tasks, efforts, level):
+def _earlier(starts, export, tasks, efforts, level, ladder):
     """Per earlier label: its ledger row, its cells (k of n, no label) and its lists; they enter no rule (D6)."""
     earlier = []
     for entry in export["earlier_labels"]:
         own = [s for s in starts if s["label"] == entry["label"]]
-        earlier.append(entry | {"cells": _counts(own, tasks, efforts, level), "listed": _listed(own, efforts)})
+        earlier.append(entry | {"cells": _counts(own, tasks, efforts, level), "listed": _listed(own, efforts, ladder)})
     return earlier
 
 
@@ -409,8 +453,8 @@ def _drops(dropped, tasks):
             raise ReadoutError(f"dropped task {entry['task']!r} is not a task of the tranche")
         if entry["task"] in reasons:
             raise ReadoutError(f"dropped task {entry['task']!r} is given twice")
-        if not entry["reason"].strip():
-            raise ReadoutError(f"dropped task {entry['task']!r} names no reason")
+        if not re.search(r"\b\d{4}-\d{2}-\d{2}\b", entry["reason"]):
+            raise ReadoutError(f"dropped task {entry['task']!r}: the reason names no ledger row by its date")
         reasons[entry["task"]] = entry["reason"]
     return reasons
 
@@ -437,12 +481,14 @@ def compute(ladder, export, standins=None, dropped=None):
             "end": export["end"], "stop": not place,
             "tasks": _placement(_counts(current, tasks, efforts, level), rules, place, _drops(dropped, tasks)),
             "effort": _effort(triples, efforts, rules, place),
-            "listed": _listed(current, efforts), "earlier": _earlier(starts, export, tasks, efforts, level),
-            "rules": {"fall_bound": rules["fall_bound"], "interval": rules["interval"],
+            "listed": _listed(current, efforts, criterion),
+            "earlier": _earlier(starts, export, tasks, efforts, level, criterion),
+            "rules": {"fall_bound": rules["fall_bound"], "interval": rules["interval"], "pooled": rules["pooled"],
                       "stop_readout": rules["stop_readout"]},
             "cost": _cost(current, efforts, triples, criterion, place),
             "graded": _graded(current, tasks, efforts, rules["graded_outcome"]["verifiers"]),
-            "allowance": _allowance(export["allowance"], starts)}
+            "allowance": _allowance(export["allowance"], _started(starts, criterion["classification"]["classes"])),
+            "python": platform.python_version()}
 
 
 # ---- render: the readout as text, formatting compute's figures only ------------------------------------------------
@@ -466,12 +512,14 @@ def _header(result):
     lines = ["# Long-horizon readout" + (" (REHEARSAL)" if result["rehearsal"] else ""), ""]
     if result["rehearsal"]:
         lines += ["**REHEARSAL: stand-in values for the pending readout fields; nothing here is a result.**", ""]
-    ended = "in progress (no family.json)" if end is None else end["by"] + (f": {end['cause']}" if end["cause"] else "")
+    ended = "in progress: an interim look, not the verdict (no family.json)" if end is None else ENDED[end["by"]] + (
+        f": {end['cause']}" if end["cause"] else "")
     lines += [f"- Configuration (D2): `{configuration['model']}` at {', '.join(configuration['efforts'])}; CLI "
               f"{configuration['cli_version']}; tools {', '.join(configuration['tools'])}; Harbor "
               f"{configuration['harbor']}, podman-compose {configuration['podman_compose']}; agent network "
               f"{network['network_mode']}, hosts {', '.join(network['allowed_hosts'] or ['(pending)'])}",
-              f"- Configuration label: `{result['label']}`", f"- Tranche: {ended}", ""]
+              f"- Configuration label: `{result['label']}`", f"- Tranche: {ended}",
+              f"- Computed under Python {result['python']} (the bootstrap's draws are Python's random.Random)", ""]
     return lines
 
 
@@ -482,7 +530,8 @@ def _tasks_table(result):
              "| Task | " + " | ".join(efforts) + " | Pooled | Band effort |", "|" + " --- |" * (len(efforts) + 3)]
     for task, placed in result["tasks"].items():
         pooled, band = placed["pooled"], placed["band_effort"]
-        screened = f", screened at {pooled['n']} attempts" if pooled.get("label") == "screened in" else ""
+        planned = result["rules"]["pooled"]["planned_n"]
+        screened = f", screened at {pooled['n']} of {planned} attempts" if pooled.get("label") in POOLED_LABELS else ""
         banded = "none" if band is None else f"{band['effort']}, {band['label']}" + (
             ", flagged" if band["flagged"] else "")
         reason = f" ({pooled['reason']})" if "reason" in pooled else ""
@@ -512,13 +561,19 @@ def _effort_section(result):
                             f"{result['rules']['stop_readout'].capitalize()} (D6).", ""]
         return lines + [f"Bound on the fall over {effort['triples']} complete triples; no placement is made: "
                         f"{_bound_text(result)}. {result['rules']['stop_readout'].capitalize()} (D6).", ""]
-    lines += [f"Complete triples: {effort['triples']} over {effort['tasks']} tasks. Pooled successes: " +
-              ", ".join(f"{e} {s} of {effort['triples']}" for e, s in effort["pooled"].items()) + ".", "",
-              "| Difference | Sum of d_i | p, sum at or below | p, sum at or above |", "| --- | --- | --- | --- |"]
+    level, n = result["rules"]["interval"]["level"], effort["triples"]
+    pooled = ", ".join(_count({"k": k, "n": n, "interval": interval(k, n, level)}) for k in effort["pooled"].values())
+    lines += [f"Complete triples: {n} over {effort['tasks']} tasks. Pooled successes, "
+              f"{', '.join(effort['pooled'])}: {pooled}.", "",
+              "| Levels | Sum over tasks of successes at the first level minus the second | p, sum at or below | "
+              "p, sum at or above |", "| --- | --- | --- | --- |"]
     for name, d in effort["differences"].items():
         lines.append(f"| {name} | {d['sum']} | {_fraction(d['p_below'])} | {_fraction(d['p_above'])} |")
-    return lines + ["", f"**Verdict: {effort['verdict']}.** Bound on the fall: {_bound_text(result)}. {rule['rule']}",
-                    ""]
+    verdict = (f"**Verdict: {effort['verdict']}.**" if result["end"] else
+               f"Interim look (the tranche is in progress; this is not the verdict): {effort['verdict']}.")
+    return lines + ["", "The sums are the test's statistics, not estimates of a difference; the one interval on a "
+                    "difference between levels is the bound on the fall.", "",
+                    f"{verdict} Bound on the fall: {_bound_text(result)}. {rule['rule']}", ""]
 
 
 def _excluded(entry):
@@ -535,7 +590,7 @@ def _entries(title, entries, why=None):
     lines = [f"### {title}", ""]
     for e in entries:
         lines.append(f"- start {e['start']}, {e['task']} {e['effort']} round {e['round']}, row {e['row']} "
-                     f"({e['class']})" + (f": {why(e)}" if why else ""))
+                     f"({CLASS_WORDS[e['class']]})" + (f": {why(e)}" if why else ""))
     return lines + (["- none"] if not entries else []) + [""]
 
 
@@ -544,7 +599,16 @@ def _listed_section(listed):
             + _entries("Flagged observations", listed["flags"], lambda e: e["ending"])
             + ["### Cut by a usage limit, per effort", "", ", ".join(f"{e} {n}" for e, n in listed["cuts"].items()),
                ""] + _entries("The pilot's attempts (they ran first)", listed["pilot"])
-            + _entries("Refused connections (they exclude nothing)", listed["egress"], _refused))
+            + _entries("Refused connections (they exclude nothing)", listed["egress"], _refused)
+            + _contaminated_section(listed["contaminated"]))
+
+
+def _contaminated_section(contaminated):
+    tasks = contaminated["tasks"]
+    return (_entries("Contaminated attempts, of any class (terms by SHA-256, never the term)",
+                     contaminated["attempts"], lambda e: ", ".join(e["contamination"]))
+            + [f"On {len(tasks)} task(s){': ' + ', '.join(tasks) if tasks else ''}; D7.7 stops the tranche at "
+               f"contaminated attempts on {contaminated['stop_on_tasks']} tasks.", ""])
 
 
 def _earlier_section(result):
@@ -570,8 +634,8 @@ def _cost_section(result):
     for effort, c in result["cost"]["per_effort"].items():
         tokens = ", ".join(f"{k} {'none' if v is None else round(v)}" for k, v in c["mean_tokens"].items())
         dominated = (result["cost"]["dominated"] or {}).get(effort)
-        verdict = "withheld" if dominated is None else dominated["verdict"] + (
-            f" by {dominated['by']}" if dominated["by"] else "")
+        verdict = "withheld" if dominated is None else ("" if result["end"] else "interim: ") + dominated[
+            "verdict"] + (f" by {dominated['by']}" if dominated["by"] else "")
         lines.append(f"| {effort} | {c['observations']} | {_money(c['mean_usd'])} | "
                      f"{_money(c['mean_minutes'], '')} | {tokens} | {c['starts']} | {_money(c['usd_all_starts'])} | "
                      f"{c['successes']} | {_money(c['usd_per_success'])} | {verdict} |")
@@ -652,7 +716,8 @@ def family(result, criterion_sha256, tasks_doc):
     effort = {key: value for key, value in result["effort"].items() if key != "per_task"}
     return _plain({"rehearsal": result["rehearsal"], "criterion_sha256": criterion_sha256, "label": result["label"],
                    "configuration": result["configuration"], "end": result["end"]["by"], "tasks": grouped,
-                   "effort": effort, "fall_bound_rule": result["rules"]["fall_bound"]["rule"]})
+                   "effort": effort, "fall_bound_rule": result["rules"]["fall_bound"]["rule"],
+                   "python": result["python"]})
 
 
 def family_bytes(content):
@@ -666,28 +731,36 @@ def _sha256_of(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def bound(ladder_bytes, manifest_bytes, label):
-    """A final readout applies the criterion of its label: the label is the manifest's SHA-256 (D7.6), and the
-    manifest holds the SHA-256 of the ladder.json read. None, or a ReadoutError naming which does not hold."""
+def bound(files, manifest_bytes, label):
+    """A final readout applies the frozen criterion of its label: the manifest is frozen, its SHA-256 is the label
+    (D7.6), and it records each file the readout reads (files: {kit file name: bytes}) as it is. None, or a
+    ReadoutError naming what does not hold."""
+    manifest = json.loads(manifest_bytes)
+    if not manifest["frozen"]:
+        raise ReadoutError("the manifest is not frozen: a final readout reads a frozen criterion (or run a rehearsal)")
     if _sha256_of(manifest_bytes) != label:
         raise ReadoutError(f"the label is not this manifest's SHA-256: {label} against {_sha256_of(manifest_bytes)}")
-    recorded = json.loads(manifest_bytes)["files"].get(LADDER_PATH)
-    if recorded != _sha256_of(ladder_bytes):
-        raise ReadoutError(f"ladder.json is not the manifest's: {_sha256_of(ladder_bytes)} against {recorded}")
+    for name, data in files.items():
+        recorded = manifest["files"].get(f"{KIT_PATH}/{name}")
+        if recorded != _sha256_of(data):
+            raise ReadoutError(f"{name} is not the manifest's: {_sha256_of(data)} against {recorded}")
 
 
 def _run(args):
-    """Refuses before printing or writing anything: a pending field, a record, the label's criterion, family.json."""
-    ladder_bytes, export = (KIT / "ladder.json").read_bytes(), json.loads(Path(args.export).read_text())
-    standins = json.loads(Path(args.rehearsal).read_text()) if args.rehearsal else None
-    dropped = json.loads(Path(args.dropped).read_text()) if args.dropped else None
+    """Refuses before printing anything on a pending field, a record or the label's criterion; prints the readout;
+    then writes family.json, or refuses it with the reason and writes nothing."""
+    ladder_bytes, tasks_bytes = (KIT / "ladder.json").read_bytes(), (KIT / "tasks.json").read_bytes()
+    export = slot_record.read(Path(args.export))
+    standins = slot_record.read(Path(args.rehearsal)) if args.rehearsal else None
+    dropped = slot_record.read(Path(args.dropped)) if args.dropped else None
     result = compute(json.loads(ladder_bytes), export, standins, dropped)
     if standins is None:
-        bound(ladder_bytes, (KIT / "manifest.json").read_bytes(), result["label"])
-    content = family(result, _sha256_of(ladder_bytes), json.loads((KIT / "tasks.json").read_text())) if (
-        args.family) else None
+        files = {"ladder.json": ladder_bytes, "tasks.json": tasks_bytes} | {
+            name: (KIT / name).read_bytes() for name in ("readout.py", "slot_record.py")}
+        bound(files, (KIT / "manifest.json").read_bytes(), result["label"])
     print(render(result))
-    if content is not None:
+    if args.family:
+        content = family(result, _sha256_of(ladder_bytes), json.loads(tasks_bytes))
         Path(args.family).write_bytes(family_bytes(content))
 
 

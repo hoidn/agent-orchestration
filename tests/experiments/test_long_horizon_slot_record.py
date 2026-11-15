@@ -6,11 +6,12 @@ Every record is constructed here; nothing runs an agent, a container or a provid
 
 import pytest
 
-from tests.experiments.long_horizon_record_support import (LADDER, STANDINS, TASKS, TERM_SHA256, export, load_kit,
-                                                           same, with_values)
+from tests.experiments.long_horizon_record_support import (EFFORTS, LADDER, STANDINS, TASKS, TERM_SHA256, export,
+                                                           load_kit, same, with_values)
 
 slot_record = load_kit("slot_record")
 CRITERION = with_values(LADDER, STANDINS)
+PILOT = LADDER["schedule"]["pilot"]["task"]
 
 
 def _load(record, ladder=CRITERION):
@@ -23,6 +24,11 @@ def _broken(change):
     return record
 
 
+def _one(*outcomes, effort="low"):
+    """One task's export with the given starts in one slot of the given effort, and plain observations elsewhere."""
+    return export({TASKS[0]: {e: [list(outcomes)] if e == effort else [0] for e in EFFORTS}})
+
+
 @pytest.mark.parametrize("change, message", [
     (lambda x: x["starts"][0].update(slot="r9-nowhere-low"), "joins no slot"),
     (lambda x: x["starts"][0].update(label="d" * 64), "label"),
@@ -31,24 +37,28 @@ def _broken(change):
     (lambda x: x["starts"][0].update(reward=0.5), "reward"),
     (lambda x: x["starts"][0].update(reward=None), "regrade"),
     (lambda x: x["starts"][0].update(excluded="cosmic rays"), "excluded"),
-    (lambda x: x["starts"][0].update(row=15, excluded="contaminated", contamination=[TERM_SHA256]), "excluded"),
+    (lambda x: x["starts"][0].update({"row": 15, "class": "infrastructure_failure", "excluded": "indeterminate",
+                                      "reward": 0}), "excluded"),
     (lambda x: x["starts"][0].update(extra=1), "keys"),
     (lambda x: x["starts"][0].pop("usd"), "keys"),
     (lambda x: x["starts"][0].pop("contamination"), "keys"),
+    (lambda x: x["starts"][0].pop("api_retry"), "keys"),
     (lambda x: x["starts"][0].update(usd=True), "usd"),
     (lambda x: x["starts"][0]["tokens"].pop("cache_read"), "tokens"),
+    (lambda x: x["starts"][0].update(api_retry=-1), "api_retry"),
     (lambda x: x["starts"][0].update(graded={"passed": 3, "total": 2}), "graded"),
     (lambda x: x["starts"][0].update(egress_refused={"<address>:443": 0}), "egress_refused"),
     (lambda x: x["starts"][1].update(start=1), "start"),
-    (lambda x: x["starts"].append(dict(x["starts"][0], start=99)), "more than one"),
+    (lambda x: x["starts"].append(dict(x["starts"][0], start=99)), "run again only after"),
     (lambda x: x["slots"][0].update(task="no-such-task"), "task"),
     (lambda x: x["slots"][0].update(effort="max"), "effort"),
     (lambda x: x["slots"][0].update(round=6), "round"),
-    (lambda x: x["slots"].append(dict(x["slots"][0], slot="duplicate")), "twice"),
+    (lambda x: x["slots"].append(dict(x["slots"][0], slot="duplicate")), "given twice"),
     (lambda x: x.update(end={"by": "stop", "cause": None}), "cause"),
     (lambda x: x.update(end={"by": "tired", "cause": None}), "end"),
+    (lambda x: x.update(end={"by": "starts", "cause": None}), "starts"),
     (lambda x: x.update(label="not a label"), "label"),
-    (lambda x: x.update(earlier_labels=[{"label": x["label"], "ended_by": "a ledger row"}]), "twice"),
+    (lambda x: x.update(earlier_labels=[{"label": x["label"], "ended_by": "a ledger row"}]), "label is given twice"),
     (lambda x: x.update(allowance={"weekly_points": "12"}), "keys"),
     (lambda x: x.update(extra=1), "keys"),
 ])
@@ -71,34 +81,129 @@ def test_a_timeout_with_no_reward_is_an_observation_scored_zero():
 
 
 def test_a_cut_s_reward_is_never_read():
-    first = _load(export({TASKS[0]: {"low": [[{"row": 10, "reward": 1}, 0]], "medium": [0], "high": [0]}}))[0]
+    first = _load(_one({"row": 10, "reward": 1}, 0))[0]
     assert (first["class"], first["counted"], first["success"]) == ("cut", False, None)
 
 
-# ---- The contamination scan's result: the launcher writes it at teardown; it names terms by SHA-256 only ---------
+# ---- M1: the launcher's class, checked against the row; a launcher stop is never scored ---------------------------
 
-def _contaminated(**fields):
-    return export({TASKS[0]: {"low": [{"reward": 1} | fields], "medium": [0], "high": [0]}})
+@pytest.mark.parametrize("cause", slot_record.LAUNCHER_STOPS)
+def test_a_launcher_stop_on_a_normal_ending_is_a_stop_and_never_scored(cause):
+    first = _load(_one({"row": 5, "reward": 1, "class": "stop", "stop_cause": cause}))[0]
+    assert (first["class"], first["stop_cause"], first["counted"], first["success"]) == ("stop", cause, False, None)
 
 
-def test_a_contaminated_start_names_the_sha256_of_a_frozen_term_or_of_the_canary():
-    loaded = [_load(_contaminated(excluded="contaminated", contamination=[digest]))[0]["counted"]
-              for digest in (TERM_SHA256, STANDINS.get("readout.contamination_scan.canary_sha256", "c" * 64))]
-    assert loaded == [False, False]
+@pytest.mark.parametrize("fields, why", [
+    ({"class": "stop", "stop_cause": None}, "a stop on an observation row without a cause"),
+    ({"class": "stop", "stop_cause": "a cosmic ray"}, "a cause that is no launcher stop"),
+    ({"class": "observation", "stop_cause": "a subagent file"}, "a cause on a class that is no stop"),
+    ({"class": "infrastructure_failure"}, "regrade case 1 as a class: the layout says row 5, excluded"),
+    ({"row": 2, "class": "stop", "stop_cause": "a subagent file"}, "a launcher cause on a stop row")])
+def test_a_class_that_does_not_fit_the_row_is_refused(fields, why):
+    with pytest.raises(slot_record.RecordError, match="does not fit row"):
+        _load(_one({"reward": 1} | fields))
+
+
+# ---- M2: contamination on a start of any class; it excludes an observation only -----------------------------------
+
+def test_a_contamination_hit_excludes_an_observation():
+    first = _load(_one({"reward": 1, "contamination": [TERM_SHA256]}))[0]
+    assert (first["class"], first["counted"]) == ("observation", False)
+
+
+@pytest.mark.parametrize("fields, then, cls", [({"row": 10}, [0], "cut"), ({"row": 1}, [0], "pre_session_failure"),
+                                               ({"row": 15}, [], "infrastructure_failure"), ({"row": 13}, [], "stop"),
+                                               ({"class": "stop", "stop_cause": "a subagent file"}, [], "stop")])
+def test_a_contamination_hit_on_a_start_of_another_class_loads_and_keeps_its_class(fields, then, cls):
+    first = _load(_one(fields | {"contamination": [TERM_SHA256]}, *then))[0]
+    assert (first["class"], first["contamination"], first["counted"]) == (cls, [TERM_SHA256], False)
+
+
+def test_the_canary_s_sha256_is_a_frozen_term():
+    canary = STANDINS.get("readout.contamination_scan.canary_sha256", "c" * 64)
+    assert _load(_one({"reward": 0, "contamination": [canary]}))[0]["counted"] is False
 
 
 @pytest.mark.parametrize("fields, message", [
-    ({"excluded": "contaminated", "contamination": []}, "disagree"),
-    ({"excluded": None, "contamination": [TERM_SHA256]}, "disagree"),
-    ({"excluded": "contaminated", "contamination": ["0" * 64]}, "no frozen term"),
-    ({"excluded": "contaminated", "contamination": ["<a frozen term>"]}, "no frozen term")])
-def test_a_contamination_result_that_disagrees_or_names_no_frozen_term_is_refused(fields, message):
+    ({"contamination": ["0" * 64]}, "no frozen term"), ({"contamination": ["<a frozen term>"]}, "no frozen term"),
+    ({"excluded": "contaminated", "contamination": [TERM_SHA256]}, "excluded")])
+def test_a_contamination_result_that_names_no_frozen_term_or_an_old_exclusion_is_refused(fields, message):
     with pytest.raises(slot_record.RecordError, match=message):
-        _load(_contaminated(**fields))
+        _load(_one({"reward": 0} | fields))
 
 
 def test_while_the_terms_are_pending_no_contamination_result_can_be_joined():
     pending = with_values(LADDER, {"readout.contamination_scan.terms": None,
                                    "readout.contamination_scan.canary_sha256": None})
     with pytest.raises(slot_record.RecordError, match="no frozen term"):
-        _load(_contaminated(excluded="contaminated", contamination=[TERM_SHA256]), ladder=pending)
+        _load(_one({"reward": 0, "contamination": [TERM_SHA256]}), ladder=pending)
+
+
+# ---- Minors: figures finite (m2), repeated keys (m3), the order of a slot's starts (m4), exclusions (m5), pilot (m6)
+
+@pytest.mark.parametrize("change", [lambda x: x["starts"][0].update(usd=float("nan")),
+                                    lambda x: x["starts"][0].update(usd=float("inf")),
+                                    lambda x: x["starts"][0].update(minutes=-1.0),
+                                    lambda x: x.update(allowance={"weekly_points": float("nan"), "readings": "r"}),
+                                    lambda x: x.update(allowance={"weekly_points": -1, "readings": "r"})])
+def test_a_figure_that_is_not_finite_or_is_negative_is_refused(change):
+    with pytest.raises(slot_record.RecordError, match="finite number"):
+        _load(_broken(change))
+
+
+@pytest.mark.parametrize("text, message", [('{"a": 1, "a": 2}', "repeats the keys"), ('{"usd": NaN}', "NaN"),
+                                           ('{"usd": Infinity}', "Infinity"), ('[{"x": 1, "x": 1}]', "repeats")])
+def test_reading_refuses_a_repeated_key_and_nan_or_infinity(tmp_path, text, message):
+    (tmp_path / "export.json").write_text(text)
+    with pytest.raises(slot_record.RecordError, match=message):
+        slot_record.read(tmp_path / "export.json")
+
+
+PRE = {"row": 1}
+
+
+@pytest.mark.parametrize("starts, message", [
+    ([PRE, PRE, PRE, 0], "lost after the third"), ([0, {"row": 10}], "run again only after"),
+    ([0, PRE], "run again only after"), ([{"row": 15}, 0], "run again only after")])
+def test_a_sequence_of_starts_the_plan_forbids_is_refused(starts, message):
+    with pytest.raises(slot_record.RecordError, match=message):
+        _load(_one(*starts))
+
+
+def test_two_pre_session_failures_and_a_cut_may_precede_the_slot_s_observation():
+    assert [s["class"] for s in _load(_one(PRE, PRE, {"row": 10}, PRE, 1))][:5] == [
+        "pre_session_failure", "pre_session_failure", "cut", "pre_session_failure", "observation"]
+
+
+@pytest.mark.parametrize("fields", [{"excluded": "no reward after regrades", "reward": 1},
+                                    {"excluded": "no reward after regrades", "row": 3, "reward": None},
+                                    {"excluded": "indeterminate", "reward": 1},
+                                    {"excluded": "indeterminate", "reward": None}])
+def test_an_exclusion_that_contradicts_its_d5_case_is_refused(fields):
+    with pytest.raises(slot_record.RecordError, match="does not fit its D5 case"):
+        _load(_one(fields))
+
+
+def _with_pilot(cells):
+    return export({PILOT: {e: [0] for e in EFFORTS}, TASKS[0]: {e: [0, 0, 0] for e in EFFORTS}}, pilot=cells)
+
+
+def test_the_pilot_is_the_three_efforts_of_round_1_of_the_pilot_task():
+    loaded = _load(_with_pilot({(PILOT, e, 1) for e in EFFORTS}))
+    assert sorted(s["effort"] for s in loaded if s["pilot"]) == sorted(EFFORTS)
+
+
+@pytest.mark.parametrize("cells", [{(TASKS[0], "low", 3)}, {(PILOT, "low", 1)},
+                                   {(TASKS[0], e, 1) for e in EFFORTS}])
+def test_a_pilot_mark_on_any_other_slot_is_refused(cells):
+    with pytest.raises(slot_record.RecordError, match="marked pilot"):
+        _load(_with_pilot(cells))
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda x: x["starts"][0].update(start=0), "below 1"),
+    (lambda x: x.update(earlier_labels=[{"label": "b" * 64, "ended_by": " "}]), "ended_by"),
+    (lambda x: x.update(end={"by": "stop", "cause": " "}), "cause")])
+def test_a_start_number_below_1_or_a_blank_ledger_row_is_refused(change, message):
+    with pytest.raises(slot_record.RecordError, match=message):
+        _load(_broken(change))

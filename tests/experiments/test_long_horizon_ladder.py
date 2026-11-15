@@ -695,6 +695,12 @@ def test_every_null_is_a_pending_field_and_no_field_leaves_the_list_without_a_re
         {p["field"] for p in ladder["pending"]}, PENDING_OR_FILLED, [])
 
 
+@pytest.mark.parametrize("value, typed", [(0.05, True), (4, True), (float("nan"), False), (float("inf"), False),
+                                          (True, False), ("0.05", False)])
+def test_a_number_filled_field_is_a_finite_integer_or_decimal(value, typed):
+    assert _load("lh_manifest", KIT / "manifest.py")._typed(value, "number") is typed
+
+
 def _kit_copy(tmp_path):
     kit = tmp_path / "repo" / "experiments" / "long_horizon_tasks"
     shutil.copytree(KIT, kit, ignore=shutil.ignore_patterns("__pycache__"))

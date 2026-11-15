@@ -21,6 +21,7 @@ Usage (from the repository root):
 
 import hashlib
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -72,10 +73,12 @@ def _at(doc, field):
 
 
 def _typed(value, kind):
-    """Whether a filled value has its declared type: an empty string, a bool or an unknown type never does."""
+    """Whether a filled value has its declared type: an empty string, a bool, a number that is not finite or an
+    unknown type never does."""
     if kind == "sha256":
         return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
-    return kind in TYPES and isinstance(value, TYPES[kind]) and not isinstance(value, bool) and value != ""
+    finite = kind != "number" or (isinstance(value, (int, float)) and math.isfinite(value))
+    return kind in TYPES and isinstance(value, TYPES[kind]) and not isinstance(value, bool) and value != "" and finite
 
 
 def freeze_gaps(ladder):
