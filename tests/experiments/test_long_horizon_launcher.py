@@ -2408,6 +2408,61 @@ def test_a_signal_to_the_launcher_ends_a_running_attempt_within_seconds_leaves_n
         0, True, [], [], True, ["the launcher was signalled"])
 
 
+def _lock_free(root):
+    """Whether another process could take the state root's launcher lock now (it is let go at once)."""
+    import fcntl
+    with open(root / "launcher.lock", "a+") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        fcntl.flock(fh, fcntl.LOCK_UN)
+        return True
+
+
+def test_a_failure_of_the_launcher_loop_stops_the_tranche_and_holds_the_lock_until_its_attempts_have_ended(rig):
+    """Scoped check S-m2: an exception out of the launcher's loop (here the ledger cannot be read at the head of the
+    queue while an attempt runs) stops the tranche naming it, stops and tears down the attempts in flight, and lets
+    the lock go only after they have ended, so no second launch can start beside them."""
+    r = rig(plan=[{"sleep": 600, "child": True}])
+    ledger = r.kit.reh / "ledger.md"
+    ledger.write_text("")
+    proc = r.start_launch()
+    deadline = time.monotonic() + WAIT
+    while not any(n["what"] == "child" for n in r.notes()) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    started = next(n for n in r.notes() if n["what"] == "started")
+    ledger.chmod(0)
+    freed_while_running = False
+    while proc.poll() is None and time.monotonic() < deadline + WAIT:
+        free = _lock_free(r.root)  # first the lock, then the attempt: a group once gone never comes back, and a
+        group = subprocess.run(["pgrep", "-g", str(started["pgid"])], capture_output=True, text=True).stdout.split()
+        settled = r.attempts()[0]["settled"] is not None  # settled attempt stays settled
+        if free and (group or not settled):
+            freed_while_running = True
+            proc.kill()
+            os.killpg(int(started["pgid"]), signal.SIGKILL)  # the attempt left running (its own session)
+            break
+        time.sleep(0.2)
+    proc.communicate(timeout=WAIT)
+    ledger.chmod(0o600)
+    stops = [e["reason"] for e in r.events() if e["event"] == "stop"]
+    assert (freed_while_running, proc.returncode != 0, r.attempts()[0]["settled"] is not None,
+            [s.split(":")[:2] for s in stops]) == (False, True, True, [["the launcher failed", " PermissionError"]])
+
+
+def test_a_ledger_that_cannot_be_read_at_a_start_s_check_is_a_stop_that_names_it(live_kit):
+    """Scoped check S-m2: the checks before each start return an unreadable ledger as their reason (a stop), never
+    raise it out of the loop. Only the check runs: no launch, no authorization."""
+    copy = live_kit.ladder
+    ctx = copy.Ctx({k: v for k, v in live_kit.env(live=True).items() if k != "LH_SPEND_AUTHORIZED"})
+    criterion = copy.criterion(ctx)
+    before = copy.config_refusal(ctx, copy.this_label(), criterion)
+    _git(live_kit.repo, "branch", "-m", "main", "elsewhere")
+    after = copy.config_refusal(ctx, copy.this_label(), criterion)
+    assert (before, "the ledger cannot be read" in (after or "")) == (None, True)
+
+
 def test_the_harness_is_held_until_its_pid_is_recorded_and_never_runs_when_the_launcher_dies_first(short):
     """Task 8 m6: the launcher writes `go` after slot.json holds the harness's pid; an end of input (the launcher
     died between the two) ends the hold without running the harness."""

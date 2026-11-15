@@ -1672,13 +1672,14 @@ def config_refusal(ctx, label, ladder):
     """The launch's checks again, before each start (Task 8 part A M6): the manifest hash is still the one the
     preflight checked, the kit still matches the manifest, and when live the ledger's current label, the runtime
     commit, the detached checkout and a clean kit; then the harness venv and the host-side overrides, which are
-    outside the manifest (re-review R-m3). A reason, or None."""
+    outside the manifest (re-review R-m3). A reason, or None: a check that cannot read what it checks (the ledger on
+    main, the venv's Python) is a reason too, never an exception out of the loop (scoped check S-m2)."""
     if this_label() != label:
         return f"the manifest is no longer {label}"
-    reason = _manifest_refusal(ctx.live) or (_live_refusal(ctx) if ctx.live else None)
     try:
-        return reason or harness_refusal(ctx, ladder)
-    except Refused as refused:  # the venv's Python failed: the harness environment cannot be read
+        return (_manifest_refusal(ctx.live) or (_live_refusal(ctx) if ctx.live else None)
+                or harness_refusal(ctx, ladder))
+    except Refused as refused:
         return str(refused)
 
 
@@ -2292,19 +2293,29 @@ class Tranche:
         self.workers, self.interrupt, self.closed_since, self.started = {}, threading.Event(), None, False
 
     def run(self):
-        """Until the tranche ends, or waits for a person with nothing in flight; why."""
+        """Until the tranche ends, or waits for a person with nothing in flight; why. Every attempt of this process
+        has ended when it returns or raises, so the launcher lock is never let go while one runs: an exception out
+        of the loop stops the tranche, naming it, and interrupts the attempts in flight first (scoped check S-m2)."""
         ensure_state(self.root)
         reconcile(self.ctx, self.ladder, self.prior, self.wait_for_load)
+        try:
+            return self.loop()
+        except Exception as exc:
+            self.interrupt.set()  # first, so the attempts end even if the stop cannot be written
+            self.stop(f"the launcher failed: {type(exc).__name__}: {exc}")
+            raise
+        finally:
+            for worker in list(self.workers.values()):
+                worker.join()
+
+    def loop(self):
         while True:
             self.started = False
             why = self.step(time.time())
             if why:
-                break
+                return why
             if not self.started:
                 time.sleep(POLL_S)
-        for worker in list(self.workers.values()):
-            worker.join()
-        return why
 
     def stop(self, reason):
         if gate_state(_jsonl(self.root / "passthrough" / "tranche.jsonl"))["kind"] != "stop":

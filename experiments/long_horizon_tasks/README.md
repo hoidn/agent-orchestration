@@ -173,7 +173,10 @@ checkout and a clean kit; then the harness venv's versions and the two host-side
 not cover. A change stops the tranche, naming it.
 
 One launcher runs per state root: `launch` (with its reconcile) and `resume` hold `<state>/launcher.lock`, and a
-second process is refused, naming the holder's pid.
+second process is refused, naming the holder's pid. The lock is never let go while an attempt of the process runs:
+an exception out of the launcher's loop interrupts the attempts in flight, stops the tranche naming the exception,
+and the launcher exits only after they have been torn down. A check before a start that cannot read what it checks
+(the ledger on `main`, the harness venv) stops the tranche with that reason instead of raising.
 
 A launch refused before its harness runs (the task's package, the overlay's digest, its socket, or any other failure
 before the harness started, named by its exception) stops the tranche but is no start: it is not exported, its
