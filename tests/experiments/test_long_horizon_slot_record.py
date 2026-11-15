@@ -297,6 +297,17 @@ def test_an_infrastructure_failure_on_the_pre_session_row_is_one_the_passthrough
         loads, ("infrastructure_failure", False) if loads else None)
 
 
+@pytest.mark.parametrize("usd,loads", [(0.0, True), (0.05, False)])
+def test_a_pre_session_failure_has_no_cost(usd, loads):
+    """Re-review R-B1 (D5, ruling on m12): a start with a cost counts against both caps, so it is never a
+    pre-session failure, which counts against neither."""
+    try:
+        loaded = _load(_one({"row": 1, "reward": None, "usd": usd}, 0))[0]["class"]
+    except slot_record.RecordError:
+        loaded = None
+    assert loaded == ("pre_session_failure" if loads else None)
+
+
 def _with_pilot(cells):
     return export({PILOT: {e: [0] for e in EFFORTS}, TASKS[0]: {e: [0, 0, 0] for e in EFFORTS}}, pilot=cells)
 

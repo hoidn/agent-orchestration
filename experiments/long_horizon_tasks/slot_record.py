@@ -25,8 +25,8 @@ neither imports the other. Standard library only.
                     "class"           the class the launcher decided: the row's class, "stop" when the launcher
                                       stopped the tranche on this attempt (then "stop_cause" names why), or
                                       "infrastructure_failure" on an observation's row for regrade case 1, or on
-                                      the pre-session row with a cost above 0 (the passthrough metered usage, so it
-                                      was no pre-session failure, which has none: D5)
+                                      the pre-session row with a cost above 0 (a pre-session failure has none, D5:
+                                      a "pre_session_failure" with a cost is refused)
                     "stop_cause"      null, or one of LAUNCHER_STOPS: a stop of D7.7 the launcher sees in an attempt
                                       whose row is not a stop row; required exactly then, and only where the cause
                                       can occur (LAUNCHER_STOPS: on a session's start, on the smoke's slot, or on any)
@@ -266,19 +266,20 @@ def _stop_seen(cause, row, slot, ladder):
 def _class(start, row, slot, ladder, where):
     """The launcher's class, checked against the row: the row's class; an infrastructure failure on an
     observation's row marked as regrade case 1 (_exclusion checks the case), or on the pre-session row with a cost
-    (the passthrough metered usage, so it was no pre-session failure: D5, ruling on Task 8 part A m12); or a stop
-    with a launcher cause where that cause can occur (D5, D7.7)."""
+    (so it was no pre-session failure, which has none: D5, rulings on Task 8 part A m12 and re-review R-B1); or a
+    stop with a launcher cause where that cause can occur (D5, D7.7). A pre-session failure with a cost is refused."""
     cls, cause = start["class"], start["stop_cause"]
     case_1 = cls == "infrastructure_failure" and row["class"] == "observation" and start["excluded"] == EXCLUSIONS[0]
     metered = cls == "infrastructure_failure" and row["class"] == "pre_session_failure" and start["usd"] > 0
-    if (cause is None and (cls == row["class"] or case_1 or metered)) or (cls == "stop" != row["class"]
+    free = cls != "pre_session_failure" or start["usd"] == 0  # re-review R-B1: a pre-session failure has no cost
+    if (cause is None and free and (cls == row["class"] or case_1 or metered)) or (cls == "stop" != row["class"]
                                                                 and _stop_seen(cause, row, slot, ladder)):
         return cls
     raise RecordError(f"{where}: class {cls!r} with stop_cause {cause!r} does not fit row {row['row']} "
                       f"({row['class']}) on slot {slot['slot']!r}: the class is the row's, 'infrastructure_failure' "
-                      f"for regrade case 1 on an observation's row or with metered usage on the pre-session row, "
-                      f"or 'stop' with a cause of LAUNCHER_STOPS where "
-                      f"it can occur, {LAUNCHER_STOPS}")
+                      f"for regrade case 1 on an observation's row or with a cost on the pre-session row (a "
+                      f"pre-session failure has none), or 'stop' with a cause of LAUNCHER_STOPS where it can occur, "
+                      f"{LAUNCHER_STOPS}")
 
 
 def _exclusion(start, cls, observed, where):

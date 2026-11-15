@@ -838,7 +838,7 @@ def judge(root, attempt, ladder, ended_at=None, closed=None):
     row = 16 if session is None else classify(session, ladder)
     spec = ladder["classification"]["rows"][row - 1]
     stop, own = _launcher_stop(trial, ladder), [r for r in window if r.get("slot") == attempt["id"]]
-    cls = "stop" if stop else _row_class(spec, own)
+    cls = "stop" if stop else spec["class"]
     return {"row": row, "class": cls, "flagged": spec.get("flagged", False), "reward": _observed(cls, trial),
             "stop": stop or (f"D5 row {row}" if cls == "stop" or spec.get("stop") else None),
             "api_retry": None if session is None else session["n_api_retry"], "minutes": session_minutes(trial),
@@ -846,17 +846,12 @@ def judge(root, attempt, ladder, ended_at=None, closed=None):
             "slot_rows": own}
 
 
-def _row_class(spec, own):
-    """The row's class, except that an ending of a pre-session row's form for which the passthrough metered usage is
-    an infrastructure failure on that row: a pre-session failure has no metered request (D5; coordinator ruling on
-    Task 8 part A m12). An unpriced row counts as metered."""
-    if spec["class"] != "pre_session_failure":
-        return spec["class"]
-    try:
-        metered = _meter(own) > 0
-    except ValueError:
-        metered = True
-    return "infrastructure_failure" if metered else spec["class"]
+def _settled_class(cls, usd):
+    """A pre-session failure has no cost: a start of that class whose settled cost is above 0 (the passthrough metered
+    usage, an unpriced row among it, or a figure that could not be read) is an infrastructure failure on its row,
+    which counts against the 240 and the USD 200 (D5; coordinator rulings on Task 8 part A m12 and re-review R-B1).
+    Applied wherever a class is settled: at the close and at a ruling."""
+    return "infrastructure_failure" if cls == "pre_session_failure" and usd > 0 else cls
 
 
 def _load_refused(own, ladder):
@@ -903,6 +898,7 @@ def close(ctx, root, attempt, ladder, prior, ended_at=None, extra=None):
     rows = judged.pop("slot_rows")
     money = settlement(root / "slots" / attempt["id"], rows, attempt["reservation_usd"])
     record = {**money, **judged, "tokens": _tokens(rows), **(extra or {})}
+    record["class"] = _settled_class(record["class"], record["usd"])
     if record["class"] != "observation":  # only an observation's reward is ever read
         record["reward"] = None
     if record["stop"] and "stop" not in (extra or {}):
@@ -2446,7 +2442,7 @@ def record_ruling(ctx, args):
         settled = _read_json(path)
         if settled["class"] != "ruling":
             raise Refused(f"{args.attempt} awaits no ruling")
-        cls = rows[args.row]["class"]
+        cls = _settled_class(rows[args.row]["class"], settled["usd"])  # re-review R-B1
         reward = _observed(cls, trial_dir(ctx.root / "slots" / args.attempt))
         if cls == "observation" and reward is None:  # Task 8 part A m9, Task 7 ruling 3
             raise Refused(f"{args.attempt}: row {args.row} is an observation, and its trial holds no reward; the "

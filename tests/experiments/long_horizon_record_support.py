@@ -85,7 +85,9 @@ def export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot
                               "pilot": (task, effort, number) in pilot})
                 for fields in _outcomes(outcome):
                     made = start(slot, len(starts) + 1, label, None) | fields
-                    starts.append(made | {"class": fields.get("class", ROW_CLASS[made["row"]])})
+                    cls = fields.get("class", ROW_CLASS[made["row"]])
+                    free = {"usd": 0.0} if cls == "pre_session_failure" and "usd" not in fields else {}  # D5: no cost
+                    starts.append(made | {"class": cls} | free)
     return {"label": label, "earlier_labels": [{"label": old, "ended_by": f"ledger row ending {old[:8]}"}
                                                for old in earlier],
             "end": end, "slots": slots, "starts": starts, "allowance": allowance, "open": list(open_)}

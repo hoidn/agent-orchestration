@@ -880,8 +880,8 @@ def test_a_dominance_level_that_is_not_a_probability_is_refused(level):
 
 
 def test_the_allowance_and_the_cost_table_total_the_same_starts():
-    """A pre-session failure counts against neither the starts nor the USD (m7)."""
-    table = {TASKS[0]: {"low": [[{"row": 1, "usd": 5.0}, 1]], "medium": [0], "high": [0]}}
+    """A pre-session failure counts against neither the starts nor the USD (m7); it has no cost (re-review R-B1)."""
+    table = {TASKS[0]: {"low": [[{"row": 1}, 1]], "medium": [0], "high": [0]}}
     result = _compute(_export(table, allowance=ALLOWANCE))
     assert result["allowance"]["usd"] == sum(c["usd_all_starts"] for c in result["cost"]["per_effort"].values()) == 3.0
 

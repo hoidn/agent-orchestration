@@ -1037,6 +1037,22 @@ def test_an_ending_before_a_session_that_the_passthrough_metered_usage_for_is_an
     assert (record["row"], (record["class"], starts, committed)) == (1, want)
 
 
+def test_a_ruling_to_the_pre_session_row_for_a_start_with_a_cost_gives_an_infrastructure_failure(short):
+    """Re-review R-B1 (D5, ruling on m12): a start the passthrough metered, paused under row 16 and then ruled to row
+    1, still counts against the 240 and the USD 200: the ruling settles the class as the launcher's close does."""
+    unknown = {"n_events": 0, "stream_tail": [], "n_api_retry": 0, "harness_exception": "SomethingNew",
+               "exception_message": ""}
+    root, attempt, record = _closed(short, unknown, [{"status": 200, "usd": 0.05}])
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    (ctx.rehearsal / "ledger.md").write_text(f"| 2026-11-21 | Ruling | {attempt['id']} row 1: the harness's fault |\n")
+    code = ladder.main(["ruling", attempt["id"], "--row", "1", "--date", "2026-11-21"], env=ctx.env)
+    starts, committed, _ = ladder.tally(root, CRITERION, 0.0)
+    exported = ladder.export(ctx, ladder.criterion(ctx))["starts"][0]
+    assert (record["class"], code, ladder.attempts(root)[0]["settled"]["class"], starts, committed,
+            exported["class"]) == ("ruling", 0, "infrastructure_failure", 1, 0.05, "infrastructure_failure")
+
+
 def test_another_slot_s_usage_limit_row_in_the_window_never_cuts_this_attempt(short):
     """Task 8 part A M32: D5 row 10 reads the attempt's own rows; the tranche's are read only for the limit."""
     _, _, record = _closed(short, "token-three-tools-normal-end",
