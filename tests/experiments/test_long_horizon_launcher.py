@@ -1017,3 +1017,264 @@ def test_reconcile_stops_only_the_containers_of_a_dead_launcher_whose_pid_and_st
     assert (_containers(lh), settled, states[0] is not None, states[1]) == (
         ["trial0__abcdefg__env_main_1"], {"001": None, "002": "infrastructure_failure", "003": "infrastructure_failure"},
         True, None)
+
+
+# ---- Allowance (Task 5, fourth checkbox) -----------------------------------------------------------------------
+
+def _events_file(root, *events):
+    with open(root / "passthrough" / "tranche.jsonl", "a") as fh:
+        for event in events:
+            fh.write(json.dumps(event) + "\n")
+
+
+def _limit(at, reset):
+    return {"time": at, "event": "close_starts", "slot": "x", "status": 429, "reason": "usage limit", "reset": reset}
+
+
+def test_a_limit_answer_closes_all_starts_and_they_reopen_five_minutes_after_its_reset_with_one_start(short):
+    root = _state(short)
+    _events_file(root, _limit(900.0, "1000"))
+    before, at_reset = ladder.starts_gate(root, 1299.0), ladder.starts_gate(root, 1301.0)
+    attempt = ladder.reserve(root, _entry(), CRITERION, 0.0)
+    record = {**attempt, "opened": 1302.0}
+    ladder._write_json(root / "slots" / attempt["id"] / "slot.json", record)
+    unanswered = ladder.starts_gate(root, 1305.0)
+    with open(root / "passthrough" / "requests.jsonl", "a") as fh:
+        fh.write(json.dumps({"time": 1310.0, "slot": attempt["id"], "status": 200, "usd": 0.001}) + "\n")
+    answered = ladder.starts_gate(root, 1311.0)
+    assert [(g["open"], g["most"]) for g in (before, at_reset, unanswered, answered)] == [
+        (False, 0), (True, 1), (False, 0), (True, None)]
+
+
+@pytest.mark.parametrize("event", [_limit(900.0, None),
+                                   {"time": 900.0, "event": "close_starts", "reason": "vendor 429", "reset": None},
+                                   {"time": 900.0, "event": "close_starts", "reason": "passthrough down", "reset": None},
+                                   {"time": 900.0, "event": "close_starts", "reason": "usage incomplete", "reset": None}])
+def test_an_answer_with_no_reset_pauses_until_a_person_resumes(short, event):
+    root = _state(short)
+    _events_file(root, event)
+    paused = ladder.starts_gate(root, 10 ** 9)
+    _events_file(root, {"time": 1000.0, "event": "resume", "by": "a test"})
+    assert ((paused["open"], paused["kind"]), ladder.starts_gate(root, 10 ** 9)["open"]) == ((False, "pause"), True)
+
+
+def test_three_limit_answers_in_a_row_stop_the_tranche_and_an_observation_between_them_resets_the_count(short):
+    (short / "a").mkdir()
+    (short / "b").mkdir()
+    roots = [_state(short / "a"), _state(short / "b")]
+    for root in roots:  # three limits, each reopened before the next; a second answer inside one counts once
+        _events_file(root, _limit(100.0, "200"), _limit(101.0, "200"), _limit(600.0, "700"))
+    attempt = ladder.reserve(roots[1], _entry(), CRITERION, 0.0)
+    ladder._write_json(roots[1] / "slots" / attempt["id"] / "slot.json", {**attempt, "opened": 640.0})
+    ladder._write_json(roots[1] / "slots" / attempt["id"] / "settled.json",
+                       {"class": "observation", "usd": 0.1, "closed": 650.0})
+    for root in roots:
+        _events_file(root, _limit(1100.0, "1200"))
+        ladder.check_limits(root, CRITERION, now=1150.0)
+    gates = [ladder.starts_gate(root, 10 ** 9) for root in roots]
+    assert ([(g["open"], g["kind"]) for g in gates], gates[0]["why"]) == (
+        [(False, "stop"), (True, None)], "three usage-limit answers in a row with no observation between them")
+
+
+def test_a_sign_of_paid_extra_usage_in_a_session_s_stream_stops_the_tranche(short):
+    paid = criterion_tests._fixture("token-paid-extra-usage-normal-end")
+    clean = criterion_tests._fixture("token-three-tools-normal-end")
+    reasons = [ladder.stream_stop(e) for fx in (paid, clean) for e in fx["stream_tail"] + [fx["init"]]]
+    root, attempt, record = _closed(short, "token-paid-extra-usage-normal-end", [])
+    assert ([r for r in reasons if r], record["class"], ladder.starts_gate(root, 10 ** 9)["kind"]) == (
+        ["a sign of paid extra usage in the session's stream"], "stop", "stop")
+
+
+# The guard reads the owner's meter.
+
+DAY = 24 * 3600
+
+
+def _local(text):
+    """Epoch seconds of a local time 'YYYY-MM-DD HH:MM' (the owner's hours are local)."""
+    import datetime
+    return datetime.datetime.strptime(text, "%Y-%m-%d %H:%M").astimezone().timestamp()
+
+
+def _allowance(root, *rows):
+    with open(root / "allowance.jsonl", "a") as fh:
+        for row in rows:
+            fh.write(json.dumps(row) + "\n")
+
+
+INPUTS = {"kind": "inputs", "at": 0, "f_week": 30, "f_five": 20, "hours": ["mon-fri 09:00-18:00"],
+          "closing_margin_h": 2}
+FIGURES = {"kind": "figures", "at": 0, "weekly_usd_per_point": 2.0, "five_usd_per_point": 0.5,
+           "reservation_raise": 1.0}
+
+
+def _reading(at, weekly=10, five=5, weekly_reset=None, five_reset=None):
+    return {"kind": "reading", "at": at, "weekly": weekly, "five": five,
+            "weekly_reset": weekly_reset or at + 5 * DAY, "five_reset": five_reset or at + 4 * 3600}
+
+
+WED_10 = "2026-11-18 10:00"  # a Wednesday
+
+
+def _guard(root, now, entry=None):
+    return ladder.guard(root, CRITERION, entry or _entry("wal-recovery-ordering"), _local(now) if isinstance(now, str) else now)
+
+
+def test_no_start_in_a_window_that_has_no_meter_reading(short):
+    root = _state(short)
+    _allowance(root, INPUTS, FIGURES, _reading(_local("2026-11-17 08:00")))  # Tuesday's window, not Wednesday's
+    stale, = [_guard(root, WED_10)]
+    _allowance(root, _reading(_local("2026-11-18 08:30")))
+    assert (stale[:2], _guard(root, WED_10)[0]) == ((False, "no meter reading for this window"), True)
+
+
+def test_a_reading_taken_inside_the_window_counts_for_it_and_one_past_its_weekly_reset_does_not(short):
+    root = _state(short)
+    _allowance(root, INPUTS, FIGURES, _reading(_local("2026-11-18 09:30"), weekly_reset=_local("2026-11-18 11:00")))
+    assert (_guard(root, WED_10)[0], _guard(root, "2026-11-18 11:30")[:2]) == (
+        True, (False, "no meter reading for this window"))
+
+
+def test_no_start_outside_the_owner_s_hours_or_in_a_window_s_closing_margin(short):
+    root = _state(short)
+    _allowance(root, INPUTS, FIGURES, _reading(_local("2026-11-18 08:00")), _reading(_local("2026-11-21 08:00")))
+    assert [_guard(root, t)[:2] for t in ("2026-11-18 08:59", "2026-11-18 16:01", "2026-11-18 15:59",
+                                          "2026-11-21 10:00")] == [
+        (False, "outside the owner's hours"), (False, "in the window's closing margin"), (True, None),
+        (False, "outside the owner's hours")]
+
+
+@pytest.mark.parametrize("reading,figures,want", [
+    ({"weekly": 10, "five": 5}, FIGURES, (120.0, 37.5)),
+    ({"weekly": 80, "five": 90}, FIGURES, (0.0, 0.0)),
+    ({"weekly": 10, "five": 5}, {**FIGURES, "five_usd_per_point": None}, (120.0, None))])
+def test_the_budgets_are_computed_from_the_reading_and_floored_at_zero(reading, figures, want):
+    assert ladder.budgets(INPUTS, reading, figures) == want
+
+
+def test_a_window_whose_weekly_reading_is_at_or_above_the_skip_threshold_is_skipped_and_reported(short):
+    (short / "a").mkdir()
+    (short / "b").mkdir()
+    at, below = _state(short / "a"), _state(short / "b")
+    _allowance(at, INPUTS, FIGURES, _reading(_local("2026-11-18 08:00"), weekly=65))  # 100 - 30 - 5
+    _allowance(below, INPUTS, FIGURES, _reading(_local("2026-11-18 08:00"), weekly=64))
+    assert (_guard(at, WED_10), _guard(below, WED_10)[0]) == (
+        (False, "window skipped: the weekly reading 65 leaves fewer than 5 points above F-week 30", None), True)
+
+
+def test_starts_wait_for_the_five_hour_reset_when_its_reading_is_at_or_above_its_threshold(short):
+    root = _state(short)
+    _allowance(root, INPUTS, FIGURES,
+               _reading(_local("2026-11-18 08:00"), five=75, five_reset=_local("2026-11-18 12:00")))
+    assert (_guard(root, WED_10)[:2], _guard(root, "2026-11-18 12:01")[0]) == (
+        (False, "waiting for the five-hour meter's reset"), True)
+
+
+def _spent(root, at, usd):
+    with open(root / "passthrough" / "requests.jsonl", "a") as fh:
+        fh.write(json.dumps({"time": at, "slot": "earlier", "status": 200, "usd": usd}) + "\n")
+
+
+def test_no_start_when_the_weekly_budget_does_not_hold_the_guard_s_reservation_of_every_open_slot_and_this_one(short):
+    """Weekly budget (100 - 30 - 10) x 2.00 = 120.00. Open: rs-archive-clone (22.92 / 3 = 7.64); this one:
+    wal-recovery-ordering (1.00). Usage since the reading 111.36 + 8.64 = 120.00 fits; one cent more does not."""
+    (short / "a").mkdir()
+    (short / "b").mkdir()
+    results = []
+    for root, usd in ((_state(short / "a"), 111.36), (_state(short / "b"), 111.37)):
+        _allowance(root, INPUTS, {**FIGURES, "five_usd_per_point": 100.0}, _reading(_local("2026-11-18 08:00")))
+        _spent(root, _local("2026-11-18 08:30"), usd)
+        _spent(root, _local("2026-11-18 07:30"), 50.0)  # before the reading: not counted
+        ladder.reserve(root, _entry("rs-archive-clone"), CRITERION, 0.0)
+        results.append(_guard(root, WED_10)[:2])
+    assert results == [(True, None), (False, "the weekly budget does not hold the guard's reservations")]
+
+
+def test_no_start_when_the_five_hour_budget_does_not_hold_them(short):
+    """Five-hour budget (100 - 20 - 5) x 0.50 = 37.50; usage 36.50 since the reading + 1.00 fits, 36.51 does not."""
+    (short / "a").mkdir()
+    (short / "b").mkdir()
+    results = []
+    for root, usd in ((_state(short / "a"), 36.50), (_state(short / "b"), 36.51)):
+        _allowance(root, INPUTS, FIGURES, _reading(_local("2026-11-18 08:00")))
+        _spent(root, _local("2026-11-18 08:30"), usd)
+        results.append(_guard(root, WED_10)[:2])
+    assert results == [(True, None), (False, "the five-hour budget does not hold the guard's reservations")]
+
+
+def test_after_the_five_hour_reset_the_last_five_hours_of_usage_stay_within_the_owner_s_share(short):
+    """No reading for the new five-hour window: usage in the last five hours + reservations <= (100 - 20) x 0.50."""
+    root = _state(short)
+    _allowance(root, INPUTS, FIGURES, _reading(_local("2026-11-18 08:00"), five_reset=_local("2026-11-18 09:00")))
+    _spent(root, _local("2026-11-18 09:30"), 38.5)
+    fits = _guard(root, WED_10)[:2]
+    _spent(root, _local("2026-11-18 09:40"), 0.51)  # 38.50 + 0.51 + 1.00 > 40.00
+    assert (fits, _guard(root, WED_10)[:2]) == (
+        (True, None), (False, "the last five hours' usage does not leave room for the guard's reservations"))
+
+
+def test_the_guard_s_reservation_is_a_third_of_the_cap_raised_by_the_pilot_s_ratio(short):
+    root = _state(short)
+    _allowance(root, INPUTS, {**FIGURES, "reservation_raise": 1.5})
+    assert (ladder.guard_reservation(CRITERION, "rs-archive-clone", ladder.allowance_state(root)["figures"]),
+            ladder.guard_reservation(CRITERION, "gsea-proteomics", ladder.allowance_state(root)["figures"])) == (
+        pytest.approx(7.64 * 1.5), pytest.approx(1.5))
+
+
+def test_without_a_five_hour_figure_two_attempts_run_at_a_time(short):
+    root = _state(short)
+    _allowance(root, INPUTS, {**FIGURES, "five_usd_per_point": None}, _reading(_local("2026-11-18 08:00")))
+    assert _guard(root, WED_10) == (True, None, 2)
+
+
+def test_before_the_pilot_s_figures_only_the_smoke_and_the_pilot_may_start(short):
+    root = _state(short)
+    _allowance(root, INPUTS, _reading(_local("2026-11-18 08:00")))
+    assert [_guard(root, WED_10, _entry(kind=kind))[:2] for kind in ("smoke", "pilot", "round")] == [
+        (True, None), (True, None), (False, "the pilot's figures are not entered")]
+
+
+@pytest.mark.parametrize("value,want", [("69", True), ("70", False)])
+def test_a_utilisation_header_closes_starts_at_or_above_100_minus_f(short, value, want):
+    root = _state(short)
+    criterion = json.loads(json.dumps(CRITERION))
+    criterion["allowance_guard"]["utilisation_header"] = "anthropic-ratelimit-unified-utilization"
+    _allowance(root, INPUTS, FIGURES, _reading(_local("2026-11-18 08:00")))
+    with open(root / "passthrough" / "requests.jsonl", "a") as fh:
+        fh.write(json.dumps({"time": 1.0, "slot": "x", "status": 200, "usd": 0.0,
+                             "headers": {"anthropic-ratelimit-unified-utilization": value}}) + "\n")
+    assert ladder.guard(root, criterion, _entry(), _local(WED_10))[0] is want
+
+
+def test_a_reading_or_a_change_of_the_allowance_inputs_is_recorded_and_leaves_the_manifest_hash_alone(short):
+    kit = Kit(short)
+    before = (kit.kit / "manifest.json").read_bytes()
+    runs = [["allowance", "inputs", "--f-week", "30", "--f-five", "20", "--hours", "mon-fri 09:00-18:00",
+             "--closing-margin-h", "2"],
+            ["allowance", "inputs", "--f-week", "25", "--f-five", "20", "--hours", "daily 08:00-20:00",
+             "--closing-margin-h", "3"],
+            ["allowance", "reading", "--weekly", "12", "--weekly-reset", "2026-11-23T09:00", "--five", "4",
+             "--five-reset", "2026-11-18T14:00", "--at", "2026-11-18T08:30"],
+            ["allowance", "figures", "--weekly-usd-per-point", "2.5", "--five-usd-per-point", "0.6",
+             "--reservation-raise", "1.2"]]
+    codes = [subprocess.run([sys.executable, "-I", str(kit.kit / "ladder.py"), *argv], cwd=kit.repo, env=kit.env(),
+                            capture_output=True, text=True, timeout=WAIT).returncode for argv in runs]
+    rows = ladder._jsonl(kit.reh / "state" / "allowance.jsonl")
+    check = subprocess.run([sys.executable, "-I", str(kit.kit / "manifest.py"), "check"], capture_output=True,
+                           text=True, timeout=WAIT)
+    assert (codes, [r["kind"] for r in rows], [r.get("f_week") for r in rows[:2]], rows[2]["weekly"],
+            (kit.kit / "manifest.json").read_bytes() == before, check.returncode, _git(kit.repo, "status", "--porcelain")) == (
+        [0, 0, 0, 0], ["inputs", "inputs", "reading", "figures"], [30, 25], 12, True, 0, "")
+
+
+@pytest.mark.parametrize("argv", [["inputs", "--f-week", "130", "--f-five", "20", "--hours", "daily 08:00-20:00",
+                                   "--closing-margin-h", "2"],
+                                  ["inputs", "--f-week", "30", "--f-five", "20", "--hours", "someday 08:00-20:00",
+                                   "--closing-margin-h", "2"],
+                                  ["reading", "--weekly", "12", "--weekly-reset", "tomorrow", "--five", "4",
+                                   "--five-reset", "2026-11-18T14:00"]])
+def test_a_malformed_allowance_entry_is_refused_and_not_recorded(short, argv):
+    reh = short / "reh"
+    reh.mkdir()
+    code = ladder.main(["allowance", *argv], {"HOME": str(short), "LH_REHEARSAL": str(reh)})
+    assert (code, (reh / "state" / "allowance.jsonl").exists()) == (2, False)

@@ -723,11 +723,13 @@ def _reward(trial):
 
 
 def _launcher_stop(trial, ladder):
-    """A stop of D7.7 the launcher sees in the attempt's own files, beyond the D5 rows."""
+    """A stop of D7.7 the launcher sees in the attempt's own files, beyond the D5 rows (the follower acts on the
+    paid-usage sign as the stream comes; this is the teardown's second look)."""
     try:
-        reason = init_stop(stream_events(trial), ladder)
+        events = stream_events(trial)
     except ValueError:
-        reason = None
+        events = []
+    reason = init_stop(events, ladder) or next(filter(None, map(stream_stop, events)), None)
     return reason or ("a subagent file" if subagent_files(trial) else None)
 
 
@@ -958,25 +960,340 @@ def reconcile(ctx, ladder, prior):
     return done
 
 
+# ---- the starts gate: stops, pauses and usage limits (D4, D7.7), from the tranche's events ---------------------
+
+REOPEN_S = 300  # usage_limits.reopen.after_reset_s
+
+
+def _closed_by(event, state):
+    """The gate after a close_starts: a usage limit with a reset closes until five minutes after it; any other
+    (a limit naming no reset, any other vendor 429, usage the meter could not read, the passthrough down) pauses
+    for a person. A later limit inside an open episode keeps the later reopening."""
+    if event.get("reason") == "usage limit" and event.get("reset"):
+        until = float(event["reset"]) + REOPEN_S
+        return {"kind": "limit", "until": max(until, state.get("until", 0)) if state["kind"] == "limit" else until}
+    return {"kind": "pause", "why": f"closed starts: {event.get('reason')} (no reset named)"}
+
+
+def gate_state(events):
+    """What the tranche's events leave: a stop or a pause (until a person's `resume`), a usage limit, or nothing."""
+    state = {"kind": None}
+    for event in events:
+        kind = event.get("event")
+        if kind == "resume":
+            state = {"kind": None}
+        elif kind == "stop":
+            state = {"kind": "stop", "why": event.get("reason")}
+        elif state["kind"] in ("stop", "pause"):
+            continue
+        elif kind == "pause":
+            state = {"kind": "pause", "why": event.get("reason")}
+        elif kind == "close_starts":
+            state = _closed_by(event, state)
+    return state
+
+
+def _gate(open_, most, kind=None, why=None):
+    return {"open": open_, "most": most, "kind": kind, "why": why}
+
+
+def _reopened(root, until):
+    """After a limit's reopening: one start; the others once that session's first request is answered (D4)."""
+    started = {a["id"] for a in attempts(root) if a["opened"] >= until}
+    if not started:
+        return _gate(True, 1, None, "reopened after a usage limit: one start")
+    rows = _jsonl(root / "passthrough" / "requests.jsonl")
+    if any(r.get("slot") in started and r.get("status") == 200 and r["time"] >= until for r in rows):
+        return _gate(True, None)
+    return _gate(False, 0, "limit", "waiting for the first answer after a usage limit's reset")
+
+
+def starts_gate(root, now):
+    """Whether a start may be made now, and how many in flight at most (None: no limit of the gate's)."""
+    state = gate_state(_jsonl(root / "passthrough" / "tranche.jsonl"))
+    if state["kind"] in ("stop", "pause"):
+        return _gate(False, 0, state["kind"], state["why"])
+    if state["kind"] == "limit" and now < state["until"]:
+        return _gate(False, 0, "limit", f"a usage limit: starts reopen at {state['until']:.0f}")
+    return _reopened(root, state["until"]) if state["kind"] == "limit" else _gate(True, None)
+
+
+def limit_episodes(events):
+    """The times of the usage-limit answers that each began a closing of starts (answers inside one count once)."""
+    episodes, until = [], None
+    for event in events:
+        if event.get("event") == "close_starts" and event.get("reason") == "usage limit":
+            if until is None or event["time"] >= until:
+                episodes.append(event["time"])
+            until = float(event["reset"]) + REOPEN_S if event.get("reset") else float("inf")
+    return episodes
+
+
+def check_limits(root, ladder, now=None):
+    """Three usage-limit answers in a row with no observation between them stop the tranche (D7.7)."""
+    events = _jsonl(root / "passthrough" / "tranche.jsonl")
+    observed = [a["settled"]["closed"] for a in attempts(root) if a["settled"] and a["settled"]["class"] == "observation"]
+    after = [t for t in limit_episodes(events) if t > max(observed, default=float("-inf"))]
+    count = next(s["count"] for s in ladder["stops"]["stops"] if "usage-limit" in s["stop"])
+    if len(after) >= count and gate_state(events)["kind"] != "stop":
+        tranche_event(root, "stop", reason="three usage-limit answers in a row with no observation between them")
+
+
+def stream_stop(event):
+    """A rate_limit_event whose isUsingOverage is not false (D4, paid_usage.stream_stop), or None."""
+    if event.get("type") == "rate_limit_event" and (event.get("rate_limit_info") or {}).get("isUsingOverage") is not False:
+        return "a sign of paid extra usage in the session's stream"
+    return None
+
+
+# ---- the allowance guard (D4): the owner's inputs and meter readings --------------------------------------------
+
+DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+HOURS = re.compile(r"(daily|[a-z]{3}(?:-[a-z]{3})?(?:,[a-z]{3}(?:-[a-z]{3})?)*) (\d\d):(\d\d)-(\d\d):(\d\d)")
+
+
+def _day_set(text):
+    if text == "daily":
+        return set(range(7))
+    days = set()
+    for part in text.split(","):
+        first, _, last = part.partition("-")
+        a, b = DAYS.index(first), DAYS.index(last or first)
+        days |= set(range(a, b + 1))
+    return days
+
+
+def hours_spec(spec):
+    """(weekdays, start minute, end minute) of one window spec, e.g. `mon-fri 09:00-18:00`, `daily 00:00-24:00`;
+    ValueError otherwise. Local time; ponytail: a window that crosses a clock change is as long as its clock says."""
+    found = HOURS.fullmatch(spec)
+    if not found:
+        raise ValueError(f"not an hours spec: {spec!r}")
+    start, end = int(found[2]) * 60 + int(found[3]), int(found[4]) * 60 + int(found[5])
+    if not 0 <= start < end <= 24 * 60:
+        raise ValueError(f"not a window of one day: {spec!r}")
+    return _day_set(found[1]), start, end
+
+
+def _windows_on(day, hours):
+    """The owner's windows on a local date, as (start, end) epoch seconds."""
+    import datetime
+    midnight = datetime.datetime.combine(day, datetime.time()).astimezone()
+    found = []
+    for spec in hours:
+        days, start, end = hours_spec(spec)
+        if day.weekday() in days:
+            found.append(((midnight + datetime.timedelta(minutes=start)).timestamp(),
+                          (midnight + datetime.timedelta(minutes=end)).timestamp()))
+    return sorted(found)
+
+
+def window_at(now, hours):
+    """(start, end, previous end) of the owner's window holding `now`, or None; the previous end is that of the
+    last window before it (a reading must be newer than it), within the week before."""
+    import datetime
+    today = datetime.datetime.fromtimestamp(now).date()
+    windows = [w for n in range(8, -1, -1) for w in _windows_on(today - datetime.timedelta(days=n), hours)]
+    for i, (start, end) in enumerate(windows):
+        if start <= now < end:
+            return start, end, max((e for _, e in windows[:i] if e <= start), default=float("-inf"))
+    return None
+
+
+def allowance_state(root):
+    """The owner's last inputs, the last figures from the pilot, and every reading, from allowance.jsonl."""
+    rows = _jsonl(root / "allowance.jsonl")
+    last = {kind: next((r for r in reversed(rows) if r["kind"] == kind), None) for kind in ("inputs", "figures")}
+    return {**last, "readings": [r for r in rows if r["kind"] == "reading"]}
+
+
+def budgets(inputs, reading, figures):
+    """(weekly, five-hour) budgets in priced USD: (100 - F - the reading) x the pilot's figure, floored at zero;
+    the five-hour one None when the pilot gave no five-hour figure (D4)."""
+    weekly = max(0, 100 - inputs["f_week"] - reading["weekly"]) * figures["weekly_usd_per_point"]
+    five = figures.get("five_usd_per_point")
+    return weekly, None if five is None else max(0, 100 - inputs["f_five"] - reading["five"]) * five
+
+
+def guard_reservation(ladder, task, figures):
+    """One third of the slot's cap (the public mean at max; 1.00 at the floor), raised by the pilot's ratio."""
+    return cap(ladder, task) / 3 * ((figures or {}).get("reservation_raise") or 1.0)
+
+
+def used_since(root, since):
+    return sum(r.get("usd") or 0.0 for r in _jsonl(root / "passthrough" / "requests.jsonl") if r["time"] >= since)
+
+
+def _reading_for(state, window, now):
+    """The window's reading: the newest taken after the previous window ended, before its weekly meter reset."""
+    fresh = [r for r in state["readings"] if window[2] <= r["at"] <= now and now < r["weekly_reset"]]
+    return fresh[-1] if fresh else None
+
+
+def _hours_refusal(state, now):
+    inputs = state["inputs"]
+    window = window_at(now, inputs["hours"])
+    if window is None:
+        return "outside the owner's hours", None
+    margin = ((state["figures"] or {}).get("closing_margin_h") or inputs["closing_margin_h"]) * 3600
+    if now + margin > window[1]:
+        return "in the window's closing margin", None
+    reading = _reading_for(state, window, now)
+    if reading is None:
+        return "no meter reading for this window", None
+    skip = 100 - inputs["f_week"] - ALLOWANCE_SKIP
+    if reading["weekly"] >= skip:
+        return (f"window skipped: the weekly reading {reading['weekly']} leaves fewer than {ALLOWANCE_SKIP} points "
+                f"above F-week {inputs['f_week']}"), None
+    if now < reading["five_reset"] and reading["five"] >= 100 - inputs["f_five"] - ALLOWANCE_SKIP:
+        return "waiting for the five-hour meter's reset", None
+    return None, reading
+
+
+ALLOWANCE_SKIP = 5  # allowance_guard.skip_margin_points
+
+
+def _budget_refusal(root, ladder, state, reading, need, now):
+    weekly, five = budgets(state["inputs"], reading, state["figures"])
+    if round(used_since(root, reading["at"]) + need, 6) > round(weekly, 6):
+        return "the weekly budget does not hold the guard's reservations"
+    if five is not None and now < reading["five_reset"]:
+        if round(used_since(root, reading["at"]) + need, 6) > round(five, 6):
+            return "the five-hour budget does not hold the guard's reservations"
+    elif five is not None:
+        share = (100 - state["inputs"]["f_five"]) * state["figures"]["five_usd_per_point"]
+        if round(used_since(root, now - 5 * 3600) + need, 6) > round(share, 6):
+            return "the last five hours' usage does not leave room for the guard's reservations"
+    return None
+
+
+def _utilisation_refusal(root, ladder, inputs):
+    """If the live probe names a header that reports the account's utilisation, its latest value at or above
+    100 - F closes starts. Open ruling: which F, the header naming no window; the larger F is read (cautious)."""
+    header = ladder["allowance_guard"]["utilisation_header"]
+    if header in (None, "none"):
+        return None
+    values = [r["headers"][header] for r in _jsonl(root / "passthrough" / "requests.jsonl")
+              if header in (r.get("headers") or {})]
+    if values and float(values[-1]) >= 100 - max(inputs["f_week"], inputs["f_five"]):
+        return f"the account's utilisation {values[-1]} is at or above the owner's share"
+    return None
+
+
+def guard(root, ladder, entry, now):
+    """(start allowed, why not, at most this many in flight or None), by the owner's inputs and readings (D4).
+    Before the pilot's figures only the smoke and the pilot may start, by the reading and the hours alone."""
+    state = allowance_state(root)
+    if state["inputs"] is None:
+        return False, "no allowance inputs", None
+    why, reading = _hours_refusal(state, now)
+    if why:
+        return False, why, None
+    if state["figures"] is None:
+        ok = entry["kind"] in ("smoke", "pilot")
+        return ok, None if ok else "the pilot's figures are not entered", None
+    open_ = [a for a in attempts(root) if a["settled"] is None]
+    need = sum(guard_reservation(ladder, t, state["figures"]) for t in [a["task"] for a in open_] + [entry["task"]])
+    why = _budget_refusal(root, ladder, state, reading, need, now) or _utilisation_refusal(root, ladder, state["inputs"])
+    most = 2 if state["figures"].get("five_usd_per_point") is None else None
+    return why is None, why, most
+
+
+def _when(text):
+    """Epoch seconds from an ISO 8601 time (local when it names no offset) or a number; ValueError otherwise."""
+    import datetime
+    try:
+        return float(text)
+    except ValueError:
+        return datetime.datetime.fromisoformat(text).astimezone().timestamp()
+
+
+def _points(text):
+    value = float(text)
+    if not 0 <= value <= 100:
+        raise ValueError(f"{text} is not in 0 to 100 points")
+    return value
+
+
+def allowance_row(args, now):
+    """The row `ladder.py allowance` appends; ValueError for an entry outside its form."""
+    if args.what == "inputs":
+        [hours_spec(spec) for spec in args.hours]
+        return {"kind": "inputs", "at": now, "f_week": _points(args.f_week), "f_five": _points(args.f_five),
+                "hours": args.hours, "closing_margin_h": float(args.closing_margin_h)}
+    if args.what == "reading":
+        return {"kind": "reading", "at": _when(args.at) if args.at else now, "weekly": _points(args.weekly),
+                "weekly_reset": _when(args.weekly_reset), "five": _points(args.five), "five_reset": _when(args.five_reset)}
+    five = None if args.five_usd_per_point is None else float(args.five_usd_per_point)
+    return {"kind": "figures", "at": now, "weekly_usd_per_point": float(args.weekly_usd_per_point),
+            "five_usd_per_point": five, "reservation_raise": float(args.reservation_raise),
+            "closing_margin_h": None if args.closing_margin_h is None else float(args.closing_margin_h)}
+
+
+def _allowance_parser(sub):
+    allowance = sub.add_parser("allowance").add_subparsers(dest="what", required=True)
+    inputs = allowance.add_parser("inputs")
+    for flag in ("--f-week", "--f-five", "--closing-margin-h"):
+        inputs.add_argument(flag, required=True)
+    inputs.add_argument("--hours", action="append", required=True)
+    reading = allowance.add_parser("reading")
+    for flag in ("--weekly", "--weekly-reset", "--five", "--five-reset"):
+        reading.add_argument(flag, required=True)
+    reading.add_argument("--at")
+    figures = allowance.add_parser("figures")
+    figures.add_argument("--weekly-usd-per-point", required=True)
+    figures.add_argument("--five-usd-per-point")
+    figures.add_argument("--reservation-raise", default="1.0")
+    figures.add_argument("--closing-margin-h")
+
+
+def record_allowance(ctx, args):
+    """Append one input, reading or figure to the state's history (never to the manifest) and print its ledger row."""
+    try:
+        row = allowance_row(args, time.time())
+    except ValueError as exc:
+        print(f"ladder.py: allowance: {exc}", file=sys.stderr)
+        return 2
+    ensure_state(ctx.root)
+    with open(ctx.root / "allowance.jsonl", "a") as fh:
+        fh.write(json.dumps(row) + "\n")
+    shown = ", ".join(f"{k} {v}" for k, v in row.items() if k not in ("kind", "at"))
+    print(f"| {time.strftime('%Y-%m-%d')} | Allowance {row['kind']} | {shown}; recorded in {ctx.root} |")
+    return 0
+
+
 # ---- the command line ---------------------------------------------------------------------------------------
 
 
-def main(argv=None, env=None):
-    env = os.environ if env is None else env
+def _parse(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("plan", "launch", "status"):
         sub.add_parser(name)
-    args = parser.parse_args(argv)
-    ctx = Ctx(env)
-    try:
-        if args.command == "launch":
-            preflight(ctx)
-            return 0
-        reason = mode_refusal(env)
-        if reason:
-            raise Refused(reason)
+    _allowance_parser(sub)
+    return parser.parse_args(argv)
+
+
+def _run(ctx, args):
+    if args.command == "launch":
+        preflight(ctx)
         return 0
+    reason = mode_refusal(ctx.env)
+    if reason and not reason.startswith("no authorization"):  # only a launch needs the authorization
+        raise Refused(reason)
+    if args.command == "allowance":
+        return record_allowance(ctx, args)
+    return 0
+
+
+def main(argv=None, env=None):
+    env = os.environ if env is None else env
+    try:
+        args = _parse(argv)
+    except SystemExit as exc:  # argparse's own refusal of a malformed command line
+        return exc.code
+    try:
+        return _run(Ctx(env), args)
     except Refused as refused:
         print(f"ladder.py: refused: {refused}", file=sys.stderr)
         return 3
