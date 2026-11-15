@@ -594,11 +594,27 @@ def _next_index(root):
     return 1 + max((int(n[:3]) for n in names if n[:3].isdigit()), default=0)
 
 
-def reserve(root, entry, ladder, prior, label=None):
+RECHECKED = ("the gate closed before the claim", "the queue's head changed before the claim")
+
+
+def _claim_refusal(root, entry, plan):
+    """Under the lock (Task 8 part A m3): the starts gate read again, and, with the schedule, the queue's head is
+    still the entry the guard judged; why the claim waits, or None."""
+    if not starts_gate(root, time.time())["open"]:
+        return RECHECKED[0]
+    if plan is not None and queue(root, plan)[:1] != [entry]:
+        return RECHECKED[1]
+    return None
+
+
+def reserve(root, entry, ladder, prior, label=None, plan=None):
     """Claim an attempt for `entry` (round, task, effort, kind) under the lock if it fits: the new attempt, or Full.
     Its directory is claimed by mkdir; its fake token goes into the slots file before the lock is let go."""
     reservation = round(cap(ladder, entry["task"]) + ladder["ceiling"]["reservation"]["margin_usd"], 2)
     with _Lock(root):
+        changed = _claim_refusal(root, entry, plan)
+        if changed:
+            return Full(changed)
         starts, committed, _ = tally(root, ladder, prior)
         if starts >= ladder["ceiling"]["starts"]:
             return Full("240 starts")
@@ -627,14 +643,16 @@ def settle(root, attempt, record, ladder=None, prior=0.0):
     return record
 
 
-def next_start(root, queue, ladder, prior, label=None):
+def next_start(root, queue, ladder, prior, label=None, plan=None):
     """("start", attempt) for the head of the queue, ("wait", why) or ("end", why). Only the head is ever tried: a
     slot that does not fit waits for the attempts in flight, and the launcher never skips ahead (D4, D7.4)."""
     if not queue:
         return "end", "the schedule is done"
-    got = reserve(root, queue[0], ladder, prior, label)
+    got = reserve(root, queue[0], ladder, prior, label, plan)
     if isinstance(got, dict):
         return "start", got
+    if got.reason in RECHECKED:
+        return "wait", got.reason
     if got.reason == "240 starts":
         return "end", "240 starts"
     if tally(root, ladder, prior)[2]:
@@ -2205,7 +2223,7 @@ class Tranche:
         limits = [self.ladder["host"]["concurrency"][CONCURRENCY[head["kind"]]], gate["most"], most]
         if not ok or len(self.workers) >= min(n for n in limits if n is not None) or not self.config_ok():
             return None
-        action, got = next_start(self.root, queue(self.root, self.plan), self.ladder, self.prior, self.label)
+        action, got = next_start(self.root, [head], self.ladder, self.prior, self.label, self.plan)
         if action == "start":
             self.workers[got["id"]] = worker = threading.Thread(target=Attempt(self, got).run, name=got["id"])
             worker.start()

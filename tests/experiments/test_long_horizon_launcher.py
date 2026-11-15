@@ -1202,6 +1202,17 @@ def test_reconcile_closes_a_dead_launcher_s_attempt_as_its_stop_never_as_a_score
         (5, "stop", cause, None), [cause])
 
 
+def test_a_claim_waits_when_the_gate_closed_or_the_head_changed_since_the_guard_judged_it(short):
+    """Task 8 part A m3: both are read again under the lock, so no start is claimed into a stop or for another
+    slot than the one judged."""
+    stopped, moved = _state(short / "a"), _state(short / "b")
+    ladder.tranche_event(stopped, "stop", reason="a subagent file")
+    plan = [_entry(effort="high"), _entry()]
+    got = [ladder.reserve(stopped, _entry(), CRITERION, 0.0), ladder.reserve(moved, _entry(), CRITERION, 0.0, plan=plan)]
+    assert ([getattr(g, "reason", None) for g in got], ladder.attempts(stopped) + ladder.attempts(moved)) == (
+        list(ladder.RECHECKED), [])
+
+
 def test_a_start_index_is_never_reused_after_a_launch_refused_at_launch(short):
     """Task 8 part A M4: 002 is moved to refused/; the next claims are 004 and 005, and the same head as 003 is a
     new name, never a mkdir that raises inside the lock."""
