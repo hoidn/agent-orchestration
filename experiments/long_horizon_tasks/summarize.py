@@ -40,9 +40,12 @@ def _role(name):
     return ("verifier " if "__verifier__" in name else "agent ") + ("sidecar" if "sidecar" in name else "main")
 
 
-def parse_samples(text):
-    """The highest 1-minute load, the lowest free space, and per container its peak memory and affinities."""
+def parse_samples(text, trial=None):
+    """The highest 1-minute load, the lowest free space, and per container its peak memory and affinities.
+
+    The follower samples every container of the label; given the trial's name, only that trial's are kept."""
     loads, frees, boxes = [], [], {}
+    own = (trial or "").lower() + "__"
     for line in text.splitlines():
         kind, _, rest = line.partition(" ")
         if kind == "load":
@@ -51,6 +54,8 @@ def parse_samples(text):
             frees.append([int(x) for x in rest.split()])
         elif kind == "container":
             name, *fields = rest.split(" ")
+            if trial and not name.startswith(own):
+                continue
             values = dict(f.split("=", 1) for f in fields)
             box = boxes.setdefault(name, {"role": _role(name), "peak_bytes": None, "affinity": set()})
             if values.get("peak"):
@@ -77,11 +82,12 @@ def _outcome(round_dir):
     if len(results) > 1:
         raise ValueError(f"{round_dir}: {len(results)} trials, expected one")
     if not results:
-        return {"reward": None, "rewards": None, "error": "no result.json", "verifier_output": None, "ctrf": None}
+        return {"trial": None, "reward": None, "rewards": None, "error": "no result.json", "verifier_output": None,
+                "ctrf": None}
     result = json.loads(results[0].read_text())
     rewards = (result.get("verifier_result") or {}).get("rewards")
     output, ctrf = _verifier_files(results[0].parent)
-    return {"reward": (rewards or {}).get("reward"), "rewards": rewards,
+    return {"trial": results[0].parent.name, "reward": (rewards or {}).get("reward"), "rewards": rewards,
             "error": (result.get("exception_info") or {}).get("exception_type"),
             "env_s": _seconds(result.get("environment_setup")), "agent_setup_s": _seconds(result.get("agent_setup")),
             "agent_s": _seconds(result.get("agent_execution")), "verify_s": _seconds(result.get("verifier")),
@@ -101,7 +107,7 @@ def trial_record(round_dir):
               "images": dict(x.split(":", 1) for x in meta.get("images", "").split()),
               "disk_stop": meta.get("disk_stop")}
     record |= {"env_s": None, "agent_setup_s": None, "agent_s": None, "verify_s": None} | _outcome(round_dir)
-    return record | parse_samples(samples.read_text() if samples.exists() else "")
+    return record | parse_samples(samples.read_text() if samples.exists() else "", record["trial"])
 
 
 def _passes(runs):

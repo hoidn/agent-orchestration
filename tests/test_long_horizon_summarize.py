@@ -52,6 +52,17 @@ def test_samples_give_the_highest_load_the_lowest_free_space_and_each_container_
         {"role": "verifier main", "peak_bytes": 90, "affinity": ["0-31", "8-31"]}]}
 
 
+def test_containers_of_another_trial_of_the_same_label_are_left_out():
+    text = SAMPLES + "container t1__other__env_main_1 peak=999 affinity=0-31\n"
+    assert [c["peak_bytes"] for c in summarize.parse_samples(text, "t1__X")["containers"]] == [250, 7, 90]
+
+
+def test_a_trial_record_keeps_only_its_own_containers(tmp_path):
+    out = _trial(tmp_path, "t1", "oracle", 1)
+    (out / "samples").write_text(SAMPLES.replace("t1__x__", "t1__abc1234__") + "container t1__zzz__env_main_1 peak=9\n")
+    assert len(summarize.trial_record(out)["containers"]) == 3
+
+
 def test_a_trial_record_holds_outcome_timing_load_and_digests_but_no_log_text(tmp_path):
     record = summarize.trial_record(_trial(tmp_path, "t1", "oracle", 1))
     assert {k: record[k] for k in ("label", "task", "agent", "round", "reward", "error", "rc", "wall_s", "env_s",

@@ -144,8 +144,13 @@ recorded per task and per attempt. All 16 packages were fetched and match their 
   run time from the task package; it is never copied into this repository, and the kit holds
   only its SHA-256. A hit drops the task; the result is recorded in `tasks.json`.
   The search also covers near copies: lines of 25 or more characters that the task's `solution/` or
-  `tests/` holds and its `environment/` does not, found in any file outside system paths, plus
-  archives, `.git` objects and every layer of the image, deleted files included. A canary found in a
+  `tests/` holds and its `environment/` does not. Every text file of the merged file system is
+  matched against them. One matched line needs a look, except in a system path or a language
+  package directory (virtual environments included), where a file needs 10 or more. Archives and
+  loose `.git` objects outside system and language paths are opened when 64 MiB or smaller and
+  searched the same way; inside those paths they are neither opened nor listed (the intended scope).
+  Text files over 64 MiB, which the line check does not read, are listed. Every layer of the image is
+  walked too, deleted files included, by path and SHA-256 only. A canary found in a
   byte-identical copy of a file of the task's own `environment/` is not a hit (coordinator ruling,
   2026-11-14).
 - **Host-side steps change no task file and are part of the method:** an image pulled by full

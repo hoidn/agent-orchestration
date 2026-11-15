@@ -101,8 +101,10 @@ ensure_image() {  # <ref>: pull by digest unless present; prints the image id; n
   podman image inspect -f '{{.Id}}' "$1"
 }
 
-follow() {  # <harbor pid> <out dir>: sample the trial's containers until the harness exits
-  local pid=$1 out=$2 seen=" " stopped=0 c cg cpid trial load free
+follow() {  # <harbor pid> <out dir> <label>: sample the label's containers until the harness exits
+  # The harness names the trial directory only after its containers start, so containers are found by the
+  # label's prefix (compose lowercases it); with CONCURRENCY above 1 summarize.py keeps the trial's own.
+  local pid=$1 out=$2 prefix=${3,,}__ seen=" " stopped=0 c cg cpid load free
   while kill -0 "$pid" 2> /dev/null; do
     read -r load _ < /proc/loadavg
     free=$(free_bytes)
@@ -112,16 +114,14 @@ follow() {  # <harbor pid> <out dir>: sample the trial's containers until the ha
       kill -INT "$pid"
       stopped=1
     fi
-    for trial in $(cd "$out" && ls -d */*/ 2> /dev/null | cut -d/ -f2); do
-      for c in $(podman ps --filter "name=^${trial,,}" --format '{{.Names}}' 2> /dev/null); do  # compose lowercases
-        cpid=$(podman inspect -f '{{.State.Pid}}' "$c" 2> /dev/null) || continue
-        cg=/sys/fs/cgroup$(cut -d: -f3 "/proc/$cpid/cgroup" 2> /dev/null)
-        echo "container $c peak=$(cat "$cg/memory.peak" 2> /dev/null) affinity=$(for p in $(cat "$cg/cgroup.procs" \
-          2> /dev/null); do taskset -cp "$p" 2> /dev/null | sed 's/.*: //'; done | sort -u | paste -sd'|')" >> "$out/samples"
-        case "$seen" in *" $c "*) continue ;; esac
-        seen="$seen$c "
-        case "$c" in *egress-control-sidecar*) podman logs -f "$c" > "$out/egress-$c.log" 2>&1 & ;; esac
-      done
+    for c in $(podman ps --filter "name=^$prefix" --format '{{.Names}}' 2> /dev/null); do
+      cpid=$(podman inspect -f '{{.State.Pid}}' "$c" 2> /dev/null) || continue
+      cg=/sys/fs/cgroup$(cut -d: -f3 "/proc/$cpid/cgroup" 2> /dev/null)
+      echo "container $c peak=$(cat "$cg/memory.peak" 2> /dev/null) affinity=$(for p in $(cat "$cg/cgroup.procs" \
+        2> /dev/null); do taskset -cp "$p" 2> /dev/null | sed 's/.*: //'; done | sort -u | paste -sd'|')" >> "$out/samples"
+      case "$seen" in *" $c "*) continue ;; esac
+      seen="$seen$c "
+      case "$c" in *egress-control-sidecar*) podman logs -f "$c" > "$out/egress-$c.log" 2>&1 & ;; esac
     done
     sleep 10
   done
@@ -136,7 +136,7 @@ trial() {  # <label> <agent: oracle, nop or install> <round> <harness args>...: 
     "$label" "$agent" "$round" "$CPUS" "$GATE" "$OVERLAY" "$IMAGES" "$(cut -d' ' -f1-3 /proc/loadavg)" > "$out/meta.txt"
   run_harbor --path "$LH/oracle/tasks/$label" -o "$out" "$@" > "$out/harbor.out" 2>&1 &
   local pid=$!
-  follow "$pid" "$out"
+  follow "$pid" "$out" "$label"
   wait "$pid"
   rc=$?
   printf 'rc=%s\nwall_s=%s\nload_end=%s\n' "$rc" "$(($(date +%s) - start))" "$(cut -d' ' -f1-3 /proc/loadavg)" \

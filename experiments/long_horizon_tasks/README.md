@@ -26,14 +26,16 @@ The CLI is never run on the host. There the no-provider stubs stay first on `PAT
 | `recordings.json` | SHA-256 of every raw recording file kept in the local cache |
 | `price_rule.json`, `price_check.py` | The per-request price rule, and its check against the public archives |
 | `tasks.json` | The 16 tasks' digests and image pins, and the fields the oracle runs will fill |
-| `oracle_check.sh`, `summarize.py` | The oracle check of the plan's Task 2 |
-| `image_check.py`, `image_measure.json` | Task 2b: pull, size and withholding check of one pinned image; one line per image (RECORDINGS.md, "Task 2b") |
+| `oracle_check.sh`, `summarize.py` | Task 2b's oracle check on the pinned images (overlay, CPU set, load gate, repeats), and its per-label counts and per-trial records |
+| `oracle_first_pass.json` | The first pass's records: one JSON line per trial (outcomes, timings, load, affinity, peak memory, image ids, digests; no log text) |
+| `image_check.py`, `image_measure.json` | Task 2b: pull, size and withholding check of one pinned image; one line per image (RECORDINGS.md, "Task 2b"); `image_check.py tasks` copies the results into `tasks.json` |
 
 Tests (from the repository root; no container, no network):
 
 ```
 pytest -q -n 8 tests/test_long_horizon_stub_api.py tests/test_long_horizon_cut_fixture.py \
-  tests/test_long_horizon_price_check.py tests/test_long_horizon_image_check.py
+  tests/test_long_horizon_price_check.py tests/test_long_horizon_image_check.py \
+  tests/test_long_horizon_oracle_check.py tests/test_long_horizon_summarize.py
 ```
 
 The price test reproduces the three public archive totals when the archives are in the cache directory (`$LH`, by default
