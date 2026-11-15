@@ -746,12 +746,31 @@ own delivery status and captured evidence.
     re-runs what the plan cancels and the code between effects, so the
     result, also of a completed run, can change. During elaboration a call
     site that records two targets stops the build with `compiler_defect`
-    naming the site; no lookup reads such a site. Not corrected: a value bound
-    by `bind-proc` that is not a literal, a name or a field access (a
-    `(workflow-ref w)`, or a computed value such as `(+ k 0)`) is identified
-    by its source position, so two expansions of one template that bind
-    different values share one specialization, and the first expansion's
-    value is used.
+    naming the site; no lookup reads such a site.
+  - A value bound by `bind-proc` that is not a literal, a name or a field
+    access is identified by its source position, as before, and, when it is
+    made only of stable kinds (literals, operator applications other than
+    `and`, `or` and `not`, workflow references, enum members, records, union
+    variants and lists), also by its content: the value without its source
+    position, form path, expansion stack and types. The content only splits
+    what the position joins: two bindings at different positions keep
+    different identities, and two expansions of one macro template, which
+    share a position, get their own specializations when their stable values
+    differ. Corrected, on every target: two expansions of one template that
+    bind different stable values, where every expansion used the first
+    expansion's value, now each use their own. Two expansions of one template
+    whose stable values differ in text but have equal or unobserved results
+    (`(* k 0)` bound with 1 and 7, for example) keep their result and change
+    their digest, because they now build the program their source means; a
+    run recorded by such a build, as by a corrected one, meets a changed
+    program at `resume` and goes through the edited-program route, as for the
+    call-site correction above. Other programs keep their closed program,
+    digest and effect identities. Not corrected: two expansions of one
+    template whose bound value is of another kind (a conditional, a `let*`, a
+    `match`, a loop, a call) or reads a local still share one specialization
+    by position, and such a program can compute the first expansion's value
+    or stop with `compiler_defect`; two equal bound workflow references
+    written at two sites still stop with `procedure_lowering_unresolved`.
   - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
     its stage and its exit code at every target. Its message, which a failed
     run records in `state.json`, now names the operator and prints its
