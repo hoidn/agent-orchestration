@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_dry_run_replay_index.py::test_dry_run_rejects_a_record_building_tail_match_as_the_run_start_does"
+  ],
+  "timeout_sec": 600
+}

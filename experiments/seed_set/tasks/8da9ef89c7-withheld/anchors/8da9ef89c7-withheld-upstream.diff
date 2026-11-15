@@ -1,0 +1,1059 @@
+diff --git a/orchestrator/workflow_lisp/compiler.py b/orchestrator/workflow_lisp/compiler.py
+index b4cc6a879d5d0115b79e97b9d6ee8ddf9df08b3c..60efc5a6e8c3650b7c66271b5adef7f949eec7bb 100644
+--- a/orchestrator/workflow_lisp/compiler.py
++++ b/orchestrator/workflow_lisp/compiler.py
+@@ -180,6 +180,7 @@ from .type_env import (
+     prelude_type_names_for_target,
+ )
+ from .type_expressions import (
++    AppliedTypeExpr,
+     ListTypeExpr,
+     MapTypeExpr,
+     NamedTypeExpr,
+@@ -3509,7 +3510,7 @@ def _exported_type_refs(
+ 
+     exported: dict[str, TypeRef] = {}
+     for binding in export_surface.types_by_name.values():
+-        exported[binding.member_name] = type_env.resolve_type(
++        exported[binding.member_name] = type_env.resolve_declared_type(
+             binding.member_name,
+             span=module.span,
+             form_path=("workflow-lisp", binding.member_name),
+@@ -4324,6 +4325,7 @@ def _validate_definition_module(
+                     available_type_names,
+                     visible_schema_names=visible_schema_names,
+                     import_scope=import_scope,
++                    target_dsl_version=module.target_dsl_version,
+                 )
+             )
+         elif isinstance(definition, UnionDef):
+@@ -4333,6 +4335,7 @@ def _validate_definition_module(
+                     available_type_names,
+                     visible_schema_names=visible_schema_names,
+                     import_scope=import_scope,
++                    target_dsl_version=module.target_dsl_version,
+                 )
+             )
+ 
+@@ -4346,6 +4349,7 @@ def _validate_union_definition(
+     *,
+     visible_schema_names: frozenset[str],
+     import_scope: ModuleImportScope | None,
++    target_dsl_version: str,
+ ) -> list[LispFrontendDiagnostic]:
+     """Validate one union's variant names and variant field types."""
+ 
+@@ -4375,9 +4379,10 @@ def _validate_union_definition(
+             _validate_field_types(
+                 variant.fields,
+                 form_path,
+-                available_type_names,
++                available_type_names | frozenset(definition.type_params),
+                 visible_schema_names=visible_schema_names,
+                 import_scope=import_scope,
++                target_dsl_version=target_dsl_version,
+             )
+         )
+     return diagnostics
+@@ -4415,9 +4420,12 @@ def _validate_field_types(
+     *,
+     visible_schema_names: frozenset[str],
+     import_scope: ModuleImportScope | None,
++    target_dsl_version: str,
+ ) -> list[LispFrontendDiagnostic]:
+     """Validate that each field references a known type name."""
+ 
++    from .generic_unions import application_target_diagnostic
++
+     diagnostics: list[LispFrontendDiagnostic] = []
+     for field in fields:
+         try:
+@@ -4426,6 +4434,16 @@ def _validate_field_types(
+                 span=field.span,
+                 form_path=form_path,
+             )
++            target_diagnostic = application_target_diagnostic(
++                parsed,
++                authored_name=field.type_name,
++                target_dsl_version=target_dsl_version,
++                span=field.span,
++                form_path=form_path,
++            )
++            if target_diagnostic is not None:
++                diagnostics.append(target_diagnostic)
++                continue
+             diagnostics.extend(
+                 _validate_parsed_field_type(
+                     parsed,
+@@ -4443,7 +4461,7 @@ def _validate_field_types(
+ 
+ 
+ def _validate_parsed_field_type(
+-    parsed: NamedTypeExpr | WorkflowRefTypeExpr | ProcRefTypeExpr | OptionalTypeExpr | ListTypeExpr | MapTypeExpr,
++    parsed: NamedTypeExpr | WorkflowRefTypeExpr | ProcRefTypeExpr | OptionalTypeExpr | ListTypeExpr | MapTypeExpr | AppliedTypeExpr,
+     *,
+     authored_name: str,
+     span: SourceSpan,
+@@ -4536,6 +4554,18 @@ def _validate_parsed_field_type(
+             )
+         )
+         return diagnostics
++    if isinstance(parsed, AppliedTypeExpr):
++        # Head name only: the head kind, arity, and arguments are checked at
++        # type resolution, which reports them against the generic declaration.
++        return _validate_parsed_field_type(
++            NamedTypeExpr(name=parsed.head),
++            authored_name=authored_name,
++            span=span,
++            form_path=form_path,
++            available_type_names=available_type_names,
++            visible_schema_names=visible_schema_names,
++            import_scope=import_scope,
++        )
+     if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr)):
+         return _validate_parsed_field_type(
+             parsed.item_type,
+diff --git a/orchestrator/workflow_lisp/definitions.py b/orchestrator/workflow_lisp/definitions.py
+index a9bc6b1ccbe14c526a782bdee2c02dd4fc239a61..62ba90bd03a3b7316ba593b78574a35da5dc6737 100644
+--- a/orchestrator/workflow_lisp/definitions.py
++++ b/orchestrator/workflow_lisp/definitions.py
+@@ -12,6 +12,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+ from .result_guidance import ResultGuidance, parse_result_guidance
+ from .spans import SourceSpan
+ from .syntax import (
++    GENERIC_UNION_MIN_TARGET_DSL_VERSION,
+     ImportDirective,
+     SyntaxBool,
+     SyntaxIdentifier,
+@@ -23,6 +24,7 @@ from .syntax import (
+     syntax_head,
+     syntax_identifier,
+     syntax_node_datum,
++    target_dsl_supports_generic_unions,
+ )
+ 
+ if TYPE_CHECKING:
+@@ -109,11 +111,17 @@ class RecordDef:
+ 
+ @dataclass(frozen=True)
+ class UnionDef:
+-    """One tagged-union type definition."""
++    """One tagged-union type definition.
++
++    `type_params` is non-empty for a target-2.33 generic union
++    (`defunion Name :forall (T ...)`); its variant field types may name those
++    parameters, which are scoped to this declaration.
++    """
+ 
+     name: str
+     variants: tuple[UnionVariant, ...]
+     span: SourceSpan
++    type_params: tuple[str, ...] = ()
+ 
+ 
+ DefinitionNode = EnumDef | PathDef | RecordDef | UnionDef
+@@ -181,6 +189,7 @@ class _AuthoredUnionDef:
+     name: str
+     variants: tuple[_AuthoredUnionVariant, ...]
+     span: SourceSpan
++    type_params: tuple[str, ...] = ()
+ 
+ 
+ _TopLevelForm = (
+@@ -228,6 +237,7 @@ def elaborate_definition_module(
+         elaborated = _elaborate_top_level_form(
+             form,
+             compiler_session=compiler_session,
++            target_dsl_version=module.target_dsl_version,
+         )
+         elaborated_forms.append(elaborated)
+         if isinstance(elaborated, SchemaDef):
+@@ -328,6 +338,7 @@ def _expand_concrete_definitions(
+                     for variant in form.variants
+                 ),
+                 span=form.span,
++                type_params=form.type_params,
+             )
+         )
+     return tuple(definitions)
+@@ -521,6 +532,7 @@ def _elaborate_top_level_form(
+     form: SyntaxNode,
+     *,
+     compiler_session: CompilerSession,
++    target_dsl_version: str,
+ ) -> _TopLevelForm:
+     datum = syntax_node_datum(form)
+     if not isinstance(datum, SyntaxList) or not datum.items:
+@@ -537,7 +549,7 @@ def _elaborate_top_level_form(
+     if head.resolved_name == "defrecord":
+         return _elaborate_defrecord(form, datum)
+     if head.resolved_name == "defunion":
+-        return _elaborate_defunion(form, datum)
++        return _elaborate_defunion(form, datum, target_dsl_version=target_dsl_version)
+     if head.resolved_name == "defresource":
+         return _elaborate_defresource(form, datum)
+     if head.resolved_name == "deftransition":
+@@ -667,9 +679,23 @@ def _elaborate_defrecord(form: SyntaxNode, datum: SyntaxList) -> _AuthoredRecord
+     )
+ 
+ 
+-def _elaborate_defunion(form: SyntaxNode, datum: SyntaxList) -> _AuthoredUnionDef:
++def _elaborate_defunion(
++    form: SyntaxNode,
++    datum: SyntaxList,
++    *,
++    target_dsl_version: str,
++) -> _AuthoredUnionDef:
+     name = _expect_symbol(datum, 1, "union name", form_path=form.form_path)
+     raw_variants = datum.items[2:]
++    type_params: tuple[str, ...] = ()
++    if raw_variants and isinstance(raw_variants[0], SyntaxKeyword) and raw_variants[0].value == ":forall":
++        type_params = _elaborate_union_type_params(
++            raw_variants[0],
++            raw_variants[1] if len(raw_variants) > 1 else None,
++            target_dsl_version=target_dsl_version,
++            form_path=form.form_path,
++        )
++        raw_variants = raw_variants[2:]
+     if not raw_variants:
+         _raise_error("`defunion` requires at least one variant", span=datum.span, form_path=form.form_path)
+     variants: list[_AuthoredUnionVariant] = []
+@@ -694,7 +720,48 @@ def _elaborate_defunion(form: SyntaxNode, datum: SyntaxList) -> _AuthoredUnionDe
+                 span=raw_variant.span,
+             )
+         )
+-    return _AuthoredUnionDef(name=name.resolved_name, variants=tuple(variants), span=datum.span)
++    return _AuthoredUnionDef(
++        name=name.resolved_name,
++        variants=tuple(variants),
++        span=datum.span,
++        type_params=type_params,
++    )
++
++
++def _elaborate_union_type_params(
++    keyword: SyntaxKeyword,
++    raw_params: object | None,
++    *,
++    target_dsl_version: str,
++    form_path: tuple[str, ...],
++) -> tuple[str, ...]:
++    if not target_dsl_supports_generic_unions(target_dsl_version):
++        _raise_error(
++            (
++                f"`defunion :forall` requires target DSL {GENERIC_UNION_MIN_TARGET_DSL_VERSION} "
++                f"or newer; module targets {target_dsl_version}"
++            ),
++            code="generic_union_requires_dsl_2_33",
++            span=keyword.span,
++            form_path=form_path,
++        )
++    if not isinstance(raw_params, SyntaxList) or not raw_params.items:
++        _raise_error(
++            "`defunion :forall` must be followed by a non-empty list of type-parameter names",
++            span=keyword.span,
++            form_path=form_path,
++        )
++    names: list[str] = []
++    for item in raw_params.items:
++        identifier = syntax_identifier(item)
++        if identifier is None or identifier.resolved_name in names:
++            _raise_error(
++                "`defunion :forall` entries must be distinct symbols",
++                span=item.span,
++                form_path=form_path,
++            )
++        names.append(identifier.resolved_name)
++    return tuple(names)
+ 
+ 
+ def _elaborate_defresource(form: SyntaxNode, datum: SyntaxList) -> ResourceDef:
+diff --git a/orchestrator/workflow_lisp/diagnostics.py b/orchestrator/workflow_lisp/diagnostics.py
+index 9ad49c5f7aa62bc64b76502938453d44c26577a8..3e881c4d940f5099b6fe1dec8a57b17ed43e03c1 100644
+--- a/orchestrator/workflow_lisp/diagnostics.py
++++ b/orchestrator/workflow_lisp/diagnostics.py
+@@ -192,6 +192,11 @@ _TYPE_CODES = frozenset(
+         "materialize_view_target_contract_invalid",
+         "value_type_requires_dsl_2_19",
+         "value_guidance_example_unsupported",
++        "generic_union_requires_dsl_2_33",
++        "generic_union_arity_mismatch",
++        "generic_union_unresolved_argument",
++        "generic_union_instantiation_cycle",
++        "generic_union_not_generic",
+     }
+ )
+ _LOWERING_SURFACE_CODES = frozenset(
+diff --git a/orchestrator/workflow_lisp/generic_unions.py b/orchestrator/workflow_lisp/generic_unions.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..c4e139fc8b0f0b253de74592a1c585bfde11b224
+--- /dev/null
++++ b/orchestrator/workflow_lisp/generic_unions.py
+@@ -0,0 +1,332 @@
++"""First-order generic unions (target 2.33): application, instantiation, ordering.
++
++Contract: `docs/design/workflow_lisp_parametric_type_system.md`, section
++"Proposed CF-1 First-Order Generic Unions".
++
++Representation. A generic declaration (`defunion Outcome :forall (T E) ...`)
++is a `UnionDef` with non-empty `type_params`; its template `UnionTypeRef` has
++`type_args == ()` and variant field types that contain `TypeParamRef`s. An
++application such as `Outcome[Int String]` is a `UnionTypeRef` with:
++
++- `definition`: the generic declaration itself (constructor identity; imports
++  share this object, and its span carries the defining module path);
++- `type_args`: the ordered resolved argument types (argument identities);
++- `variant_field_types`: the template's field types with the arguments
++  substituted, so constructors and matches check the instantiated payload;
++- `name`: `<template name>[<rendered args>]`, e.g. `Outcome[Int String]` or
++  `gu/lib::Outcome[Int String]` for an imported template.
++
++Applied unions compare by constructor identity plus argument compatibility
++(`type_env.type_refs_compatible`); legacy unions keep their existing rules.
++Arguments may still be `TypeParamRef`s inside a generic `defproc`; they stay
++compile-time only until specialization substitutes them.
++"""
++
++from __future__ import annotations
++
++from collections.abc import Callable, Iterable
++
++from .definitions import DefinitionNode, UnionDef
++from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
++from .spans import SourceSpan
++from .syntax import GENERIC_UNION_MIN_TARGET_DSL_VERSION, target_dsl_supports_generic_unions
++from .type_env import (
++    TypeRef,
++    UnionTypeRef,
++    _first_type_param_ref,
++    _render_type_expr,
++    render_type_ref,
++    substitute_type_params,
++)
++from .type_expressions import (
++    AppliedTypeExpr,
++    ParsedTypeExpr,
++    parse_type_expression,
++    type_expression_application_heads,
++)
++
++
++def application_target_diagnostic(
++    parsed: ParsedTypeExpr,
++    *,
++    authored_name: str,
++    target_dsl_version: str,
++    span: SourceSpan,
++    form_path: tuple[str, ...],
++    expansion_stack: tuple[object, ...] = (),
++) -> LispFrontendDiagnostic | None:
++    """Return the target diagnostic for a type application below target 2.33."""
++
++    if target_dsl_supports_generic_unions(target_dsl_version) or not type_expression_application_heads(parsed):
++        return None
++    return LispFrontendDiagnostic(
++        code="generic_union_requires_dsl_2_33",
++        message=(
++            f"type application `{authored_name}` requires target DSL "
++            f"{GENERIC_UNION_MIN_TARGET_DSL_VERSION} or newer; module targets {target_dsl_version}"
++        ),
++        span=span,
++        form_path=form_path,
++        expansion_stack=expansion_stack,
++    )
++
++
++def is_generic_union_template(type_ref: object) -> bool:
++    """Return whether `type_ref` is an unapplied generic union declaration."""
++
++    return (
++        isinstance(type_ref, UnionTypeRef)
++        and bool(type_ref.definition.type_params)
++        and not type_ref.type_args
++    )
++
++
++def reject_unapplied_generic_union(
++    template: UnionTypeRef,
++    *,
++    span: SourceSpan,
++    form_path: tuple[str, ...],
++    expansion_stack: tuple[object, ...] = (),
++) -> None:
++    """Reject a bare generic union name used as a type."""
++
++    params = " ".join(template.definition.type_params)
++    _raise(
++        "generic_union_arity_mismatch",
++        f"generic union `{template.name}` must be applied to "
++        f"{len(template.definition.type_params)} type argument(s) `[{params}]`",
++        span=span,
++        form_path=form_path,
++        expansion_stack=expansion_stack,
++        notes=_declared_at(template.definition),
++    )
++
++
++def resolve_generic_union_application(
++    parsed: AppliedTypeExpr,
++    *,
++    head_ref: TypeRef,
++    resolve_arg: Callable[[ParsedTypeExpr], TypeRef],
++    span: SourceSpan,
++    form_path: tuple[str, ...],
++    expansion_stack: tuple[object, ...] = (),
++) -> UnionTypeRef:
++    """Resolve `Head[Arg ...]` to an applied union, checking head and arity."""
++
++    definition = getattr(head_ref, "definition", None)
++    if not is_generic_union_template(head_ref):
++        _raise(
++            "generic_union_not_generic",
++            f"`{parsed.head}` is not a generic union and cannot take type arguments",
++            span=span,
++            form_path=form_path,
++            expansion_stack=expansion_stack,
++            notes=_declared_at(definition),
++        )
++    type_params = head_ref.definition.type_params
++    if len(parsed.args) != len(type_params):
++        _raise(
++            "generic_union_arity_mismatch",
++            f"generic union `{parsed.head}` expects {len(type_params)} type argument(s) "
++            f"`[{' '.join(type_params)}]` but got {len(parsed.args)}",
++            span=span,
++            form_path=form_path,
++            expansion_stack=expansion_stack,
++            notes=_declared_at(definition),
++        )
++    type_args = tuple(
++        _resolve_argument(
++            arg,
++            head=parsed.head,
++            definition=definition,
++            resolve_arg=resolve_arg,
++            span=span,
++            form_path=form_path,
++            expansion_stack=expansion_stack,
++        )
++        for arg in parsed.args
++    )
++    return instantiate_generic_union(head_ref, type_args)
++
++
++def instantiate_generic_union(
++    template: UnionTypeRef,
++    type_args: tuple[TypeRef, ...],
++) -> UnionTypeRef:
++    """Apply a generic union template to resolved argument types."""
++
++    bindings = dict(zip(template.definition.type_params, type_args, strict=True))
++    return _applied_union(template, template.name, type_args, bindings)
++
++
++def substitute_applied_union(
++    applied: UnionTypeRef,
++    bindings: dict[str, TypeRef],
++) -> UnionTypeRef:
++    """Substitute procedure type parameters inside an applied union."""
++
++    type_args = tuple(substitute_type_params(arg, bindings) for arg in applied.type_args)
++    # Applied names are always `<template name>[...]`; template names have no `[`.
++    return _applied_union(applied, applied.name.partition("[")[0], type_args, bindings)
++
++
++def generic_union_fill_order(
++    definitions: Iterable[DefinitionNode],
++    *,
++    lookup: Callable[[str], object],
++) -> tuple[UnionDef, ...]:
++    """Order local generic unions so each follows the generic unions it applies.
++
++    Instantiating an application needs the applied template's field types, so
++    templates are resolved dependencies-first. A generic union whose fields
++    apply itself, directly or through other local generic unions, is a
++    recursive instantiation cycle and is rejected. Imported templates are
++    already resolved, and the module graph is acyclic.
++    """
++
++    generic = [
++        definition
++        for definition in definitions
++        if isinstance(definition, UnionDef) and definition.type_params
++    ]
++    ordered: list[UnionDef] = []
++    active: list[UnionDef] = []
++
++    def visit(definition: UnionDef) -> None:
++        if _contains(ordered, definition):
++            return
++        active.append(definition)
++        for variant in definition.variants:
++            for field in variant.fields:
++                for dependency in _applied_generic_unions(field.type_name, field.span, lookup):
++                    if _contains(active, dependency):
++                        _raise_cycle(active, dependency, span=field.span)
++                    if _contains(generic, dependency):
++                        visit(dependency)
++        active.pop()
++        ordered.append(definition)
++
++    for definition in generic:
++        visit(definition)
++    return tuple(ordered)
++
++
++def _applied_union(
++    source: UnionTypeRef,
++    base_name: str,
++    type_args: tuple[TypeRef, ...],
++    bindings: dict[str, TypeRef],
++) -> UnionTypeRef:
++    # Only substitute fields that mention a parameter: parameter-free field
++    # types may be records whose fields are still being resolved, and must
++    # stay shared references rather than copies.
++    return UnionTypeRef(
++        name=f"{base_name}[{' '.join(render_type_ref(arg) for arg in type_args)}]",
++        definition=source.definition,
++        variant_field_types={
++            variant_name: {
++                field_name: (
++                    substitute_type_params(field_type, bindings)
++                    if _first_type_param_ref(field_type) is not None
++                    else field_type
++                )
++                for field_name, field_type in field_types.items()
++            }
++            for variant_name, field_types in source.variant_field_types.items()
++        },
++        type_args=type_args,
++    )
++
++
++def _resolve_argument(
++    arg: ParsedTypeExpr,
++    *,
++    head: str,
++    definition: UnionDef,
++    resolve_arg: Callable[[ParsedTypeExpr], TypeRef],
++    span: SourceSpan,
++    form_path: tuple[str, ...],
++    expansion_stack: tuple[object, ...],
++) -> TypeRef:
++    try:
++        return resolve_arg(arg)
++    except LispFrontendCompileError as error:
++        # Re-report an unknown argument name as an unresolved application
++        # argument, pointing at the generic declaration as well.
++        if error.diagnostics[0].code != "type_unknown":
++            raise
++        raise LispFrontendCompileError(
++            (
++                LispFrontendDiagnostic(
++                    code="generic_union_unresolved_argument",
++                    message=(
++                        f"type argument `{_render_type_expr(arg)}` of generic union `{head}` "
++                        "does not resolve to a type in scope"
++                    ),
++                    span=span,
++                    form_path=form_path,
++                    expansion_stack=expansion_stack,
++                    notes=_declared_at(definition),
++                ),
++            )
++        ) from error
++
++
++def _applied_generic_unions(
++    type_name: str,
++    span: SourceSpan,
++    lookup: Callable[[str], object],
++) -> tuple[UnionDef, ...]:
++    parsed = parse_type_expression(type_name, span=span, form_path=())
++    return tuple(
++        target.definition
++        for target in (lookup(head) for head in type_expression_application_heads(parsed))
++        if isinstance(target, UnionTypeRef) and target.definition.type_params
++    )
++
++
++def _contains(definitions: list[UnionDef], definition: UnionDef) -> bool:
++    return any(candidate is definition for candidate in definitions)
++
++
++def _raise_cycle(active: list[UnionDef], dependency: UnionDef, *, span: SourceSpan) -> None:
++    start = next(index for index, candidate in enumerate(active) if candidate is dependency)
++    path = " -> ".join(definition.name for definition in (*active[start:], dependency))
++    _raise(
++        "generic_union_instantiation_cycle",
++        f"generic union `{dependency.name}` is instantiated recursively ({path})",
++        span=span,
++        form_path=("workflow-lisp", "defunion", active[-1].name),
++        notes=_declared_at(dependency),
++    )
++
++
++def _declared_at(definition: object) -> tuple[str, ...]:
++    span = getattr(definition, "span", None)
++    if span is None:
++        return ()
++    start = span.start
++    return (f"`{definition.name}` declared at {start.path}:{start.line}:{start.column}",)
++
++
++def _raise(
++    code: str,
++    message: str,
++    *,
++    span: SourceSpan,
++    form_path: tuple[str, ...],
++    expansion_stack: tuple[object, ...] = (),
++    notes: tuple[str, ...] = (),
++) -> None:
++    raise LispFrontendCompileError(
++        (
++            LispFrontendDiagnostic(
++                code=code,
++                message=message,
++                span=span,
++                form_path=form_path,
++                expansion_stack=expansion_stack,
++                notes=notes,
++            ),
++        )
++    )
+diff --git a/orchestrator/workflow_lisp/syntax.py b/orchestrator/workflow_lisp/syntax.py
+index fce82021e496e7f4c6322940f26c73dcb78918f2..3cdf831854feb87a6a38e5d464c4c94d8b21a741 100644
+--- a/orchestrator/workflow_lisp/syntax.py
++++ b/orchestrator/workflow_lisp/syntax.py
+@@ -148,6 +148,19 @@ def target_dsl_supports_human_input(target_dsl_version: str) -> bool:
+     return target >= minimum
+ 
+ 
++def target_dsl_supports_generic_unions(target_dsl_version: str) -> bool:
++    """Return whether a target admits `defunion :forall` and type applications."""
++
++    try:
++        target = tuple(int(part) for part in target_dsl_version.split("."))
++        minimum = tuple(
++            int(part) for part in GENERIC_UNION_MIN_TARGET_DSL_VERSION.split(".")
++        )
++    except (AttributeError, TypeError, ValueError):
++        return False
++    return target >= minimum
++
++
+ def target_dsl_supports_provider_peer_messaging(
+     target_dsl_version: str,
+ ) -> bool:
+diff --git a/orchestrator/workflow_lisp/type_env.py b/orchestrator/workflow_lisp/type_env.py
+index fe6708d723e368b4d99ea83eb3bd1ea5b774da54..c7f56a035af3c740171600e9ed4aee4ada1db9cb 100644
+--- a/orchestrator/workflow_lisp/type_env.py
++++ b/orchestrator/workflow_lisp/type_env.py
+@@ -31,6 +31,7 @@ from .syntax import (
+     target_dsl_supports_value,
+ )
+ from .type_expressions import (
++    AppliedTypeExpr,
+     ContextualTypeExpr,
+     ListTypeExpr,
+     MapTypeExpr,
+@@ -200,11 +201,16 @@ class RecordTypeRef:
+ 
+ @dataclass(frozen=True)
+ class UnionTypeRef:
+-    """One resolved union type reference."""
++    """One resolved union type reference.
++
++    `type_args` is non-empty only for an applied generic union such as
++    `Outcome[Int String]`; see `generic_unions.py` for the representation.
++    """
+ 
+     name: str
+     definition: UnionDef
+     variant_field_types: dict[str, dict[str, "TypeRef"]]
++    type_args: tuple["TypeRef", ...] = ()
+ 
+ 
+ @dataclass(frozen=True)
+@@ -225,6 +231,10 @@ class VariantCaseTypeRef:
+     # one); `record_field` falls back to the name-based union re-lookup in
+     # that case.
+     field_types: dict[str, "TypeRef"] | None = None
++    # The owning union's `type_args` when it is an applied generic union, so
++    # compatibility can check constructor and argument identity by value
++    # rather than by the rendered `union_name`.
++    union_type_args: tuple["TypeRef", ...] = ()
+ 
+ 
+ @dataclass(frozen=True)
+@@ -464,7 +474,20 @@ class FrontendTypeEnvironment:
+                     *import_scope.unqualified_schema_bindings.values(),
+                 )
+             )
+-        for definition in module.definitions:
++        from .generic_unions import generic_union_fill_order
++
++        generic_unions = generic_union_fill_order(
++            module.definitions,
++            lookup=lambda name: _lookup_type_ref(type_refs, name, import_scope=import_scope),
++        )
++        for definition in (
++            *generic_unions,
++            *(
++                definition
++                for definition in module.definitions
++                if not (isinstance(definition, UnionDef) and definition.type_params)
++            ),
++        ):
+             if isinstance(definition, RecordDef):
+                 record_ref = type_refs.get(definition.name)
+                 if isinstance(record_ref, RecordTypeRef):
+@@ -502,6 +525,7 @@ class FrontendTypeEnvironment:
+                                     target_dsl_version=module.target_dsl_version,
+                                     span=field.span,
+                                     form_path=("workflow-lisp", definition.name, variant.name, field.name),
++                                    local_type_params=frozenset(definition.type_params),
+                                 )
+                                 for field in variant.fields
+                             }
+@@ -580,6 +604,31 @@ class FrontendTypeEnvironment:
+             session_state=session_state,
+         )
+ 
++    def resolve_declared_type(
++        self,
++        name: str,
++        *,
++        span: SourceSpan,
++        form_path: tuple[str, ...],
++    ) -> TypeRef:
++        """Resolve one declared type name for an export surface.
++
++        Unlike `resolve_type`, this admits an unapplied generic union: exporting
++        a declaration is not a use of it as a type.
++        """
++
++        return _resolve_named_type(
++            name,
++            type_refs=self._type_refs,
++            import_scope=self._import_scope,
++            canonical_name_overrides=self._canonical_name_overrides,
++            schema_names=self._schema_names,
++            span=span,
++            form_path=form_path,
++            expansion_stack=(),
++            local_type_params=frozenset(),
++        )
++
+     def record_field(
+         self,
+         record_type: RecordTypeRef | VariantCaseTypeRef,
+@@ -649,6 +698,7 @@ class FrontendTypeEnvironment:
+                     variant_name=variant_name,
+                     definition=variant,
+                     field_types=union_type.variant_field_types.get(variant_name),
++                    union_type_args=union_type.type_args,
+                 )
+         _raise_error(
+             f"unknown union variant `{variant_name}` for `{union_type.name}`",
+@@ -806,6 +856,19 @@ class FrontendTypeEnvironment:
+                 form_path=form_path,
+                 expansion_stack=expansion_stack,
+             )
++        if target_dsl_version is not None:
++            from .generic_unions import application_target_diagnostic
++
++            target_diagnostic = application_target_diagnostic(
++                parsed,
++                authored_name=name,
++                target_dsl_version=target_dsl_version,
++                span=span,
++                form_path=form_path,
++                expansion_stack=expansion_stack,
++            )
++            if target_diagnostic is not None:
++                raise LispFrontendCompileError((target_diagnostic,))
+         return _resolve_parsed_type_expr(
+             parsed,
+             authored_name=name,
+@@ -825,6 +888,8 @@ def _parsed_type_expr_contains_value(parsed: ParsedTypeExpr) -> bool:
+ 
+     if isinstance(parsed, NamedTypeExpr):
+         return parsed.name == "Value"
++    if isinstance(parsed, AppliedTypeExpr):
++        return any(_parsed_type_expr_contains_value(arg) for arg in parsed.args)
+     if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr, ContextualTypeExpr)):
+         return _parsed_type_expr_contains_value(parsed.item_type)
+     if isinstance(parsed, MapTypeExpr):
+@@ -850,6 +915,8 @@ def _parsed_type_expr_contains_contextual(parsed: ParsedTypeExpr) -> bool:
+         return False
+     if isinstance(parsed, ContextualTypeExpr):
+         return True
++    if isinstance(parsed, AppliedTypeExpr):
++        return any(_parsed_type_expr_contains_contextual(arg) for arg in parsed.args)
+     if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr)):
+         return _parsed_type_expr_contains_contextual(parsed.item_type)
+     if isinstance(parsed, MapTypeExpr):
+@@ -882,7 +949,9 @@ def _resolve_parsed_type_expr(
+     local_type_params: frozenset[str],
+ ) -> TypeRef:
+     if isinstance(parsed, NamedTypeExpr):
+-        return _resolve_named_type(
++        from .generic_unions import is_generic_union_template, reject_unapplied_generic_union
++
++        named_ref = _resolve_named_type(
+             parsed.name,
+             type_refs=type_refs,
+             import_scope=import_scope,
+@@ -893,6 +962,26 @@ def _resolve_parsed_type_expr(
+             expansion_stack=expansion_stack,
+             local_type_params=local_type_params,
+         )
++        if is_generic_union_template(named_ref):
++            reject_unapplied_generic_union(
++                named_ref,
++                span=span,
++                form_path=form_path,
++                expansion_stack=expansion_stack,
++            )
++        return named_ref
++    if isinstance(parsed, AppliedTypeExpr):
++        return _resolve_applied_type_expr(
++            parsed,
++            type_refs=type_refs,
++            import_scope=import_scope,
++            canonical_name_overrides=canonical_name_overrides,
++            schema_names=schema_names,
++            span=span,
++            form_path=form_path,
++            expansion_stack=expansion_stack,
++            local_type_params=local_type_params,
++        )
+     if isinstance(parsed, OptionalTypeExpr):
+         item_type_ref = _resolve_parsed_type_expr(
+             parsed.item_type,
+@@ -1116,6 +1205,42 @@ def _resolve_parsed_type_expr(
+     raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
+ 
+ 
++def _resolve_applied_type_expr(
++    parsed: AppliedTypeExpr,
++    *,
++    type_refs: dict[str, TypeRef],
++    import_scope: "ModuleImportScope | None",
++    canonical_name_overrides: dict[str, str],
++    schema_names: frozenset[str],
++    span: SourceSpan,
++    form_path: tuple[str, ...],
++    expansion_stack: tuple[object, ...],
++    local_type_params: frozenset[str],
++) -> TypeRef:
++    """Resolve `Head[Arg ...]` against a generic union declaration."""
++
++    from .generic_unions import resolve_generic_union_application
++
++    scope = {
++        "type_refs": type_refs,
++        "import_scope": import_scope,
++        "canonical_name_overrides": canonical_name_overrides,
++        "schema_names": schema_names,
++        "span": span,
++        "form_path": form_path,
++        "expansion_stack": expansion_stack,
++        "local_type_params": local_type_params,
++    }
++    return resolve_generic_union_application(
++        parsed,
++        head_ref=_resolve_named_type(parsed.head, **scope),
++        resolve_arg=lambda arg: _resolve_parsed_type_expr(arg, authored_name=_render_type_expr(arg), **scope),
++        span=span,
++        form_path=form_path,
++        expansion_stack=expansion_stack,
++    )
++
++
+ def _resolve_named_type(
+     name: str,
+     *,
+@@ -1216,6 +1341,8 @@ def _render_type_expr(parsed: ParsedTypeExpr) -> str:
+         return f"Map[{_render_type_expr(parsed.key_type)}, {_render_type_expr(parsed.value_type)}]"
+     if isinstance(parsed, ContextualTypeExpr):
+         return f"Contextual[{_render_type_expr(parsed.item_type)}]"
++    if isinstance(parsed, AppliedTypeExpr):
++        return f"{parsed.head}[{' '.join(_render_type_expr(arg) for arg in parsed.args)}]"
+     if isinstance(parsed, WorkflowRefTypeExpr):
+         params = " ".join(_render_type_expr(param_type) for param_type in parsed.param_types)
+         return f"WorkflowRef[({params}) -> {_render_type_expr(parsed.return_type)}]"
+@@ -1282,8 +1409,12 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
+     if expected == actual:
+         return True
+     if isinstance(expected, UnionTypeRef) and isinstance(actual, VariantCaseTypeRef):
++        if expected.type_args or actual.union_type_args:
++            return _applied_variant_of(actual, expected)
+         return _named_type_basename(expected.name) == _named_type_basename(actual.union_name)
+     if isinstance(expected, VariantCaseTypeRef) and isinstance(actual, UnionTypeRef):
++        if expected.union_type_args or actual.type_args:
++            return _applied_variant_of(expected, actual)
+         return _named_type_basename(expected.union_name) == _named_type_basename(actual.name)
+     if type(expected) is not type(actual):
+         return False
+@@ -1315,6 +1446,13 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
+             )
+         return expected.definition == actual.definition
+     if isinstance(expected, UnionTypeRef):
++        if expected.type_args or actual.type_args:
++            # Applied generic unions: same declaration (defining module
++            # included, via its span) and pairwise-compatible arguments.
++            return expected.definition == actual.definition and _type_args_compatible(
++                expected.type_args,
++                actual.type_args,
++            )
+         if (
+             _named_type_basename(expected.name) == _named_type_basename(actual.name)
+             and expected.variant_field_types.keys() == actual.variant_field_types.keys()
+@@ -1333,6 +1471,11 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
+             )
+         return expected.definition == actual.definition
+     if isinstance(expected, VariantCaseTypeRef):
++        if expected.union_type_args or actual.union_type_args:
++            return expected.definition == actual.definition and _type_args_compatible(
++                expected.union_type_args,
++                actual.union_type_args,
++            )
+         if (
+             _named_type_basename(expected.union_name) == _named_type_basename(actual.union_name)
+             and expected.variant_name == actual.variant_name
+@@ -1387,6 +1530,21 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
+     raise TypeError(f"unsupported type ref: {type(expected)!r}")
+ 
+ 
++def _type_args_compatible(expected: tuple[TypeRef, ...], actual: tuple[TypeRef, ...]) -> bool:
++    return len(expected) == len(actual) and all(
++        type_refs_compatible(expected_arg, actual_arg)
++        for expected_arg, actual_arg in zip(expected, actual)
++    )
++
++
++def _applied_variant_of(variant: VariantCaseTypeRef, union: UnionTypeRef) -> bool:
++    """Return whether a narrowed variant belongs to the same applied union."""
++
++    return any(candidate == variant.definition for candidate in union.definition.variants) and (
++        _type_args_compatible(union.type_args, variant.union_type_args)
++    )
++
++
+ def _record_refs_are_structural_contexts(expected: RecordTypeRef, actual: RecordTypeRef) -> bool:
+     from .context_classification import classify_structural_private_exec_context
+ 
+@@ -1468,6 +1626,10 @@ def substitute_type_params(type_ref: TypeRef, bindings: dict[str, TypeRef]) -> T
+             field_types=field_types,
+         )
+     if isinstance(type_ref, UnionTypeRef):
++        if type_ref.type_args:
++            from .generic_unions import substitute_applied_union
++
++            return substitute_applied_union(type_ref, bindings)
+         return UnionTypeRef(
+             name=type_ref.name,
+             definition=type_ref.definition,
+@@ -1529,11 +1691,14 @@ def _first_type_param_ref(type_ref: TypeRef) -> TypeParamRef | None:
+                 return unresolved
+         return None
+     if isinstance(type_ref, UnionTypeRef):
+-        for field_types in type_ref.variant_field_types.values():
+-            for field_type in field_types.values():
+-                unresolved = _first_type_param_ref(field_type)
+-                if unresolved is not None:
+-                    return unresolved
++        # Applied-union arguments count even when phantom (absent from payloads).
++        for field_type in (
++            *type_ref.type_args,
++            *(field_type for field_types in type_ref.variant_field_types.values() for field_type in field_types.values()),
++        ):
++            unresolved = _first_type_param_ref(field_type)
++            if unresolved is not None:
++                return unresolved
+         return None
+     return None
+ 
+diff --git a/orchestrator/workflow_lisp/type_expressions.py b/orchestrator/workflow_lisp/type_expressions.py
+index bab8e0a769715d18a723b3c6cb1ab80aaf55e54a..ee9bcf2385d72937e111a8f57952bcba678310c6 100644
+--- a/orchestrator/workflow_lisp/type_expressions.py
++++ b/orchestrator/workflow_lisp/type_expressions.py
+@@ -46,6 +46,18 @@ class ContextualTypeExpr:
+     item_type: "ParsedTypeExpr"
+ 
+ 
++@dataclass(frozen=True)
++class AppliedTypeExpr:
++    """One application of a declared generic type, e.g. `Outcome[Int String]`.
++
++    Arguments are whitespace-separated. The parser does not know which heads
++    are generic; type resolution decides (target 2.33 generic unions).
++    """
++
++    head: str
++    args: tuple["ParsedTypeExpr", ...]
++
++
+ ParsedTypeExpr = (
+     NamedTypeExpr
+     | WorkflowRefTypeExpr
+@@ -54,6 +66,7 @@ ParsedTypeExpr = (
+     | ListTypeExpr
+     | MapTypeExpr
+     | ContextualTypeExpr
++    | AppliedTypeExpr
+ )
+ 
+ 
+@@ -213,14 +226,43 @@ def parse_type_expression(
+             )
+         )
+ 
+-    _raise_type_expression_error(
+-        f"unknown generic type constructor `{head}` in `{authored}`",
+-        span=span,
+-        form_path=form_path,
+-        expansion_stack=expansion_stack,
++    return AppliedTypeExpr(
++        head=head,
++        args=tuple(
++            parse_type_expression(
++                arg_text,
++                span=span,
++                form_path=form_path,
++                expansion_stack=expansion_stack,
++            )
++            for arg_text in _split_top_level(args_text, delimiter=None)
++        ),
+     )
+ 
+ 
++def type_expression_application_heads(parsed: ParsedTypeExpr) -> tuple[str, ...]:
++    """Return the heads of every generic application inside a parsed type."""
++
++    if isinstance(parsed, AppliedTypeExpr):
++        return (
++            parsed.head,
++            *(head for arg in parsed.args for head in type_expression_application_heads(arg)),
++        )
++    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr, ContextualTypeExpr)):
++        return type_expression_application_heads(parsed.item_type)
++    if isinstance(parsed, MapTypeExpr):
++        return (
++            *type_expression_application_heads(parsed.key_type),
++            *type_expression_application_heads(parsed.value_type),
++        )
++    if isinstance(parsed, (WorkflowRefTypeExpr, ProcRefTypeExpr)):
++        return (
++            *(head for param in parsed.param_types for head in type_expression_application_heads(param)),
++            *type_expression_application_heads(parsed.return_type),
++        )
++    return ()
++
++
+ def split_top_level_args(text: str) -> tuple[str, ...]:
+     """Split a comma-delimited type-argument list at top level only."""
+ 

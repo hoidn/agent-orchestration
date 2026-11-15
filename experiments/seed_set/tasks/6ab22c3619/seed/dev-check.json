@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_source_sites.py::test_specialized_procedure_bindings_keep_procref_params_and_loop_state"
+  ],
+  "timeout_sec": 600
+}

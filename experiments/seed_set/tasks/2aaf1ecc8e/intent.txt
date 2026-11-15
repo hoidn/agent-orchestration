@@ -1,0 +1,3 @@
+Flatten opaque field-chain substitution in WCC mapper
+
+The change is in orchestrator/workflow_lisp/expression_traversal.py.

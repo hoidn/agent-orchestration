@@ -1,0 +1,3 @@
+fix: complete source-site bindings for specializations and loop state; render loop-control types; resolve provider bindings
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_source_sites.py::test_specialized_procedure_bindings_keep_procref_params_and_loop_state` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

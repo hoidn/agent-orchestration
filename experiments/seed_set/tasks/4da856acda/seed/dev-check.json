@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_evaluated_agent_observation.py::test_failed_agent_views_open_no_fallback_panes"
+  ],
+  "timeout_sec": 600
+}

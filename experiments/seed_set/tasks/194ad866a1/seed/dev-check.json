@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_runtime_source_map.py::test_runtime_union_field_violation_resolves_exact_authored_field_origin"
+  ],
+  "timeout_sec": 600
+}

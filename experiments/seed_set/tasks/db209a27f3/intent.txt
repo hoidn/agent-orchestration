@@ -1,0 +1,3 @@
+fix(closed): validate activity before boundary contract equality
+
+The change is in orchestrator/workflow_lisp/closed/check.py.

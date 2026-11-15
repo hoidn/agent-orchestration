@@ -1,0 +1,11 @@
+fix: keep run-ref checkpoint repair from wedging
+
+Validate symlink targets before writing them; refuse guest names shaped
+like copier temporaries and remove those temporaries during intent repair;
+clean a temporary after a failed rename; bound tree depth before creating
+directories and bound tmpfs entries; record full modes in pure manifests so
+freeze_tree baselines validate; recount special files during repair. Tests
+cover a SIGKILLed checkpoint, a deep tree, setgid baselines and a foreign
+device entry.
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

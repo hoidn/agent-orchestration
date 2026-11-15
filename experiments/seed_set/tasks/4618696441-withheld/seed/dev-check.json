@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_workflow_lisp_prefix_scope.py::test_a_hoisted_binding_does_not_capture_a_name_of_the_enclosing_scope"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

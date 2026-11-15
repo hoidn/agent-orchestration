@@ -2,12 +2,24 @@
 # Experiment PATH guard for both CLI names. Absolute paths, reset PATH and direct APIs bypass it;
 # session metadata is scanned separately. Exact IDs deliberately refuse unknown model tiers.
 name=$(basename "$0"); here=$(cd "$(dirname "$0")" && pwd -P); real=
-case $name in
-  claude) default=claude-sonnet-5-5 ;;
-  codex) default=gpt-5.6-terra ;;
-  *) echo "model guard: unsupported CLI '$name'" >&2; exit 2 ;;
-esac
 refuse() { echo "model guard: $*" >&2; exit 2; }
+# The unit's one bound Claude model. Inside the shims' sandbox it is the read-only binding the launcher writes
+# from the unit's declaration, so neither the launch nor a candidate's environment can rebind it. The file is
+# absent only outside the sandbox (direct guard use), where Haiku binds when ORC_ALLOWED_CLAUDE_MODELS is exactly
+# its ID. Either way the opt-in must still list Haiku for Haiku to run, so the environment can only narrow.
+claude_model=claude-sonnet-5-5
+[ "${ORC_ALLOWED_CLAUDE_MODELS-}" != claude-haiku-5-5 ] || claude_model=claude-haiku-5-5
+frozen=/.compare-claude-model
+[ ! -e "$frozen" ] || claude_model=$(<"$frozen")
+case $claude_model in
+  claude-sonnet-5-5|claude-haiku-5-5) ;;
+  *) refuse "frozen Claude binding '$claude_model' is outside the owner's Sonnet/Haiku cap" ;;
+esac
+case $name in
+  claude) default=$claude_model ;;
+  codex) default=gpt-5.6-terra ;;
+  *) refuse "unsupported CLI '$name'" ;;
+esac
 [ "${ORC_SINGLE_CALL_CLI_STATE-}" != dispatched ] ||
   refuse "nested provider CLI is forbidden: one provider CLI per recorded call (including help/version)"
 check_model() {
@@ -21,8 +33,8 @@ check_model() {
     esac
     refuse "'$1' is outside the criterion's allowed Codex model IDs"
   fi
-  [ "$1" = "$default" ] || refuse "'$1' is outside the owner's Sonnet/Terra model cap"
-  if [ "$name" = claude ] && [ -n "${ORC_ALLOWED_CLAUDE_MODELS+set}" ]; then
+  [ "$1" = "$claude_model" ] || refuse "'$1' is outside the owner's Sonnet/Haiku cap or this unit's bound Claude model"
+  if [ "$1" != claude-sonnet-5-5 ] || [ -n "${ORC_ALLOWED_CLAUDE_MODELS+set}" ]; then
     case ,$ORC_ALLOWED_CLAUDE_MODELS, in
       *,"$1",*) return ;;
     esac
@@ -72,9 +84,9 @@ for ((i = 0; i < ${#args[@]}; i++)); do
     *) check_model "$model" ;;
   esac
 done
-[ "${CLAUDE_CODE_SUBAGENT_MODEL:-claude-sonnet-5-5}" = claude-sonnet-5-5 ] ||
+[ "${CLAUDE_CODE_SUBAGENT_MODEL:-$claude_model}" = "$claude_model" ] ||
   refuse "forbidden forced Claude subagent model '${CLAUDE_CODE_SUBAGENT_MODEL}'"
-export CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1
+export CLAUDE_CODE_SUBAGENT_MODEL=$claude_model CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1
 if [ -z "$given" ]; then
   check_model "$default"
   set -- --model "$default" "$@"

@@ -1,0 +1,96 @@
+diff --git a/docs/design/workflow_lisp_evaluated_execution.md b/docs/design/workflow_lisp_evaluated_execution.md
+index 164c1ccff0a3e2789c37946236258acf578faa55..568cb0ed50312a6f67e21a696eb430e2537bab76 100644
+--- a/docs/design/workflow_lisp_evaluated_execution.md
++++ b/docs/design/workflow_lisp_evaluated_execution.md
+@@ -999,7 +999,7 @@ files that differ.
+ | C2 | The resolved input of a command binds, by content: each stable-command token selected as a workspace path by the conservative rules below, and each closure entry. The normalized declaration and file evidence use the common encoding below. Modification times are not bound |
+ | C3 | The interpreter, the first token of a stable command when it is a bare name, is resolved on `PATH` once, when the run starts. The run header records its resolved path and digest. Every attempt of the run launches the resolved path, not the name. The interpreter does not enter any effect's resolved input: a changed digest at resume is reported as `interpreter_changed` and the run continues on the recorded path; a missing path refuses the resume with `resume_interpreter_missing` |
+ | C4 | A command must treat its closure as read-only. Before starting its attempt, check that the concrete runtime destinations for that attempt are disjoint from that command's closure, as below. Rehash before commit and fail the attempt with `command_closure_written` if its declared files changed. Before retrying an uncommitted attempt, compare the current implementation-file evidence with its `started` evidence and refuse any change (§8.1), even if no failure record survived. A resume that finds a committed effect's declared file changed also refuses (C7). The local check does not protect closures from startup, other effects or rejection bookkeeping (§8.2). Commands are launched with `PYTHONDONTWRITEBYTECODE=1` |
+-| C5 | Outside the promise: modification times; the environment; a file opened by a computed name or imported without declaration; the network; the clock; the provider template behind a provider id and the model behind it; workspace files no boundary declares. A command whose behaviour depends on one of these may be reused with a result no fresh run would give. The promise binds bytes of declared files, nothing else |
++| C5 | Outside the promise: modification times; the environment; a file opened by a computed name or imported without declaration; the network; the clock; the provider template behind a provider id and the model behind it; workspace files no boundary declares; `__pycache__` contents of a declared directory (§7.3), including bytecode Python loads without checking its source bytes (`unchecked-hash`, or timestamp bytecode whose recorded source mtime and size match). A command whose behaviour depends on one of these may be reused with a result no fresh run would give. The promise binds bytes of declared files, nothing else |
+ | C6 | A provider's prompt source (`asset_file`, `input_file` or document fill) and its prompt dependency files are always bound by content digest |
+ | C7 | A semantically changed manifest or stable command changes the program identity: a fresh build is compared with the header, and resume is refused with `resume_program_changed` before any memo record is read. A changed bound file diverges only the effects that bind it: preflight checks the active committed prefix in journal order and refuses at the first divergence with `effect_input_diverged`, before any launch or reconciliation (§8.4) |
+ 
+@@ -1074,6 +1074,11 @@ their declared location. Normalize redundant separators and `.` components
+ to POSIX spelling, preserve `..` until filesystem resolution (a preceding
+ symlink can change its meaning), then sort and deduplicate the declaration.
+ Overlapping directory/file entries are allowed and do not create exclusions.
++`__pycache__` contents are not evidence: a declared directory's walk skips
++every entry named `__pycache__`, because Python uses bytecode there only for
++an existing source (PEP 3147). A `.pyc` elsewhere, such as a sourceless
++module that Python imports when no `.py` sits beside it, and an entry or token
++naming a file directly stay bound.
+ This normalization does not rewrite stable-command argv or change its existing
+ path resolution. An explicitly absolute declaration remains location-bound;
+ moving source files alone does not rewrite it.
+@@ -1099,9 +1104,10 @@ and I/O code, so the leaf adapter file alone is not its implementation.
+ Declaring the package directory avoids an import-discovery system or a guessed
+ empty closure; it intentionally makes other package-file changes diverge too.
+ A smaller future checked-in closure needs evidence for its complete package
+-dependencies. All package caches must therefore be disabled or outside that
+-directory in both evaluator and child processes; existing caches are not
+-excluded from directory hashing.
++dependencies. All package caches other than the `__pycache__` contents
++excluded above must therefore be disabled or outside that directory in both
++evaluator and child processes; other existing caches are not excluded from
++directory hashing.
+ 
+ Resolve this logical base through the loaded package location already used
+ by `_builtin_stdlib_source_root` and the command executor's package/PYTHONPATH
+@@ -1188,7 +1194,8 @@ POSIX `path` within that directory:
+ | Internal symlink resolving to a directory | `{"path": p, "kind": "directory", "target": t}`, with no `digest`; target uses the declaration's base encoding |
+ | Ordinary directory | No row of its own; traverse its children |
+ 
+-All files, including dotfiles and caches, participate. Ordinary empty
++All files, including dotfiles and caches, participate, except the
++`__pycache__` contents excluded above, which contribute no rows. Ordinary empty
+ directories contribute no rows. Each internal directory symlink contributes
+ its identity row even when its target is empty, then its target's files are
+ traversed under the logical path through that symlink; nested directory
+diff --git a/docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md b/docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md
+index 532d3087c62792d799078e164381042388da55f7..bb7deed3e5116cd927f9fde9619d57c6f05948ec 100644
+--- a/docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md
++++ b/docs/plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md
+@@ -80,7 +80,7 @@ These obligations apply to every task; later tasks may not silently undo them.
+ 4. **Attempts:** reserve the next ordinal by synchronized `started` before exclusive attempt-directory creation; sync parent before dispatch. Collision preserves all evidence, records failure, launches nothing. One command/provider dispatch per memo attempt, even if executor retry configuration says otherwise. Only validated/projected committed inline value is authority; valid orphan output is never adopted. Result path, stdout/stderr and provider prompt belong to that immutable attempt.
+ 5. **Resume:** under the existing locks, validate the header and exact durable `resume_request` without opening its locators or loading the artifact; historical absence refuses `resume_request_missing`, present malformed data is `memo_inconsistent`. Rebuild from that effective request in memory without cache publication, compare the program before reading/binding recipe inputs, then compare fresh bound inputs **before reading any memo record**. Validate and execute the stored artifact after equality, with its rebound fresh provider context; never infer request/defaults from `bound_inputs`, monitor argv or cache. Read a complete prefix without repair; validate identities/classes/proofs/settlements; replay all active commits in journal order with freshly resolved inputs and stored values. Check the latest uncommitted command `started` evidence before stopping. For the first provider with a pending start, complete its pertinent local C6 preparation in memory before any tail repair; required missing/unreadable C6 refuses with authority/memo/attempts/views, baseline and ordinal unchanged. No provider executor preparation, start or evidence write; readable changed C6 may supply retry without a provider C4 baseline. Refuse unreachable later commits. Preserve authority, memo, attempts and views until preflight passes; operational lock-file ownership publication retains its existing seam and legacy defaults. No tail repair, view replacement, launch or reconciliation until preflight passes. Check again on encounter. Preflight, readers and execution use the same evaluator with different effect-boundary actions, not a second planner.
+ 6. **Terminals:** a completed terminal requires the same halt value and all coordinator settlements; a failed terminal may contain an uncommitted failure but no pending start or unsettled committed coordinator. Clean completed resume, effectful or pure-only, leaves memo bytes unchanged and reconciles nothing. Repeated preflight/pure failure appends no duplicate terminal. `started` reopens a failed terminal; invalidation reopens a terminal. Adjacent terminals fail validation.
+-7. **Closure:** hash stable-command workspace-path tokens and every declared file/directory/symlink with canonical logical evidence. Missing/unreadable/unsupported/cyclic evidence fails closed. Include caches and dotfiles. For a command needing an attempt, pass only that command and its concrete attempt/input/result/capture/cache/bookkeeping paths to the resolver for disjointness before `started`, mkdir or `StepExecutor` construction. Check a later-named temporary before creating it; do not reserve its parent or the whole run root. No global inventory, preview or accumulated closure set. Startup/cache/locks/authority may already exist; local refusal bookkeeping may persist inside the rejected closure only when the memo transition permits. Rehash before command commit. For latest uncommitted `started`, changed implementation bytes/targets refuse retry until restored, including a killed writer before `failed` and `must_not_repeat`; invalidation is no bypass. Package closure uses logical `package:orchestrator`, movable identical package bytes and verified execution origin, not a user-selectable base.
++7. **Closure:** hash stable-command workspace-path tokens and every declared file/directory/symlink with canonical logical evidence. Missing/unreadable/unsupported/cyclic evidence fails closed. Include caches and dotfiles, except `__pycache__` contents (design §7.3). For a command needing an attempt, pass only that command and its concrete attempt/input/result/capture/cache/bookkeeping paths to the resolver for disjointness before `started`, mkdir or `StepExecutor` construction. Check a later-named temporary before creating it; do not reserve its parent or the whole run root. No global inventory, preview or accumulated closure set. Startup/cache/locks/authority may already exist; local refusal bookkeeping may persist inside the rejected closure only when the memo transition permits. Rehash before command commit. For latest uncommitted `started`, changed implementation bytes/targets refuse retry until restored, including a killed writer before `failed` and `must_not_repeat`; invalidation is no bypass. Package closure uses logical `package:orchestrator`, movable identical package bytes and verified execution origin, not a user-selectable base.
+ 8. **Interpreters:** resolve a bare first command token once at run creation and record absolute path/digest. Resume ignores PATH re-resolution; changed bytes at that path yield `interpreter_changed` and continue; missing/unusable path yields `resume_interpreter_missing`. Interpreter evidence never enters effect-input digest. Commands set `PYTHONDONTWRITEBYTECODE=1`; the evaluator and tests must avoid contaminating a package closure with caches.
+ 9. **Invalidation:** under the writer lock validate chosen active commit and the **whole** active suffix before appending one `invalidated` row anchored by the chosen commit's immutable byte offset. Any coordinator in the suffix refuses. Replay cancels only active commits in that preceding prefix; later retries survive. No per-effect invalidations, dependency-only shortcut or batch-intent protocol.
+ 10. **Requests/results:** R1–R12 are the complete permitted differences from old requests. `context={}`, explicit workspace cwd, preserved params/policy/timeouts; no portable session/secrets/context capture. Preserve `asset_file` versus `input_file`, all admitted document slots, dependencies and collision-free typed input labels. Output validation is the existing contract validation including paths/finite numbers/active unions, followed by projection; stdout is never a result channel.
+diff --git a/orchestrator/workflow/evaluated/closure.py b/orchestrator/workflow/evaluated/closure.py
+index 6893541857dc06819621c6c6b905ba8117d20f78..41401c5796a652fa27a579388bd263c5c1f9cbb4 100644
+--- a/orchestrator/workflow/evaluated/closure.py
++++ b/orchestrator/workflow/evaluated/closure.py
+@@ -2,7 +2,7 @@
+ 
+ from __future__ import annotations
+ 
+-from collections.abc import Mapping, Sequence
++from collections.abc import Iterable, Mapping, Sequence
+ import errno
+ import os
+ from pathlib import Path
+@@ -151,6 +151,11 @@ def _file_row(
+     return row
+ 
+ 
++def _evidence_names(entries: Iterable[os.DirEntry[str]]) -> list[str]:
++    """Sorted entry names, omitting `__pycache__` bytecode caches."""
++    return sorted(entry.name for entry in entries if entry.name != "__pycache__")
++
++
+ def _directory_files(
+     logical_root: str,
+     resolved_root: Path,
+@@ -173,7 +178,7 @@ def _directory_files(
+                 raise ClosureEvidenceError(str(directory), "directory symlink cycle")
+             stack.add(identity)
+             with os.scandir(directory) as entries:
+-                names = sorted(entry.name for entry in entries)
++                names = _evidence_names(entries)
+         except ClosureEvidenceError:
+             raise
+         except OSError as exc:

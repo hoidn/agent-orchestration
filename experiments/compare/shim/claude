@@ -34,7 +34,8 @@ for guarded in claude codex; do
 done
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
-model_env=(-u ORC_ALLOWED_CLAUDE_MODELS -u ORC_ALLOWED_CODEX_MODELS -u ORC_SINGLE_CALL_CLI_STATE)
+# The guard pins Claude subagents to the unit's declared model; no ambient pin reaches it.
+model_env=(-u ORC_ALLOWED_CLAUDE_MODELS -u ORC_ALLOWED_CODEX_MODELS -u ORC_SINGLE_CALL_CLI_STATE -u CLAUDE_CODE_SUBAGENT_MODEL)
 if [ -n "${COMPARE_MAX_CALLS+set}" ]; then
   # Each recorded outer launch starts fresh; its descendants retain the guard's dispatched state.
   model_env+=(ORC_SINGLE_CALL_CLI_STATE=ready)
@@ -45,7 +46,7 @@ fi
 if [ -n "${COMPARE_CODEX_MODELS+set}" ]; then
   model_env+=("ORC_ALLOWED_CODEX_MODELS=$COMPARE_CODEX_MODELS")
 fi
-env "${model_env[@]}" CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 \
+env "${model_env[@]}" CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 \
   python3 -I "$here/../sandbox.py" "$call" "$name" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
 status=${PIPESTATUS[0]}
 exec 3>&-; wait "$errors"

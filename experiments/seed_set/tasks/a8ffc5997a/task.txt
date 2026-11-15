@@ -1,0 +1,13 @@
+fix: retain LSP provenance and repair compiler type contracts
+
+Preserve direct authored call facts through normalization, retain applied union
+discriminants on re-typecheck, canonicalize imported workflow effects, and reject
+forbidden leaves in structured workflow returns. Update growth tracing for the
+current replay handler and record the remaining repair plan.
+
+Verification on integrated main: 665 passed, 2 failed. Both failures are known
+imported generic loop-carrier metadata collisions still awaiting repair.
+Changed test modules collect 325 cases. Independent reviews and the exhaustive
+growth check passed; the full-suite repair remains incomplete.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_strict_boolean_control_flow.py::test_union_variant_tag_retypecheck_preserves_applied_discriminant` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

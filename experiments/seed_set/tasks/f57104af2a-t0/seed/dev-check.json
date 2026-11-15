@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_written_during_the_attempt_does_not_fail_the_commit"
+  ],
+  "timeout_sec": 600
+}

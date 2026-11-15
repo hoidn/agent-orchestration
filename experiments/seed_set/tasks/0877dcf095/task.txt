@@ -1,0 +1,5 @@
+Select the executed arm state update for loop exhaustion reads
+
+The change is in orchestrator/workflow/loops.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_loops_exhaustion_state.py::test_skipped_arm_state_step_ignored` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

@@ -7,6 +7,7 @@ where each judge's state directory holds them; see compare_harness_support.
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -407,6 +408,16 @@ def test_summarize_runs_hidden_acceptance_in_an_untouched_copy_without_git_and_l
     failed = [clone["hidden_failed"] for clone in results["clones"].values()]
     assert (results["measures"]["direct_task.hidden_mean"], failed) == (
         pytest.approx(3 / 4), [["tests/test_hidden.py::test_missing"]])
+
+
+def test_a_hidden_test_past_the_callers_bound_counts_as_failed(tmp_path):
+    clone, task = tmp_path / "clone", tmp_path / "task"
+    clone.mkdir()
+    (task / "hidden" / "tests").mkdir(parents=True)
+    (task / "hidden" / "tests" / "test_hidden.py").write_text(
+        "import time\n\n\ndef test_hangs():\n    time.sleep(120)\n\n\ndef test_quick():\n    pass\n")
+    nodes = ["tests/test_hidden.py::test_hangs", "tests/test_hidden.py::test_quick"]
+    assert summarize.hidden_failures(clone, task, nodes, sys.executable, 10) == ["tests/test_hidden.py::test_hangs"]
 
 
 def test_reviewed_change_hidden_paired_gain_is_the_final_minus_the_first_hidden_fraction():

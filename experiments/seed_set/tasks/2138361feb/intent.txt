@@ -1,0 +1,8 @@
+fix: build the pure-result replay runtime during --dry-run
+
+A run builds PureReplayRuntime at start and rejects a program whose pure
+bindings disagree with the result contracts they read. --dry-run returned
+before that point, so such a program passed --dry-run and was rejected only
+when a real run started. --dry-run now builds the same runtime from the
+compiled bundle and reports the same diagnostic with exit 2, without a run
+directory, state, lock or command.

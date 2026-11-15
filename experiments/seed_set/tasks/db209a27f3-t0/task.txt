@@ -1,0 +1,8 @@
+fix(closed): validate activity before boundary contract equality
+
+The change is in orchestrator/workflow_lisp/closed/check.py.
+
+The check currently fails with:
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.closed.program.ClosedProgramInvalid'>
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_closed_boundary_topology.py::test_unconditional_native_outputs_cannot_replace_a_caller_union` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

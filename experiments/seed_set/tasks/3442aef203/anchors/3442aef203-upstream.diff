@@ -1,0 +1,57 @@
+diff --git a/orchestrator/cli/commands/resume.py b/orchestrator/cli/commands/resume.py
+index 740638af6cd4ab2c078c175e55c66d7f07e19891..7a5934f4746b0ae882ed2b1c35ea086cd46a2193 100644
+--- a/orchestrator/cli/commands/resume.py
++++ b/orchestrator/cli/commands/resume.py
+@@ -26,6 +26,9 @@ from orchestrator.workflow.resume_projection_integrity import (
+     ResumeScopePath,
+     audit_scope,
+ )
++from orchestrator.workflow.pure_result_replay import (
++    DERIVED_PURE_REPLAY_PROFILE,
++)
+ from orchestrator.monitor.process import (
+     process_start_time_token,
+     read_process_metadata,
+@@ -445,12 +448,6 @@ def _resume_workflow_with_writer_lock_held(
+             live_agent_note_timeout_sec=live_agent_note_timeout_sec,
+             live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
+         )
+-        if observability is not None:
+-            # Preserve the existing force-restart override lifecycle.
+-            with state_manager.state_transaction() as transaction_state:
+-                transaction_state.observability = observability
+-            state = state_manager.state
+-            assert state is not None
+ 
+     # Validate checksum unless force restart
+     if not force_restart:
+@@ -533,6 +530,7 @@ def _resume_workflow_with_writer_lock_held(
+                 ),
+             bound_inputs=bound_inputs,
+             observability=observability,
++            result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+         )
+     else:
+         # Find the next step to execute
+diff --git a/orchestrator/cli/commands/run.py b/orchestrator/cli/commands/run.py
+index 73891c8d646042e990d703c2d82f2b3f957855e9..ea58c52a4c5a429f1a94bbdb2bebbf16de9fab1f 100644
+--- a/orchestrator/cli/commands/run.py
++++ b/orchestrator/cli/commands/run.py
+@@ -21,6 +21,9 @@ from orchestrator.workflow.loaded_bundle import (
+     workflow_public_input_contracts,
+ )
+ from orchestrator.workflow.linting import lint_workflow
++from orchestrator.workflow.pure_result_replay import (
++    DERIVED_PURE_REPLAY_PROFILE,
++)
+ from orchestrator.monitor.process import process_start_time_token, write_process_metadata
+ from orchestrator.runtime_observability import close_executor_session, open_executor_session
+ from orchestrator.runtime_observability import record_compiled_frontend_provenance
+@@ -438,6 +441,7 @@ def run_workflow(args: Namespace) -> int:
+             context,
+             bound_inputs=bound_inputs,
+             observability=observability,
++            result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+         )
+         if frontend_build is not None:
+             with state_manager.state_transaction() as transaction_state:

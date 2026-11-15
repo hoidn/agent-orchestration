@@ -1,0 +1,111 @@
+diff --git a/orchestrator/workflow/evaluated/commands.py b/orchestrator/workflow/evaluated/commands.py
+index ef9285be26e09c527e47c577f0bcb2fe52635dfb..7b7d301c001bc56efa00559cea78ef7c5a61e5cc 100644
+--- a/orchestrator/workflow/evaluated/commands.py
++++ b/orchestrator/workflow/evaluated/commands.py
+@@ -170,8 +170,7 @@ def launch_command(
+     executor: Any = None,
+     result_locator: str | None = None,
+ ) -> str:
+-    """Dispatch once and capture only attempt-owned evidence; a given `executor` (a confined
+-    leaf adapter) replaces the host StepExecutor and the host module-origin check."""
++    """Dispatch once and capture attempt evidence; an `executor` replaces the host StepExecutor."""
+     launch_argv = list(argv)
+     if not launch_argv or any(not isinstance(token, str) for token in launch_argv):
+         raise ValueError("final command argv must contain string tokens")
+@@ -211,7 +210,8 @@ def _command_execution_failure(execution):
+     code = "command_timeout" if error_type == "timeout" else "command_exit_nonzero"
+     return CommandPerformerError(code,
+         f"evaluated command failed with exit code {execution.exit_code}",
+-        exit_info={"exit_code": execution.exit_code, "error": execution.error})
++        exit_info={"exit_code": execution.exit_code, "error": execution.error,
++                   **(execution.capture_result.debug or {})})  # confined leaves: stream truncation flags
+ 
+ 
+ def command_result(node, *, attempt_files, workspace_files, result_path):
+diff --git a/orchestrator/workflow/evaluated/confined_dispatch.py b/orchestrator/workflow/evaluated/confined_dispatch.py
+index 0688af40d78fe425dd09e3c4f788b6aa94ad3ce1..d086885a9015accf6f987db90a680b2026e69802 100644
+--- a/orchestrator/workflow/evaluated/confined_dispatch.py
++++ b/orchestrator/workflow/evaluated/confined_dispatch.py
+@@ -49,7 +49,7 @@ from .interpreters import (
+ EFFECT_UNSUPPORTED = "run_ref_environment_effect_unsupported"
+ TRANSPORT_UNAVAILABLE = "run_ref_provider_transport_unavailable"
+ BUDGET_EXHAUSTED = "run_ref_budget_exhausted"
+-ENVIRONMENT_CHANGED = "run_ref_environment_changed"
++EVIDENCE_INVALID = "run_ref_evidence_invalid"
+ ESCAPE_REJECTED = "run_ref_environment_escape_rejected"
+ GUEST_WORKSPACE = "/workspace"
+ GUEST_RESULT = "/result"
+@@ -98,10 +98,9 @@ def guest_result_path(result_path: str) -> str:
+ def guest_cwd(clone_root: Path, launch_cwd: Path | None) -> str:
+     if launch_cwd is None:
+         return GUEST_WORKSPACE
+-    try:
+-        relative = Path(launch_cwd).relative_to(clone_root).as_posix()
+-    except ValueError as exc:
+-        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"launch cwd {launch_cwd} is outside the clone") from exc
++    relative = _clone_relative(".", os.path.relpath(launch_cwd, clone_root))
++    if relative is None:
++        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"launch cwd {launch_cwd} is outside the clone")
+     return GUEST_WORKSPACE if relative == "." else f"{GUEST_WORKSPACE}/{relative}"
+ 
+ 
+@@ -144,6 +143,8 @@ def image_implementation_files(node: Mapping[str, Any], pins: Mapping[str, Any],
+ def _image_row(image: SealedImage, path: str) -> dict[str, Any]:
+     try:
+         resolved = resolve_image_path(image.root_fd, path)
++        if not image_resolvable(resolved):
++            raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"{path} resolves into guest scratch: {resolved}")
+         info = os.stat(resolved.lstrip("/") or ".", dir_fd=image.root_fd, follow_symlinks=False)
+         if stat.S_ISDIR(info.st_mode):
+             fd = os.open(resolved.lstrip("/") or ".", _NOFOLLOW_DIRECTORY, dir_fd=image.root_fd)
+@@ -180,9 +181,10 @@ class LeafCommandExecutor:
+             input_files=dict(self.input_files), network=self.context.network))
+         self.attempt_files.create("stdout.txt", outcome.stdout, exclusive=True)
+         self.attempt_files.create("stderr.txt", outcome.stderr, exclusive=True)
++        flags = {"stdout_truncated": outcome.stdout_truncated, "stderr_truncated": outcome.stderr_truncated}
++        self.attempt_files.create("streams.json", canonical_json_bytes(flags), exclusive=True)  # P31 evidence
+         if "result.json" in outcome.result_files:
+             self.attempt_files.create("result.json", outcome.result_files["result.json"], exclusive=True)
+-        flags = {"stdout_truncated": outcome.stdout_truncated, "stderr_truncated": outcome.stderr_truncated}
+         if outcome.holder_death is not None:
+             death = outcome.holder_death
+             raise CommandPerformerError(death.code, f"confined leaf lost its holder: {death.detail}",
+@@ -353,7 +355,7 @@ def store_attempt_snapshot(store: WorkspaceFiles, blobs: Mapping[str, bytes], *,
+         if not store.exists(name):
+             new[name] = content
+         elif store.sha256(name) != digest:
+-            raise ConfinedDispatchRefusal(ENVIRONMENT_CHANGED, f"attempt snapshot blob {name} was tampered")
++            raise ConfinedDispatchRefusal(EVIDENCE_INVALID, f"attempt snapshot blob {name} was tampered")
+     added = sum(len(content) for content in new.values())
+     if added > allowance_bytes:
+         raise ConfinedDispatchRefusal(BUDGET_EXHAUSTED,
+@@ -376,5 +378,5 @@ def verify_attempt_snapshot(store: WorkspaceFiles, parts: Mapping[str, str]) ->
+         except (OSError, ValueError):
+             actual = None
+         if actual != digest:
+-            raise ConfinedDispatchRefusal(ENVIRONMENT_CHANGED, f"attempt snapshot of {name} is missing or tampered")
++            raise ConfinedDispatchRefusal(EVIDENCE_INVALID, f"attempt snapshot of {name} is missing or tampered")
+     return bound
+diff --git a/orchestrator/workflow/evaluated/effect_execution.py b/orchestrator/workflow/evaluated/effect_execution.py
+index 09e90b74f180f0073c3cb13b396060c44975f66d..4f6c679144f8b98c119c3a2a96397cfa38546aa8 100644
+--- a/orchestrator/workflow/evaluated/effect_execution.py
++++ b/orchestrator/workflow/evaluated/effect_execution.py
+@@ -9,7 +9,8 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
+ 
+ from .authority import RunAuthority
+ from .commands import CommandPerformerError, launch_command, workspace_relative_path
+-from .confined_dispatch import ConfinedLeafContext, dispatch_confined
++from .confined_dispatch import EFFECT_UNSUPPORTED, ConfinedDispatchRefusal, ConfinedLeafContext, dispatch_confined
++from .interpreters import is_image_pin
+ from .providers import launch_provider
+ from .run_ref import perform_evaluated_run_ref
+ 
+@@ -52,6 +53,8 @@ def perform_external(attempt: PreparedAttempt) -> ExternalOutcome:
+     node = attempt.node
+     if attempt.confined is not None:
+         return ExternalOutcome(result_path=dispatch_confined(attempt))
++    if any(map(is_image_pin, attempt.authority.header["interpreters"].values())):
++        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, "an image-pinned run has no confined leaf runner")
+     logical_root = attempt.workspace if attempt.launch_cwd is not None else None
+     if node['class'] == 'command':
+         path = _dispatch_command(attempt, logical_root)

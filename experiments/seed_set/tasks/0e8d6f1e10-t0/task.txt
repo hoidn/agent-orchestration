@@ -1,0 +1,11 @@
+Reject malformed run-ref primitive bindings
+
+The change is in orchestrator/workflow_lisp/typecheck_run_ref.py.
+
+The check currently fails with:
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.typecheck_context.TypecheckSessionStateCollisionError'>
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.typecheck_context.TypecheckSessionStateCollisionError'>
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.typecheck_context.TypecheckSessionStateCollisionError'>
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.typecheck_context.TypecheckSessionStateCollisionError'>
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_enum_like_primitives` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

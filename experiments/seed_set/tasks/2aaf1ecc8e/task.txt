@@ -1,0 +1,5 @@
+Flatten opaque field-chain substitution in WCC mapper
+
+The change is in orchestrator/workflow_lisp/expression_traversal.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_provider_supervision.py::test_closed_member_inline_opaque_field_chain_flattens` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.
