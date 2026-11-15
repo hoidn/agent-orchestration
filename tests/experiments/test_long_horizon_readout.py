@@ -444,3 +444,53 @@ def test_the_pilot_s_three_attempts_are_marked_and_are_observations_of_the_ladde
 
 def test_no_attempt_is_marked_as_the_pilot_s_when_no_slot_is():
     assert _compute(_export(CUTS))["listed"]["pilot"] == []
+
+
+# ---- 7. Two configuration labels: never pooled; the earlier one printed apart; short cells with their count ---------
+
+def _relabelled(reward):
+    return {"reward": reward, "label": OLD}
+
+
+LABELLED = {TASKS[0]: _same([_relabelled(1), _relabelled(1), 0, 0, 0]),
+            TASKS[1]: _same([_relabelled(0), _relabelled(1), 1, 0, 0])}
+
+
+def test_observations_under_two_labels_are_never_pooled_in_a_cell_or_a_task():
+    result = _compute(_export(LABELLED, earlier=(OLD,)))
+    task = result["tasks"][TASKS[0]]
+    assert ((task["cells"]["low"]["k"], task["cells"]["low"]["n"]), (task["pooled"]["K"], task["pooled"]["n"]),
+            task["pooled"]["label"], result["effort"]["triples"]) == ((0, 3), (0, 9), "floor", 6)
+
+
+def test_an_earlier_label_s_observations_are_counted_apart_with_its_label_and_ledger_row():
+    earlier = _compute(_export(LABELLED, earlier=(OLD,)))["earlier"]
+    assert [(e["label"], e["ended_by"], e["cells"][TASKS[0]]["low"]["k"], e["cells"][TASKS[0]]["low"]["n"])
+            for e in earlier] == [(OLD, f"ledger row ending {OLD[:8]}", 2, 2)]
+
+
+def _rules_only(result):
+    return {key: value for key, value in result.items() if key != "earlier"}
+
+
+def test_an_earlier_label_s_observations_enter_no_rule():
+    flipped = {task: {e: [o | {"reward": 1 - o["reward"]} if isinstance(o, dict) else o for o in outcomes]
+                      for e, outcomes in by.items()} for task, by in LABELLED.items()}
+    assert _rules_only(_compute(_export(LABELLED, earlier=(OLD,)))) == _rules_only(
+        _compute(_export(flipped, earlier=(OLD,))))
+
+
+def _section(text, heading):
+    return text.split(f"## {heading}", 1)[1].split("\n## ", 1)[0]
+
+
+def test_the_earlier_label_is_printed_in_a_table_of_its_own():
+    text = readout.render(_compute(_export(LABELLED, earlier=(OLD,))))
+    assert (OLD in _section(text, "Earlier configuration labels"), "2 of 2" in _section(text, "Tasks"),
+            "2 of 2" in _section(text, "Earlier configuration labels")) == (True, False, True)
+
+
+def test_a_short_cell_is_printed_with_its_count_and_labelled_incomplete():
+    row = next(line for line in _section(readout.render(_compute(_export(LABELLED, earlier=(OLD,)))), "Tasks")
+               .splitlines() if line.startswith(f"| {TASKS[0]} "))
+    assert row.count("0 of 3") == 3 and row.count("incomplete") == 3

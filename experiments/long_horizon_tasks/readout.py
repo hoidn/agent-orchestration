@@ -450,9 +450,112 @@ def compute(ladder, export, standins=None):
     efforts, rules = criterion["attempt"]["efforts"], criterion["readout"]
     in_tranche = {slot["task"] for slot in export["slots"]}
     tasks = [task["name"] for task in criterion["tasks"]["list"] if task["name"] in in_tranche]
+    level = rules["interval"]["level"]
     current = [start for start in starts if start["label"] == export["label"]]
     triples = _triples(current, efforts)
+    earlier = [{"label": e["label"], "ended_by": e["ended_by"],
+                "cells": _counts([s for s in starts if s["label"] == e["label"]], tasks, efforts, level),
+                "listed": _listed([s for s in starts if s["label"] == e["label"]], efforts)}
+               for e in export["earlier_labels"]]
     return {"rehearsal": rehearsal, "configuration": _configuration(criterion), "label": export["label"],
-            "end": export["end"],
-            "tasks": _placement(_counts(current, tasks, efforts, rules["interval"]["level"]), rules),
-            "effort": effort_test(triples, efforts, rules) | {"per_task": triples}, "listed": _listed(current, efforts)}
+            "end": export["end"], "tasks": _placement(_counts(current, tasks, efforts, level), rules),
+            "effort": effort_test(triples, efforts, rules) | {"per_task": triples}, "listed": _listed(current, efforts),
+            "earlier": earlier, "rules": {"fall_bound": rules["fall_bound"], "interval": rules["interval"]}}
+
+
+# ---- render: the readout as text, formatting compute's figures only ------------------------------------------------
+
+def _percent(value):
+    return f"{100 * value:.1f}"
+
+
+def _count(cell, k="k", n="n"):
+    lower, upper = cell["interval"]
+    return f"{cell[k]} of {cell[n]} ({_percent(lower)}–{_percent(upper)}%)"
+
+
+def _labelled(cell):
+    return f"{_count(cell)} {cell['label']}"
+
+
+def _header(result):
+    configuration, end = result["configuration"], result["end"]
+    network = configuration["network"]
+    lines = ["# Long-horizon readout" + (" (REHEARSAL)" if result["rehearsal"] else ""), ""]
+    if result["rehearsal"]:
+        lines += ["**REHEARSAL: stand-in values for the pending readout fields; nothing here is a result.**", ""]
+    ended = "in progress (no family.json)" if end is None else end["by"] + (f": {end['cause']}" if end["cause"] else "")
+    lines += [f"- Configuration (D2): `{configuration['model']}` at {', '.join(configuration['efforts'])}; CLI "
+              f"{configuration['cli_version']}; tools {', '.join(configuration['tools'])}; Harbor "
+              f"{configuration['harbor']}, podman-compose {configuration['podman_compose']}; agent network "
+              f"{network['network_mode']}, hosts {', '.join(network['allowed_hosts'] or ['(pending)'])}",
+              f"- Configuration label: `{result['label']}`", f"- Tranche: {ended}", ""]
+    return lines
+
+
+def _tasks_table(result):
+    efforts = result["configuration"]["efforts"]
+    lines = ["## Tasks (current label; k of n, exact 95% interval, label)", "",
+             "| Task | " + " | ".join(efforts) + " | Pooled | Band effort |", "|" + " --- |" * (len(efforts) + 3)]
+    for task, placed in result["tasks"].items():
+        pooled, band = placed["pooled"], placed["band_effort"]
+        screened = f", screened at {pooled['n']} attempts" if pooled["label"] == "screened in" else ""
+        banded = "none" if band is None else f"{band['effort']}, {band['label']}" + (
+            ", flagged" if band["flagged"] else "")
+        cells = [_labelled(placed["cells"][e]) for e in efforts]
+        lines.append(f"| {task} | " + " | ".join(cells) + f" | {_count(pooled, 'K')} {pooled['label']}{screened} | "
+                     f"{banded} |")
+    return lines + [""]
+
+
+def _fraction(p):
+    return f"{p} ({float(p):.4f})"
+
+
+def _effort_section(result):
+    effort, rule = result["effort"], result["rules"]["fall_bound"]
+    lines = ["## Effort test (complete triples of the current label)", "",
+             f"Complete triples: {effort['triples']} over {effort['tasks']} tasks. Pooled successes: " +
+             ", ".join(f"{e} {s} of {effort['triples']}" for e, s in effort["pooled"].items()) + ".", "",
+             "| Difference | Sum of d_i | p, sum at or below | p, sum at or above |", "| --- | --- | --- | --- |"]
+    for name, d in effort["differences"].items():
+        lines.append(f"| {name} | {d['sum']} | {_fraction(d['p_below'])} | {_fraction(d['p_above'])} |")
+    bound = "none: no complete triple" if effort["fall_bound"] is None else f"{effort['fall_bound']:.1f} points"
+    return lines + ["", f"**Verdict: {effort['verdict']}.** Bound on the fall (one-sided {rule['one_sided']:.0%} "
+                        f"upper bound on the pooled fall from {result['configuration']['efforts'][0]} to "
+                        f"{result['configuration']['efforts'][-1]}, bootstrap over tasks, {rule['resamples']} "
+                        f"resamples, seed {rule['seed']}): {bound}. {rule['rule']}", ""]
+
+
+def _entries(title, entries, reason=None):
+    lines = [f"### {title}", ""]
+    for e in entries:
+        why = f": {e[reason]}" if reason else ""
+        lines.append(f"- start {e['start']}, {e['task']} {e['effort']} round {e['round']}, row {e['row']} "
+                     f"({e['class']}){why}")
+    return lines + (["- none"] if not entries else []) + [""]
+
+
+def _listed_section(listed):
+    return (["## Listed", ""] + _entries("Exclusions (enter no k or n)", listed["exclusions"], "reason")
+            + _entries("Flagged observations", listed["flags"], "ending")
+            + ["### Cut by a usage limit, per effort", "", ", ".join(f"{e} {n}" for e, n in listed["cuts"].items()),
+               ""] + _entries("The pilot's attempts (they ran first)", listed["pilot"]))
+
+
+def _earlier_section(result):
+    efforts = result["configuration"]["efforts"]
+    lines = ["## Earlier configuration labels (printed apart; they enter no rule)", ""]
+    for earlier in result["earlier"]:
+        lines += [f"Label `{earlier['label']}`, ended by: {earlier['ended_by']}", "",
+                  "| Task | " + " | ".join(efforts) + " |", "|" + " --- |" * (len(efforts) + 1)]
+        lines += [f"| {task} | " + " | ".join(_count(cells[e]) for e in efforts) + " |"
+                  for task, cells in earlier["cells"].items()]
+        lines += [""] + _entries("Exclusions under this label", earlier["listed"]["exclusions"], "reason")
+    return lines + (["- none", ""] if not result["earlier"] else [])
+
+
+def render(result):
+    """The readout as Markdown, from compute's result alone."""
+    return "\n".join(_header(result) + _tasks_table(result) + _effort_section(result) + _listed_section(
+        result["listed"]) + _earlier_section(result))
