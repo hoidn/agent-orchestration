@@ -2424,6 +2424,19 @@ def test_an_overlay_whose_digest_is_not_the_criterion_s_stops_the_tranche_before
         ["refused at launch"], [], [], [], 1, {}, [])
 
 
+def test_a_failure_other_than_a_refusal_before_the_harness_runs_is_a_refused_launch_never_a_start(rig):
+    """Re-review R-m5: the package's copy fails (a dangling link the digest skips) before the harness ran: no
+    start (index consumed, the attempt kept under refused/), the tranche stopped naming the exception."""
+    r = rig()
+    for task in TASKS:
+        (r.lh / ladder.PACKAGES / task / "x" / "dangling").symlink_to("/nonexistent-lh-target")
+    r.launch()
+    stops = [e for e in r.events() if e["event"] == "stop"]
+    assert ([e["reason"] for e in stops], "Error" in (stops or [{}])[0].get("detail", ""), r.calls(), r.attempts(),
+            len(list((r.root / "refused").iterdir())), _export(r)["starts"]) == (
+        ["refused at launch"], True, [], [], 1, [])
+
+
 def test_the_disk_stop_reads_the_root_file_system_beside_the_state_the_cache_and_the_home(short):
     """ladder.json host.disk_plan: no start under 20 GB free on /home or / (Podman stages pulls in /var/tmp)."""
     ctx = _ctx(short)

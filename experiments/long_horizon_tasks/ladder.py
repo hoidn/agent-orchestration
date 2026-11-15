@@ -2055,6 +2055,11 @@ class Attempt:
             except Refused as refused:
                 self.refused(str(refused))
                 return
+            except Exception as exc:  # re-review R-m5: before the harness ran, a failure is a refused launch too
+                if "harness" in self.a:
+                    raise
+                self.refused(f"{type(exc).__name__}: {exc}")
+                return
             self.follow(proc)
             self.teardown()
         except Exception as exc:  # recorded, never lost: the tranche pauses for a person
