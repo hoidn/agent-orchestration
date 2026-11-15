@@ -1474,7 +1474,7 @@ identity meets at `resume`.
     `bind-proc` over one whose bound values are literals or value names, is
     bound in the local's own body when `body` references the local, and the
     value names it reads are captured instead: the local builds the program of
-    the same uses written with the reference and no local. The copy reads the
+    the same local with the reference written in its body. The copy reads the
     binders the reference read, by binding identity. When a name it reads is
     bound again between the reference and the local (a loop or `fn` state
     binder, a `let*`, a `match` arm, a binder a macro takes from its caller) or
