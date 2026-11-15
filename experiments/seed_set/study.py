@@ -206,6 +206,7 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
         shutil.rmtree(record["tree"])
         raise
     facts["exit"] = launch(records / "command.sh", env, records / "run.log", spec["max_calls"] * CALL_SEC + SLACK_SEC)
+    pause_on_limit(study, records, str(records))  # before the settlement's collect, scan and check (review3 minor 1)
     dump(records / "study.json", facts)
     return finish(study, records, facts, fix)
 
@@ -264,11 +265,19 @@ def settle_price(study, unit, calls_root, tranche, model):
     return priced
 
 
+def pause_on_limit(study, calls_root, unit):
+    """The unit's usage limit (`units.usage_limit`, flagged when its shape is not the recorded one) or None; its
+    `pause` event, which closes every start at once, is recorded once per unit."""
+    limit = units.usage_limit(calls_root)
+    if limit and not any(row.get("event") == "pause" and row.get("unit") == unit for row in spend.rows(study.ledger)):
+        spend.record(study.ledger, "pause", unit=unit, **limit)
+    return limit
+
+
 def provider_end(study, calls_root, unit, out):
     """The provider's own ending of a unit: a usage limit cuts it (not an incident, not an observation) and closes
-    every start at once with a `pause` event; any other provider error ends a failed unit as an incident."""
-    if limit := units.usage_limit(calls_root):
-        spend.record(study.ledger, "pause", unit=unit, **limit)
+    every start (`pause_on_limit`); any other provider error ends a failed unit as an incident."""
+    if limit := pause_on_limit(study, calls_root, unit):
         return {key: value for key, value in out.items() if key != "incident"} | {"cut": limit}
     if out.get("outcome") == "failed" and (why := units.provider_incident(calls_root)):
         out["incident"] = f"provider: {why}"
@@ -399,10 +408,10 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
             batches * JUDGE_SEC + SLACK_SEC)}
     finally:
         units.forget_credentials(home)
+    limit = pause_on_limit(study, records / "judges" / model, f"{out}#{model}")  # before anything else (minor 1)
     facts |= {"wall_clock_sec": time.time() - start, "calls": units.physical_calls(records / "judges" / model)}
     facts["priced"] = settle_price(study, f"{out}#{model}", records / "judges" / model, tranche, model)
-    if limit := units.usage_limit(records / "judges" / model):  # the pool is rebuilt once; its task is not lost
-        spend.record(study.ledger, "pause", unit=f"{out}#{model}", **limit)
+    if limit:  # the pool is rebuilt once; its task is not lost
         facts["cut"] = limit
     if facts["calls"] > batches:
         raise SystemExit(f"{out}#{model}: {facts['calls']} provider calls exceed the {batches} reserved; stop")

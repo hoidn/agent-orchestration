@@ -471,3 +471,23 @@ def test_offline_a_smoke_with_a_program_cut_by_a_usage_limit_fails_and_opens_not
     monkeypatch.setenv(spend.AUTHORIZATION, "redraw")
     with pytest.raises(SystemExit, match="no passed smoke"):
         probing.probe(s)
+
+
+def test_offline_a_cut_units_pause_is_written_before_its_settlement_begins(world, monkeypatch):
+    """Review 3 minor 1: the pause is in the ledger as soon as the cut unit's process ends, before collect, scan and
+    the visible check, and once per unit."""
+    s, task, reset = world.study, "a0a0a0a0a0", int(time.time()) - 60
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    limit_plan(world, task=task, model=H, reset=reset)
+    seen, settle = [], study.settle
+
+    def observed(study_, records, *rest):
+        seen.append(any(r.get("event") == "pause" and r["unit"] == str(records) for r in spend.rows(study_.ledger)))
+        return settle(study_, records, *rest)
+    monkeypatch.setattr(study, "settle", observed)
+    with pytest.raises(SystemExit, match="closed by a usage limit"):
+        study.candidates(s, "calibration", "direct", [task])
+    pauses = [r["unit"] for r in spend.rows(s.ledger) if r.get("event") == "pause"]
+    assert (bool(seen) and all(seen), len(pauses) == len(set(pauses)) == len(seen)) == (True, True)
