@@ -68,12 +68,13 @@ pytest -q -n 4 tests/experiments/test_long_horizon_ladder.py
 ```
 
 **`pending`** lists each value that `ladder.json` cannot take from `main` yet. Each such field is `null`, and its
-entry says what fills it: one of the two branches in flight (`feat/long-horizon-oracle-2b`: the qualified tasks,
-the load-sensitive list, overlay digests, extra hosts, withholding, the host list, the CPU set; `feat/lh-passthrough`:
-the refusal reasons of a request's form, its log's field names and how a log row with no slot is joined to an
-attempt), Task 2b (the disk plan, the contamination terms and the canary's SHA-256, which verifiers report
-sub-tests), the live probe (the vendor's header names, the utilisation header), or the freeze (the schedule's seed and
-hash, the bootstrap seed). A filled field moves from `pending` to `filled` with
+entry says what fills it: the branch in flight (`feat/long-horizon-oracle-2b`: the qualified tasks, the
+load-sensitive list, overlay digests, extra hosts, withholding, the host list, the CPU set), Task 2b (the disk plan,
+the contamination terms and the canary's SHA-256, which verifiers report sub-tests), the live probe (the vendor's
+header names, the utilisation header), or the freeze (the schedule's seed and hash, the bootstrap seed). The
+passthrough's form refusals and its log (keys, and how a row with no slot is joined to an attempt) are filled from
+`passthrough.py`; tests read its refusal reasons, its log keys, its paid-usage check and its worst-case bound from the
+code and hold `ladder.json` to them. A filled field moves from `pending` to `filled` with
 its `type` and a `source` (the commit or ledger row it came from). `--freeze` refuses while `pending` is non-empty, any
 `null` is left, or a filled field fails its type or names no source; a test holds every `null` to a `pending` entry.
 
@@ -81,7 +82,8 @@ its `type` and a `source` (the commit or ledger row it came from). `--freeze` re
 that the command works, labels nothing, and may be stale after a kit merge without failing a test (a rerun of `write`
 in the merge keeps it current, but no step needs it). A test checks that `write` reproduces itself on a copy of the
 kit; once the manifest is frozen, a test checks that the committed one is current. A conflict in `manifest.json` is
-resolved by running `write` on the merged tree, never by hand.
+resolved by running `write` on the merged tree, never by hand. A commit of `ladder.json` or `manifest.json` is a
+commit of this directory and so moves the kit's commit that the live probe's approval row must name (`live_probe.sh`).
 
 ## The passthrough, the token scanner and the live probe (plan Task 4)
 

@@ -5,10 +5,12 @@ formula, to the recordings and fixtures its rules rest on, and to the kit's pric
 manifest notices a one-byte change and refuses to freeze while anything is pending. No container, no network.
 """
 
+import ast
 import copy
 import glob
 import hashlib
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -16,6 +18,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -36,6 +39,9 @@ def _load(name, path):
 
 
 price_check = _load("lh_price_check_ladder", KIT / "price_check.py")
+PASSTHROUGH = KIT / "passthrough.py"
+passthrough = _load("lh_passthrough_ladder", PASSTHROUGH)
+PLAN = ROOT / "docs" / "plans" / "2026-11-13-long-horizon-task-family-and-seed-plan.md"
 
 
 def _ladder():
@@ -119,8 +125,8 @@ def test_the_price_table_by_its_hash_gives_every_rate_but_the_five_minute_write_
         long_prompt["above_prompt_tokens"], {long_prompt["multiplier"]})
 
 
-def _applies(rule, status, headers):
-    return rule["header"] in headers and status != rule["applies_to"].get("status_not")
+def _applies(rule, status, value):
+    return status != rule["applies_to"].get("status_not") and (value != "" or "header" not in rule["applies_to"])
 
 
 def _stops(rule, value):
@@ -129,10 +135,15 @@ def _stops(rule, value):
     return value == rule.get("stops_if") or value in rule.get("stops_if_in", [])
 
 
-def _paid_stop(status, headers):
-    """Whether the criterion's paid-usage rule stops the tranche at a response of this status and these headers."""
-    rules = _ladder()["paid_usage"]["passthrough_stop"]
-    return any(_applies(rule, status, headers) and _stops(rule, headers[rule["header"]]) for rule in rules)
+def _paid_stop(status, headers, paid=None):
+    """Whether the criterion's paid-usage rule stops the tranche at a response of this status and these headers: a
+    header absent or empty reads as "", and its value is lower-cased where `value_case` says case is ignored."""
+    paid = paid or _ladder()["paid_usage"]
+    fold = str.lower if paid.get("value_case") == "ignored" else str
+    rules = paid["passthrough_stop"]
+    values = {rule["header"]: fold(headers.get(rule["header"]) or "") for rule in rules}
+    return any(_applies(rule, status, values[rule["header"]]) and _stops(rule, values[rule["header"]])
+               for rule in rules)
 
 
 def test_the_paid_usage_stop_acts_on_the_stand_in_s_responses_as_ruled():
@@ -146,6 +157,44 @@ def test_the_paid_usage_stop_acts_on_the_stand_in_s_responses_as_ruled():
         "a 200 with the overage headers": True, "a 429 with the overage headers": True, "the usage-limit 429": False,
         "a 200 with no rate-limit header": False, "a 200 whose unified status is allowed": False,
         "a 429 with overage allowed only": True}
+
+
+PAID_VALUES = (None, "", "allowed", "allowed_warning", "rejected", "true", "false", "ALLOWED", "True")
+
+
+def test_the_paid_usage_rule_quotes_d4_and_as_data_stops_exactly_where_the_passthrough_s_own_check_does():
+    """The three signals of D4, every combination of nine values each at three statuses, fed through the rule as data
+    and through `Passthrough.paid_signal` (its only state is the --paid-usage list, empty here)."""
+    paid = _ladder()["paid_usage"]
+    names = sorted({rule["header"] for rule in paid["passthrough_stop"]}
+                   | {v for k, v in passthrough.PAID_USAGE.items() if k != "allowed"})
+    grid = [(status, {n: v for n, v in zip(names, values) if v is not None})
+            for status in (200, 429, 500) for values in itertools.product(PAID_VALUES, repeat=len(names))]
+    own = SimpleNamespace(paid_usage=[])
+    differ = [case for case in grid
+              if _paid_stop(*case, paid) != bool(passthrough.Passthrough.paid_signal(own, *case))]
+    quote = paid["passthrough_stop_rule"].rsplit(" (D4)", 1)[0]
+    assert (quote in " ".join(PLAN.read_text().split()), len(names), differ[:3]) == (True, 3, [])
+
+
+def test_the_worst_case_the_criterion_states_is_the_passthrough_s_bound():
+    """D4: a response whose usage cannot be read whole is priced with the larger of the body's bytes and the prompt
+    message_start reported, at the stated prompt rate, and max_tokens at the stated output rate, with the long-prompt
+    multiplier above the threshold."""
+    worst, rule = _ladder()["price"].get("worst_case", {}), price_check.load_rule()
+    rates, long_prompt = rule["per_million_usd"], rule["long_prompt"]
+
+    def stated(body, start, output):
+        prompt = max(body, sum((start or {}).values()))
+        usd = (prompt * rates.get(worst.get("prompt_rate"), float("nan"))
+               + output * rates.get(worst.get("output_rate"), float("nan"))) / 1e6
+        return round(usd * (long_prompt["multiplier"] if prompt > long_prompt["above_prompt_tokens"] else 1), 12)
+
+    cases = [(20_000, None, 32_000), (150_000, None, 64_000),
+             (10, {"input_tokens": 1000, "cache_read_input_tokens": 120_000}, 1000)]
+    code = [round(passthrough._price(passthrough._worst_case(start, {"max_tokens": out}, body)), 12)
+            for body, start, out in cases]
+    assert code == [stated(*case) for case in cases]
 
 
 def test_the_agent_setup_timeout_multiplier_is_the_one_every_task_2a_recording_ran_with():
@@ -270,8 +319,21 @@ def _match_problems(row, cited):
     return unmatched + [f"{name} matched by no alternative" for name, v in ok.items() if not any(v)]
 
 
+def _resting(row, ladder):
+    """The row with each alternative for a reason no recording shows (`rests_on`: refusal.form_reasons) read as the
+    recorded alternative it rests on: the same form, with the recorded reason's text in place of its own."""
+    rests = row.get("rests_on")
+    if not rests:
+        return row
+    text = json.dumps(row["match"])
+    for reason in ladder["refusal"][rests["reasons"]].values():
+        text = text.replace(reason, rests["reason"])
+    return {**row, "match": json.loads(text)}
+
+
 def _problems(row, ladder):
     """What keeps a D5 row from resting on the fixtures it cites; empty when it does."""
+    row = _resting(row, ladder)
     problems = _field_problems(row, ladder)
     if not row["fixtures"]:
         return problems + ([] if row.get("no_fixture") else ["no fixture and no reason"])
@@ -312,7 +374,7 @@ def _recording_of(fx):
 
 
 INDEX = {r["name"]: r for r in json.loads((KIT / "recordings.json").read_text())["recordings"]}
-SLOTLESS = ("tranche stopped", "path not allowed", "unknown token")  # logged with no slot by feat/lh-passthrough
+SLOTLESS = ("tranche stopped", "path not allowed", "unknown token")  # passthrough.py: refused before the slot is known
 SIGNAL_1 = {"anthropic-ratelimit-unified-status": "rejected"}
 
 
@@ -456,6 +518,93 @@ def test_every_fixture_a_row_cites_exists_and_its_recording_is_indexed():
     assert (bool(cited), missing, unindexed) == (True, [], [])
 
 
+# ---- the passthrough's refusal reasons and its log, read from passthrough.py ---------------------------------
+
+REFUSERS = ("Refusal", "_refusal", "_refuse")
+
+
+def _values(node):
+    """The strings an expression of passthrough.py can evaluate to, where it names them."""
+    if isinstance(node, ast.Constant):
+        return {node.value} if isinstance(node.value, str) else set()
+    if isinstance(node, ast.IfExp):
+        return _values(node.body) | _values(node.orelse)
+    if isinstance(node, ast.BoolOp):
+        return set().union(*map(_values, node.values))
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Dict):
+        return set().union(*map(_values, node.func.value.values + node.args[1:]))  # {...}.get(key, default)
+    return set()
+
+
+def _callee(call):
+    return call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", None)
+
+
+def _assigned(fn):
+    """Each name a function assigns -> the expressions it assigns to it."""
+    assigned = {}
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+            assigned.setdefault(node.targets[0].id, []).append(node.value)
+    return assigned
+
+
+def _refused_in(fn):
+    """The reasons one function refuses with: what it hands a refusal (itself, or by a name it assigns), and what a
+    `*_reason` function returns."""
+    assigned = _assigned(fn)
+    given = [node.args[0] for node in ast.walk(fn) if isinstance(node, ast.Call) and _callee(node) in REFUSERS
+             and node.args]
+    exprs = [e for arg in given for e in (assigned.get(arg.id, []) if isinstance(arg, ast.Name) else [arg])]
+    returned = [n.value for n in ast.walk(fn) if isinstance(n, ast.Return) and n.value and fn.name.endswith("_reason")]
+    return set().union(*map(_values, exprs + returned))
+
+
+def _code_reasons():
+    """Every reason passthrough.py can refuse a request with (the 403 form's `lh-passthrough: <reason>`)."""
+    tree = ast.parse(PASSTHROUGH.read_text())
+    return set().union(*(_refused_in(fn) for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)))
+
+
+def test_the_criterion_names_every_reason_the_passthrough_can_refuse_with_once():
+    refusal = _ladder()["refusal"]
+    named = list(refusal["reasons"].values()) + list((refusal["form_reasons"] or {}).values())
+    assert (sorted(named), len(named)) == (sorted(_code_reasons()), len(set(named)))
+
+
+REASON_ROWS = {"slot cap reached": 11, "tranche total reached": 12, "tranche stopped": 12}  # every other: row 13
+
+
+def _refused_session(reason, slot):
+    """The recorded model refusal with its reason replaced, and the passthrough's row for it."""
+    fx = copy.deepcopy(_fixture("passthrough-model-UnknownApiError"))
+    result = _result(fx)
+    result["result"] = result["result"].replace("model not allowed", reason)
+    return {**fx, "_log": _log([{"slot": slot, "status": 403, "refused": reason}])}
+
+
+def test_a_session_the_passthrough_refused_for_any_of_its_reasons_ends_in_that_reason_s_row():
+    """Each reason with the slot logged and without it (a cap's refusal always has one), and an answer withheld for
+    paid extra usage, which the client meets as `tranche stopped` and the slot's row logs as not passed on."""
+    ladder = _ladder()
+    got = {(reason, slot): _classify(_refused_session(reason, slot), ladder)
+           for reason in sorted(_code_reasons()) for slot in ("s", None) if slot or reason != "slot cap reached"}
+    withheld = {**_fixture("passthrough-stopped-UnknownApiError"),
+                "_log": _log([{"slot": "s", "status": 200, "passed_on": False}])}
+    want = {key: REASON_ROWS.get(key[0], 13) for key in got}
+    assert ({key: (got[key], want[key]) for key in got if got[key] != want[key]}, _classify(withheld, ladder)) == (
+        {}, 12)
+
+
+def test_the_log_keys_the_criterion_names_are_keys_the_passthrough_writes():
+    classification = _ladder()["classification"]
+    log = classification["passthrough_log"] or {}
+    named = set(log.get("refused_row", [])) | set(log.get("forwarded_row", []))
+    source = PASSTHROUGH.read_text()
+    unwritten = sorted(k for k in named if not re.search(rf'"{k}":|\b{k}=|\["{k}"\] =', source))
+    assert (bool(named), sorted(set(classification["passthrough_row_keys"]) - named), unwritten) == (True, [], [])
+
+
 # ---- pending, manifest and freeze ---------------------------------------------------------------------------
 
 PENDING_OR_FILLED = {
@@ -502,6 +651,13 @@ def test_a_frozen_committed_manifest_is_current_and_an_unfrozen_one_reproduces_i
         first, second, checked = _run(kit, "write"), _run(kit, "write"), _run(kit, "check")
         assert (first.returncode, second.stdout, checked.returncode, checked.stdout.split()[1:]) == (
             0, first.stdout, 0, ["not", "frozen"])
+
+
+def test_the_manifest_covers_the_passthrough_the_scanner_the_allowlist_its_builder_and_the_probe():
+    covered = set(_load("lh_manifest", KIT / "manifest.py").files())
+    kit = {f"experiments/long_horizon_tasks/{name}" for name in (
+        "passthrough.py", "token_scan.py", "request_allowlist.json", "make_allowlist.py", "live_probe.sh")}
+    assert kit - covered == set()
 
 
 def _flip(path):
