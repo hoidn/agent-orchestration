@@ -121,16 +121,11 @@ def refuse_provider_values(body: ExprNode, *, provider_names: Iterable[str], bou
     extern: a parameter of the owner (`bound`) or a local binder of the same name is not.
     """
 
-    from .expression_traversal import iter_child_exprs, map_expr, walk_expr
-    from .expressions import (BindProcExpr, CondExpr, FunctionCallExpr, IfExpr, LetStarExpr, MatchExpr,
-                              ProcedureCallExpr, RecordExpr, UnionVariantExpr)
+    from .expression_traversal import iter_child_exprs, walk_expr
+    from .expressions import (CondExpr, FunctionCallExpr, IfExpr, LetStarExpr, MatchExpr, ProcedureCallExpr,
+                              RecordExpr, UnionVariantExpr)
 
-    names = frozenset(provider_names)
-    externs: list = []
-    map_expr(body, lambda name: externs.append(name) or name, bound=frozenset(bound))
-    bound_arguments = {id(binding.value_expr) for node in walk_expr(body) if isinstance(node, BindProcExpr)
-                       for binding in node.bindings}
-    extern_ids = {id(name) for name in externs if name.name in names} - bound_arguments
+    extern_ids = _free_provider_ids(body, frozenset(provider_names), frozenset(bound))
     value_parents = (LetStarExpr, RecordExpr, UnionVariantExpr, IfExpr, CondExpr, MatchExpr, ProcedureCallExpr,
                      FunctionCallExpr)
     candidates = [body] + [child for node in walk_expr(body) if isinstance(node, value_parents)
@@ -140,3 +135,16 @@ def refuse_provider_values(body: ExprNode, *, provider_names: Iterable[str], bou
             _refuse(f"provider `{expr.name}` (type `Provider`) is a value only as the provider of `provider-result` "
                     "or `agent`, or as a `bind-proc` argument",
                     span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
+
+
+def _free_provider_ids(body: ExprNode, names: frozenset[str], bound: frozenset[str]) -> set[int]:
+    """The ids of the free names in `body` that are provider externs and are not a `bind-proc` argument."""
+
+    from .expression_traversal import map_expr, walk_expr
+    from .expressions import BindProcExpr
+
+    free: list[NameExpr] = []
+    map_expr(body, lambda name: free.append(name) or name, bound=bound)
+    arguments = {id(binding.value_expr) for node in walk_expr(body) if isinstance(node, BindProcExpr)
+                 for binding in node.bindings}
+    return {id(name) for name in free if name.name in names} - arguments
