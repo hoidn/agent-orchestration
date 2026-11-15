@@ -1,4 +1,4 @@
-"""`agent` types as the opaque `Agent` primitive at 2.38 and carries provider origins."""
+"""`agent` types as the opaque `Agent` primitive (from target 2.38) and carries provider origins."""
 from __future__ import annotations
 
 import json
@@ -9,6 +9,7 @@ import pytest
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle_in_memory
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import UsesProviderEffect
+from tests.source_edits import replace_exact
 
 MODULE = '''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
   (defmodule main) (export run)
@@ -18,10 +19,11 @@ MODULE = '''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
            (same designer))
       (provider-result providers.codex :prompt prompts.base :inputs (task) :returns Note))))'''
 
-TEAM = MODULE.replace(
+TEAM = replace_exact(replace_exact(
+    MODULE,
     "(defrecord Note (text String))",
     "(defrecord Note (text String)) (defrecord Team (lead Agent) (label String))",
-).replace("(same designer))", '(same designer) (team (record Team :lead {lead} :label "d")))')
+), "(same designer))", '(same designer) (team (record Team :lead {lead} :label "d")))')
 
 
 def _build(root: Path, source: str):
@@ -49,19 +51,19 @@ def _first_code(root: Path, source: str) -> str:
 
 
 def test_agent_binding_types_as_opaque_agent_and_uses_its_provider(tmp_path: Path) -> None:
-    workflow = _build(tmp_path, MODULE.format(target="2.38")).workflows["main::run"]
+    workflow = _build(tmp_path, MODULE.format(target="2.40")).workflows["main::run"]
     subjects = {e.subject for e in workflow.effect_summary.direct_effects if isinstance(e, UsesProviderEffect)}
     assert subjects == {("providers", "claude"), ("providers", "codex")}
 
 
 def test_alias_is_accepted_where_agent_is_expected(tmp_path: Path) -> None:
-    assert _build(tmp_path, TEAM.format(target="2.38", lead="same")).workflows["main::run"]
+    assert _build(tmp_path, TEAM.format(target="2.40", lead="same")).workflows["main::run"]
 
 
 def test_string_is_not_an_agent(tmp_path: Path) -> None:
     """A `String` in an `Agent` field fails with the ordinary field-type mismatch code (control: Int field)."""
-    agent_as_string = _first_code(tmp_path, TEAM.format(target="2.38", lead="task"))
-    control = _first_code(tmp_path, TEAM.format(target="2.38", lead="task").replace("(lead Agent)", "(lead Int)"))
+    agent_as_string = _first_code(tmp_path, TEAM.format(target="2.40", lead="task"))
+    control = _first_code(tmp_path, replace_exact(TEAM.format(target="2.40", lead="task"), "(lead Agent)", "(lead Int)"))
     assert agent_as_string == control
 
 
@@ -72,37 +74,37 @@ def test_agent_below_238_refuses_with_target_diagnostic(tmp_path: Path, target: 
 
 @pytest.mark.parametrize("operand", ["task", "prompts.base"])
 def test_agent_requires_a_provider_extern(tmp_path: Path, operand: str) -> None:
-    source = MODULE.format(target="2.38").replace("(agent providers.claude", f"(agent {operand}")
+    source = replace_exact(MODULE.format(target="2.40"), "(agent providers.claude", f"(agent {operand}")
     assert _first_code(tmp_path, source) == "agent_provider_invalid"
 
 
 def test_agent_rejects_timeout_and_unknown_keywords(tmp_path: Path) -> None:
-    source = MODULE.format(target="2.38").replace(':effort "high"', ':effort "high" :timeout-sec 60')
+    source = replace_exact(MODULE.format(target="2.40"), ':effort "high"', ':effort "high" :timeout-sec 60')
     assert _first_code(tmp_path, source) == "agent_keyword_invalid"
 
 
 @pytest.mark.parametrize("keyword, code", [(":model", "agent_model_type_invalid"), (":effort", "agent_effort_type_invalid")])
 def test_agent_policy_must_be_a_string(tmp_path: Path, keyword: str, code: str) -> None:
-    source = MODULE.format(target="2.38").replace("(agent providers.claude", f"(agent providers.claude {keyword} 3")
-    source = source.replace(f'{keyword} planner', "").replace(f'{keyword} "high"', "")
+    source = replace_exact(MODULE.format(target="2.40"), "(agent providers.claude", f"(agent providers.claude {keyword} 3")
+    source = source.replace(f'{keyword} planner', "").replace(f'{keyword} "high"', "")  # one of the two occurs
     assert _first_code(tmp_path, source) == code
 
 
 def test_agent_policy_must_be_inline_lowerable(tmp_path: Path) -> None:
-    source = MODULE.format(target="2.38").replace(':model planner', ':model (if true planner "m")')
+    source = replace_exact(MODULE.format(target="2.40"), ':model planner', ':model (if true planner "m")')
     assert _first_code(tmp_path, source) == "agent_policy_operand_not_inline_lowerable"
 
 
 def test_agent_type_name_is_absent_below_238(tmp_path: Path) -> None:
-    source = MODULE.format(target="2.37").replace('(agent providers.claude :model planner :effort "high")', '"x"') \
-        .replace("(defrecord Note (text String))", "(defrecord Note (text String) (who Agent))")
+    source = replace_exact(MODULE.format(target="2.37"), '(agent providers.claude :model planner :effort "high")', '"x"')
+    source = replace_exact(source, "(defrecord Note (text String))", "(defrecord Note (text String) (who Agent))")
     assert _first_code(tmp_path, source) == "type_unknown"
 
 
-@pytest.mark.parametrize("target, accepted", [("2.37", True), ("2.38", False)])
+@pytest.mark.parametrize("target, accepted", [("2.37", True), ("2.40", False)])  # 2.37: below the gate (Task 4b)
 def test_user_type_named_agent_is_reserved_only_from_238(tmp_path: Path, target: str, accepted: bool) -> None:
-    source = MODULE.format(target=target).replace('(agent providers.claude :model planner :effort "high")', '"x"') \
-        .replace("(defrecord Note (text String))", "(defrecord Note (text String)) (defrecord Agent (n String))")
+    source = replace_exact(MODULE.format(target=target), '(agent providers.claude :model planner :effort "high")', '"x"')
+    source = replace_exact(source, "(defrecord Note (text String))", "(defrecord Note (text String)) (defrecord Agent (n String))")
     if accepted:
         assert _build(tmp_path, source).workflows["main::run"]
     else:
@@ -110,17 +112,21 @@ def test_user_type_named_agent_is_reserved_only_from_238(tmp_path: Path, target:
 
 
 def test_agent_inside_a_pure_definition_is_refused_like_any_effect(tmp_path: Path) -> None:
-    pure = MODULE.format(target="2.38").replace(
+    pure = replace_exact(
+        MODULE.format(target="2.40"),
         "(defworkflow run", "(defun helper () -> Agent (agent providers.claude))\n  (defworkflow run")
-    control = pure.replace("(agent providers.claude)", "(provider-result providers.claude :prompt prompts.base :inputs () :returns Note)") \
-        .replace("-> Agent", "-> Note")
+    control = replace_exact(pure, "(agent providers.claude)",
+                            "(provider-result providers.claude :prompt prompts.base :inputs () :returns Note)")
+    control = replace_exact(control, "-> Agent", "-> Note")
     assert _first_code(tmp_path, pure) == _first_code(tmp_path, control)
 
 
 def test_agent_factory_procedure_returns_an_agent(tmp_path: Path) -> None:
-    source = MODULE.format(target="2.38").replace(
-        "(defworkflow run", "(defproc make () -> Agent :effects ((uses-provider providers.claude)) (agent providers.claude))\n  (defworkflow run") \
-        .replace("(same designer))", "(same designer) (made (make)))")
+    source = replace_exact(
+        MODULE.format(target="2.40"),
+        "(defworkflow run",
+        "(defproc make () -> Agent :effects ((uses-provider providers.claude)) (agent providers.claude))\n  (defworkflow run")
+    source = replace_exact(source, "(same designer))", "(same designer) (made (make)))")
     assert _build(tmp_path, source).workflows["main::run"]
 
 

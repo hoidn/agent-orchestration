@@ -31,8 +31,8 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps({"n": 
 '''
 
 
-def _arms_source():
-    path = Path(__file__).parent / "fixtures/workflow_lisp/current_evaluated/arms_in_loop.orc"
+def _arms_source(name="arms_in_loop.orc"):
+    path = Path(__file__).parent / "fixtures/workflow_lisp/current_evaluated" / name
     return path.read_text()
 
 
@@ -40,8 +40,8 @@ def _pure_seed(source):
     return replace_exact(replace_exact(
         replace_exact(source, "(defworkflow run () -> Int\n    (loop/recur",
         "(defworkflow run () -> Int\n    (let* ((seed (+ 0 0))) (loop/recur"),
-        "(i Int 0)", "(i Int seed)"), "(done (+ state.total got.n))))))))",
-        "(done (+ state.total got.n)))))))))")
+        "(i Int 0)", "(i Int seed)"), "(done (+ state.total got.n)))))))",
+        "(done (+ state.total got.n))))))))")
 
 
 def _effect_files(root, source):
@@ -169,7 +169,8 @@ MACRO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
 
 
 def test_public_235_to_236_retarget_refuses_without_run_writes_or_redispatch(tmp_path, monkeypatch):
-    files, inputs = _effect_files(tmp_path, _arms_source())
+    # A retarget between two old targets (Task 4b): the 2.35 copy of the fixture.
+    files, inputs = _effect_files(tmp_path, _arms_source("arms_in_loop_235.orc"))
     authority, _snapshot = _complete_effects(files, inputs, monkeypatch)
     source = files["source"].read_text()
     assert source.count('(:target-dsl "2.35")') == 1

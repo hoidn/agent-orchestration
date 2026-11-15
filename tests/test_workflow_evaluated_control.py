@@ -15,6 +15,7 @@ from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.workflows import PromptExtern
 from tests.test_workflow_lisp_closed_program_corpus import _control_sources
 from tests.workflow_lisp_closed_program_helpers import TARGET, build
+from tests.source_edits import replace_exact
 
 
 def _machine_api():
@@ -77,9 +78,10 @@ def test_effectful_if_selects_values_without_making_branch_entry_an_effect_input
 ) -> None:
     sources, entry = _control_sources("effectful_if_branches", "direct")
     source = sources["cp/probe.orc"]
-    source = source.replace(
+    source = replace_exact(replace_exact(
+        source,
         "(defworkflow run () -> Int", "(defworkflow run ((flag Bool)) -> Int"
-    ).replace("(if true", "(if flag")
+    ), "(if true", "(if flag")
     program = _build_read_back(tmp_path, {"cp/probe.orc": source}, entry)
     values = import_module("orchestrator.workflow.evaluated.values")
     effects = []
@@ -120,9 +122,10 @@ def _assert_selected_prefix_machine_result(result, effects, arm_prefix):
 
 def test_selected_select_prefix_uses_the_machine_binding_callback(tmp_path: Path) -> None:
     sources, entry = _control_sources("pure_select_prefixes", "direct")
-    sources["cp/probe.orc"] = sources["cp/probe.orc"].replace(
+    sources["cp/probe.orc"] = replace_exact(replace_exact(
+        sources["cp/probe.orc"],
         "(defworkflow run () -> Int", "(defworkflow run ((flag Bool)) -> Int"
-    ).replace("(if true", "(if flag")
+    ), "(if true", "(if flag")
     compiled = _build_read_back(tmp_path, sources, entry)
     effectful_sources, effectful_entry = _control_sources("effectful_if_branches", "direct")
     effectful = _build_read_back(tmp_path / "effectful", effectful_sources, effectful_entry)
@@ -283,12 +286,14 @@ def test_effect_identity_survives_pure_binding_insertion_and_escapes_authored_na
         / "fixtures/workflow_lisp/current_evaluated/arms_in_loop.orc"
     )
     source = source_path.read_text(encoding="utf-8")
-    refactored = source.replace(
+    refactored = replace_exact(
+        replace_exact(replace_exact(
+        source,
         "(defworkflow run () -> Int\n    (loop/recur",
         "(defworkflow run () -> Int\n    (let* ((seed (+ 0 0))) (loop/recur",
-    ).replace("(i Int 0)", "(i Int seed)").replace(
+    ), "(i Int 0)", "(i Int seed)"),
+        "(done (+ state.total got.n)))))))",
         "(done (+ state.total got.n))))))))",
-        "(done (+ state.total got.n)))))))))",
     )
     boundaries = {
         "fetch": ExternalToolBinding(
@@ -304,7 +309,7 @@ def test_effect_identity_survives_pure_binding_insertion_and_escapes_authored_na
     _machine_api().evaluate_closed_program(changed, {}, effect_handler=_effect_handler(values, changed_effects))
     assert [row[2] for row in plain_effects] == [row[2] for row in changed_effects]
 
-    escaped = source.replace("got", "got/one")
+    escaped = source.replace("got", "got/one")  # every use of the name
     escaped_program = _build_read_back(
         tmp_path / "escaped", {"spk/arms_in_loop.orc": escaped},
         "spk/arms_in_loop::run", boundaries=boundaries,
