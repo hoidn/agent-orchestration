@@ -275,9 +275,12 @@ def _passthrough_problems(alt, cited, ladder):
     """A passthrough condition cannot be read from a stream fixture: its keys must be the log's, its header names the
     stand-in's (stub_api.py), and every value it matches must occur in a cited fixture."""
     problems, stub = [], (KIT / "stub_api.py").read_text()
-    row_keys = set(ladder["classification"]["passthrough_row_keys"])
+    row_keys, causes = set(ladder["classification"]["passthrough_row_keys"]), set(ladder["classification"]["own_stops"])
     for name, test in ((f, t) for f, t in alt.items() if f.startswith("passthrough.")):
         pattern = next(iter(test.values()))
+        if name == "passthrough.own_stops":
+            problems += [] if pattern in causes | {"*"} else [f"{name}: unknown cause {pattern!r}"]
+            continue
         problems += [f"{name}: unknown key {k}" for k in set(pattern) - row_keys]
         problems += [f"{name}: header {h} not in stub_api.py" for h in pattern.get("headers", {}) if h not in stub]
         problems += [f"{name}: {v!r} in no cited fixture" for v in _leaves(pattern)
@@ -385,23 +388,39 @@ def _log_row(status, reason, scenario):
     return {"slot": "s", "status": status, **signal}
 
 
-def _log(rows):
-    return {"requests": [row for row in rows if row["slot"]], "tranche_requests": rows}
+OWN_STOPS = {"paid extra usage": lambda row: row.get("passed_on") is False,
+             "token in a log row": lambda row: "withheld" in row,
+             "response model": lambda row: row.get("response_model") not in (None, MODEL)}
+
+
+def _log(rows, ended_at=None):
+    """The passthrough's log as the rules read it (classification.fields): the slot's rows; those timed before the
+    session's ending (every one when no ending was recorded); the tranche's rows; the stops the slot's rows show."""
+    own = [row for row in rows if row["slot"]]
+    return {"requests": own, "tranche_requests": rows,
+            "requests_before_ending": [row for row in own if ended_at is None or row["time"] < ended_at],
+            "own_stops": [cause for cause, shows in OWN_STOPS.items() if any(map(shows, own))]}
+
+
+def _with_log(name, rows, ended_at=10):
+    """A recorded session with a constructed log; a row without a time is stamped 2, before the ending at 10."""
+    return {**_fixture(name), "_log": _log([{"time": 2, **row} for row in rows], ended_at)}
 
 
 def _session(fx):
     """The fixture with a stand-in for the passthrough's log of its attempt, built from what was recorded: one row per
     request the stand-in answered, with the status its request fixture holds; a 403 carries the reason the result text
     names, and a 429 of the usage-limit scenario carries signal 1. A refusal the passthrough logs with no slot is in
-    the tranche's rows only."""
+    the tranche's rows only. Every request precedes the session's ending."""
     name = _recording_of(fx)
     path = FIXTURES / "requests" / f"{name}.json"
     statuses = [row[1] for row in json.loads(path.read_text())["requests"]] if path.is_file() else []
     text = (_result(fx).get("result") or "") if _result(fx) is not MISSING else ""
     reason = re.search(r"lh-passthrough: ([a-z -]*[a-z])", text)
     scenario = re.search(r"scenario (\S+)", INDEX.get(name, {}).get("source", ""))
-    return {**fx, "_log": _log([_log_row(status, reason and reason.group(1), scenario and scenario.group(1))
-                                for status in statuses])}
+    rows = [{**_log_row(status, reason and reason.group(1), scenario and scenario.group(1)), "time": i}
+            for i, status in enumerate(statuses)]
+    return {**fx, "_log": _log(rows, len(rows))}
 
 
 def _matches(row, session):
@@ -439,21 +458,28 @@ def test_every_session_fixture_is_classified_in_order_into_the_row_that_cites_it
 
 WITHHELD_429 = {"slot": "s", "status": 429, "passed_on": False,
                 "headers": {**SIGNAL_1, "anthropic-ratelimit-unified-overage-status": "allowed"}}
+LIMIT = {"slot": "s", "status": 429, "headers": SIGNAL_1, "time": 1}
+OVERRIDDEN = {3: ("stub-timeout-AgentTimeoutError", []), 5: ("token-three-tools-normal-end", []),
+              6: ("stub-budget-stop-NonZeroAgentExitCodeError", []),
+              7: ("stub-context-limit-NonZeroAgentExitCodeError", []), 8: ("stub-refusal-AgentSafetyRefusalError", []),
+              9: ("stub-output-limit-OutputTokenExceededError", []),
+              11: ("passthrough-cap-UnknownApiError", [{"slot": "s", "status": 403, "refused": "slot cap reached"}]),
+              12: ("passthrough-total-UnknownApiError",
+                   [{"slot": "s", "status": 403, "refused": "tranche total reached"}]),
+              14: ("token-unauthorized-UnknownApiError", [{"slot": "s", "status": 401}])}
 
 
 def _constructed():
-    """Three sessions no recording shows, built from recorded ones: a vendor 401 behind the passthrough, whose retries
-    meet `tranche stopped`; a completed result after a usage-limit answer in the slot's log; and a usage-limit 429
-    carrying an overage sign, which the passthrough withholds (D4), so the client meets `tranche stopped`."""
-    behind_401 = {**_fixture("passthrough-stopped-UnknownApiError"),
-                  "_log": _log([{"slot": "s", "status": 200}, {"slot": "s", "status": 401},
-                                {"slot": None, "status": 403, "refused": "tranche stopped"}])}
-    limit_then_completed = {**_fixture("token-three-tools-normal-end"),
-                            "_log": _log([{"slot": "s", "status": 429, "headers": SIGNAL_1}])}
-    withheld_limit = {**_fixture("passthrough-stopped-UnknownApiError"), "_log": _log([WITHHELD_429])}
-    return {"a vendor 401 behind the passthrough": behind_401,
-            "signal 1, then a completed result": limit_then_completed,
-            "a usage-limit 429 withheld for paid extra usage": withheld_limit}
+    """Sessions no recording shows, built from recorded ones, one for each pair of rows the order resolves, keyed by
+    the pair: signal 1 met before the ending of each ending row 10 overrides; a vendor 401 behind the passthrough,
+    whose retries meet `tranche stopped`; and a usage-limit 429 carrying an overage sign, which the passthrough
+    withholds (D4), so the client meets `tranche stopped`."""
+    sessions = {frozenset((10, row)): _with_log(name, [LIMIT, *rows]) for row, (name, rows) in OVERRIDDEN.items()}
+    sessions[frozenset((14, 12))] = _with_log("passthrough-stopped-UnknownApiError", [
+        {"slot": "s", "status": 200}, {"slot": "s", "status": 401},
+        {"slot": None, "status": 403, "refused": "tranche stopped"}])
+    sessions[frozenset((13, 10))] = _with_log("passthrough-stopped-UnknownApiError", [WITHHELD_429])
+    return sessions
 
 
 def _matching(session, ladder):
@@ -464,22 +490,36 @@ def _matching(session, ladder):
 def test_two_rows_match_one_session_only_where_a_listed_pair_says_why_the_order_resolves_it():
     ladder = _ladder()
     listed = {frozenset(pair["rows"]) for pair in ladder["classification"]["order_resolves"]}
-    sessions = {name: _session(_fixture(name)) for name in SESSIONS} | _constructed()
+    constructed = _constructed()
+    sessions = {name: _session(_fixture(name)) for name in SESSIONS} | {
+        f"constructed {sorted(pair)}": session for pair, session in constructed.items()}
     many = {name: m for name, s in sessions.items() if len(m := _matching(s, ladder)) > 1}
-    assert ({n: sorted(m) for n, m in many.items() if m not in listed}, set(many.values())) == ({}, listed)
+    assert ({n: sorted(m) for n, m in many.items() if m not in listed}, set(many.values()),
+            {sorted(p)[0]: sorted(_matching(s, ladder)) for p, s in constructed.items() if _matching(s, ladder) != p}
+            ) == ({}, listed, {})
 
 
 def test_the_order_is_d5_s_and_the_natural_order_would_misclassify():
+    """Each listed pair's session lands in the row the pair names first; the natural order would take the lower row,
+    which differs for every pair in which the later row wins."""
     ladder = _ladder()
-    cases = _constructed()
-    stated = {name: _classify(s, ladder) for name, s in cases.items()}
-    natural = {name: _classify(s, ladder, list(range(1, 17))) for name, s in cases.items()}
+    winners = {frozenset(pair["rows"]): pair["rows"][0] for pair in ladder["classification"]["order_resolves"]}
+    sessions = _constructed()
+    stated = {pair: _classify(sessions[pair], ladder) for pair in winners}
+    natural = {pair: _classify(sessions[pair], ladder, list(range(1, 17))) for pair in winners}
     assert (ladder["classification"]["order"], stated, natural) == (
-        [13, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 11, 12, 15, 16],
-        {"a vendor 401 behind the passthrough": 14, "signal 1, then a completed result": 10,
-         "a usage-limit 429 withheld for paid extra usage": 13},
-        {"a vendor 401 behind the passthrough": 12, "signal 1, then a completed result": 5,
-         "a usage-limit 429 withheld for paid extra usage": 10})
+        [13, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 11, 12, 15, 16], winners, {pair: min(pair) for pair in winners})
+
+
+def test_a_usage_limit_met_only_after_the_ending_leaves_the_attempt_in_its_own_row():
+    """A time-limit session whose requests after the limit (ending at 3) meet a usage limit stays in row 3, as a
+    provider fault stays in row 15; the same limit met before the ending makes the time-limit session a cut."""
+    ladder = _ladder()
+    after = {"slot": "s", "status": 429, "headers": SIGNAL_1, "time": 5}
+    sessions = [_with_log("stub-timeout-AgentTimeoutError", [{"slot": "s", "status": 200, "time": 1}, after], 3),
+                _with_log("stub-rate-limit-ApiRateLimitError", [{"slot": "s", "status": 429, "time": 1}, after], 3),
+                _with_log("stub-timeout-AgentTimeoutError", [{"slot": "s", "status": 200, "time": 1}, LIMIT], 3)]
+    assert [_classify(session, ladder) for session in sessions] == [3, 15, 10]
 
 
 def test_a_session_with_signal_2_alone_pauses():
@@ -516,9 +556,9 @@ def test_each_row_s_class_and_each_class_s_count_are_d5_s():
     rows = {r["row"]: (r["class"], r.get("flagged", False), r.get("stop", False)) for r in classification["rows"]}
     counting = {name: tuple(_count(c[k]) for k in ("starts", "usd", "k_n", "rerun"))
                 for name, c in classification["classes"].items()}
-    withheld = {r["row"]: r["class"] for r in classification["rows"] for alt in _alts(r)
-                if alt.get("passthrough.requests") == {"some": {"passed_on": False}}}
-    assert (rows, counting, withheld) == (ROW_CLASSES, COUNTING, {13: "stop"})
+    own_stops = {r["row"]: r["class"] for r in classification["rows"] for alt in _alts(r)
+                 if "some" in alt.get("passthrough.own_stops", {})}
+    assert (rows, counting, own_stops) == (ROW_CLASSES, COUNTING, {13: "stop"})
 
 
 def test_every_fixture_a_row_cites_exists_and_its_recording_is_indexed():
@@ -579,11 +619,14 @@ def _code_reasons():
 
 def test_the_criterion_names_every_reason_the_passthrough_can_refuse_with_once():
     refusal = _ladder()["refusal"]
-    named = list(refusal["reasons"].values()) + list((refusal["form_reasons"] or {}).values())
+    named = [r for group in ("reasons", "form_reasons", "load_reasons") for r in (refusal.get(group) or {}).values()]
     assert (sorted(named), len(named)) == (sorted(_code_reasons()), len(set(named)))
 
 
-REASON_ROWS = {"slot cap reached": 11, "tranche total reached": 12, "tranche stopped": 12}  # every other: row 13
+REASON_ROWS = {"slot cap reached": 11, "tranche total reached": 12, "tranche stopped": 12, "too many connections": 15,
+               "slot busy": 15, "request timed out": 15}  # every other: row 13
+OWN_STOP_ROWS = {"paid extra usage": {"passed_on": False}, "token in a log row": {"withheld": "plain"},
+                 "response model": {"response_model": "another-model"}}
 
 
 def _refused_session(reason, slot):
@@ -594,26 +637,39 @@ def _refused_session(reason, slot):
     return {**fx, "_log": _log([{"slot": slot, "status": 403, "refused": reason}])}
 
 
+def _own_stop_session(cause, other):
+    """An attempt whose own slot's row shows a stop's cause, so its client meets `tranche stopped`; with `other`,
+    another slot's slot-less `tranche stopped` refusal lies in the window too."""
+    rows = [{"slot": "s", "status": 200, **OWN_STOP_ROWS[cause]}]
+    return _with_log("passthrough-stopped-UnknownApiError",
+                     rows + ([{"slot": None, "status": 403, "refused": "tranche stopped"}] if other else []))
+
+
 def test_a_session_the_passthrough_refused_for_any_of_its_reasons_ends_in_that_reason_s_row():
-    """Each reason with the slot logged and without it (a cap's refusal always has one), and an answer withheld for
-    paid extra usage, which the client meets as `tranche stopped` and the slot's row logs as not passed on: a stop
-    (coordinator ruling, 2026-11-14), also when another slot's `tranche stopped` refusal lies in the window."""
+    """Each reason with the slot logged and without it (a cap's refusal always has one): the load refusals are row 15,
+    infrastructure failures (coordinator ruling N2); and each stop whose cause the attempt's own slot's rows show (the
+    withheld paid-usage answer among them) is row 13, also with another slot's refusal in the window."""
     ladder = _ladder()
     got = {(reason, slot): _classify(_refused_session(reason, slot), ladder)
            for reason in sorted(_code_reasons()) for slot in ("s", None) if slot or reason != "slot cap reached"}
-    withheld = [{**_fixture("passthrough-stopped-UnknownApiError"), "_log": _log(rows)} for rows in (
-        [{"slot": "s", "status": 200, "passed_on": False}],
-        [{"slot": "s", "status": 200, "passed_on": False},
-         {"slot": None, "status": 403, "refused": "tranche stopped"}])]
+    own = {(cause, other): _classify(_own_stop_session(cause, other), ladder)
+           for cause in ladder["classification"]["own_stops"] for other in (False, True)}
     want = {key: REASON_ROWS.get(key[0], 13) for key in got}
-    assert ({key: (got[key], want[key]) for key in got if got[key] != want[key]},
-            [_classify(session, ladder) for session in withheld]) == ({}, [13, 13])
+    assert ({key: (got[key], want[key]) for key in got if got[key] != want[key]}, set(own.values()), len(own)) == (
+        {}, {13}, 6)
+
+
+def test_rows_12_and_13_never_both_match_an_attempt_whose_own_slot_stopped_the_tranche():
+    ladder = _ladder()
+    causes = ladder["classification"]["own_stops"]
+    assert {cause: sorted(_matching(_own_stop_session(cause, True), ladder)) for cause in causes} == {
+        cause: [13] for cause in causes}
 
 
 def test_the_log_keys_the_criterion_names_are_keys_the_passthrough_writes():
     classification = _ladder()["classification"]
     log = classification["passthrough_log"] or {}
-    named = set(log.get("refused_row", [])) | set(log.get("forwarded_row", []))
+    named = set(log.get("refused_row", [])) | set(log.get("forwarded_row", [])) | set(log.get("withheld_row", []))
     source = PASSTHROUGH.read_text()
     unwritten = sorted(k for k in named if not re.search(rf'"{k}":|\b{k}=|\["{k}"\] =', source))
     assert (bool(named), sorted(set(classification["passthrough_row_keys"]) - named), unwritten) == (True, [], [])
