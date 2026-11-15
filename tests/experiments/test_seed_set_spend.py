@@ -676,6 +676,36 @@ def test_paid_extra_usage_closes_every_start_naming_its_cause_until_resume_after
     assert all(part in str(refused.value) for part in (units.PAID, "resume-after-limit"))
 
 
+def test_paid_extra_usage_on_a_call_that_ended_normally_is_an_observation_that_only_pauses(runner):
+    """Coordinator ruling on fix round 4: the unit is not cut (its result is used), the pause is set, and after
+    `resume-after-limit` its slot is not run again."""
+    import time
+    records = recorded_call(run_dir(runner), "token-paid-extra-usage-normal-end")
+    out = study.provider_end(runner, records, str(records), {"outcome": "completed", "calls": 1})
+    (records / "study.json").write_text(json.dumps(json.loads((records / "study.json").read_text()) | out))
+    paused = [row["unit"] for row in spend.open_pauses(spend.rows(runner.ledger))]
+    reset = time.time() + 1
+    resume(runner.ledger, reset=reset, read_at=reset + 60, now=reset + 120)
+    entries = [{"kind": "candidate", "tranche": "calibration", "task": "t1", "arm": "direct", "unit": str(records)}]
+    assert ("cut" in out, paused, study.slot_limits(runner, entries, "calibration", "direct", ["t1"])) == (
+        False, [str(records)], ({"t1": 4}, {"t1": 4}))
+
+
+def test_paid_extra_usage_on_a_call_that_did_not_end_normally_cuts_its_unit(runner):  # the same ruling
+    records = call_printing(run_dir(runner), [{"type": "rate_limit_event", "rate_limit_info": {
+        "status": "rejected", "isUsingOverage": True}}, {**ERROR, "result": "API Error: 500"}])
+    out = study.provider_end(runner, records, str(records), {"outcome": "failed", "calls": 1})
+    assert out["cut"]["rule"] == units.PAID
+
+
+def test_the_pause_of_a_known_limit_names_resume_after_limit_and_not_not_a_limit(ledger, tmp_path):  # ruling 2
+    limit = units.usage_limit(recorded_call(tmp_path, "token-paid-extra-usage-normal-end"))
+    spend.record(ledger, "pause", unit=str(tmp_path), **limit)
+    with pytest.raises(SystemExit) as refused:
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"), price=P)
+    assert ("resume-after-limit" in str(refused.value), "not-a-limit" in str(refused.value)) == (True, False)
+
+
 QUOTED = json.dumps({**ERROR, "api_error": "usage_limit_reached", "api_error_status": 429,
                      "result": "You've hit your session limit"})
 

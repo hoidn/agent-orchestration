@@ -136,7 +136,8 @@ def closed_by(pause):
     return (f"starts are closed by {pause.get('reason') or 'a usage limit'} ({unit}, resets {when(pause.get('reset'))}"
             f"{fired}): read the raw result ({pause.get('raw') or unit}), then `resume-after-limit` after the reset, "
             "with the owner's meter reading" + (f"; if it shows no usage limit, `not-a-limit {unit} --reason R` "
-                                                f"records that once the unit is settled ({UNSETTLED})" if limit else ""))
+                                                f"records that once the unit is settled ({UNSETTLED})"
+                                                if limit and pause.get("flag") else ""))
 
 
 UNSETTLED = ("a run its killed runner left unsettled: `settle` it first; a probe run, which only `probe` settles and "

@@ -118,17 +118,19 @@ def provider_incident(records):
                     return f"call {call.name}: {line.strip()[:300]}"
 
 
-def usage_limit(records):
+def usage_limit(records, cutting=False):
     """{"call", "rule", "reset", "text", "raw"} of the first call the vendor may have answered with a usage limit, or
     None; with "flag": `UNRECOGNISED` unless `rule` is `PAID` or `RECORDED` (the stream-json result event's `api_error:
     usage_limit_reached` with `api_error_status: 429`, experiments/long_horizon_tasks/fixtures/
     token-usage-limit-NonZeroAgentExitCodeError.json). `rule` is the rule that fired (`limit_rule`) and `text` the
     line it read (the last error result's text; for `WORDING`, the matched error line). `reset` is the `resetsAt`
     (epoch seconds) of the call's rejected `rate_limit_event`, else the epoch an older CLI's wording names
-    (`Claude AI usage limit reached|<epoch>`), None when the answer names none; `raw` is the call's directory."""
+    (`Claude AI usage limit reached|<epoch>`), None when the answer names none; `raw` is the call's directory.
+    With `cutting`, only a limit that cuts its unit: paid extra usage on a call that ended normally is passed over
+    (that call is an observation, and only pauses; coordinator ruling on fix round 4)."""
     for call in calls(records):
         events = stream_events(call / "stdout.txt")
-        if rule := limit_rule(call, events):
+        if (rule := limit_rule(call, events)) and not (cutting and rule == PAID and succeeded(events)):
             return limit_facts(call, events, rule)
     return None
 

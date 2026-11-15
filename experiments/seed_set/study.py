@@ -357,9 +357,12 @@ def pause_on_limit(study, calls_root, unit):
 
 def provider_end(study, calls_root, unit, out):
     """The provider's own ending of a unit: a usage limit cuts it (not an incident, not an observation) and closes
-    every start (`pause_on_limit`); the incident a cut sets aside is kept in the cut, for `not_a_limit`. Any other
+    every start (`pause_on_limit`); paid extra usage on calls that ended normally only closes them, and the unit
+    stays an observation; the incident a cut sets aside is kept in the cut, for `not_a_limit`. Any other
     provider error ends a failed unit as an incident (`provider_error`)."""
-    if limit := pause_on_limit(study, calls_root, unit):
+    if pause_on_limit(study, calls_root, unit):
+        if not (limit := units.usage_limit(calls_root, cutting=True)):  # paid extra usage on normal ends: paused only
+            return provider_error(calls_root, out)
         aside = {"incident": out["incident"]} if "incident" in out else {}
         return {key: value for key, value in out.items() if key != "incident"} | {"cut": limit | aside}
     return provider_error(calls_root, out)
