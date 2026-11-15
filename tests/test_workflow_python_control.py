@@ -279,6 +279,39 @@ def test_module_level_pure_expressions_remain_usable(tmp_path):
     }
 
 
+def test_take_and_list_reductions_emit_the_list_operators(tmp_path):
+    from orchestrator.workflow.evaluated.values import EvaluatedValue
+
+    _, generated, built = compile_source(tmp_path, '''
+    @record
+    class Summary:
+        first: list[int]
+        every: bool
+        some: bool
+    @workflow
+    def run(xs: list[int], flags: list[bool]) -> Summary:
+        return Summary(first=take(xs, 2), every=all_of(flags), some=any_of(flags))
+    ''')
+    text = generated.source_path.read_text()
+    int_list = {"kind": "list", "item": {"kind": "primitive", "name": "Int"}}
+    bool_list = {"kind": "list", "item": {"kind": "primitive", "name": "Bool"}}
+    inputs = {"xs": EvaluatedValue([4, 5, 6], int_list, {"input:xs"}),
+              "flags": EvaluatedValue([True, False], bool_list, {"input:flags"})}
+
+    assert [form for form in ("(list/take xs 2)", "(list/all flags)", "(list/any flags)") if form not in text] == []
+    assert evaluate_closed_program(built.program, inputs).json_value() == {"first": [4, 5], "every": False, "some": True}
+
+
+@pytest.mark.parametrize("call", ["any_of(flag)", "all_of(count)", "all_of(True)"])
+def test_one_argument_that_is_not_a_list_keeps_the_thunk_hint(tmp_path, call):
+    with pytest.raises(PythonFrontendError, match="python_when_thunk_required"):
+        compile_source(tmp_path, f'''
+    @workflow
+    def run(flag: bool, count: int) -> bool:
+        return {call}
+    ''')
+
+
 def test_module_level_pure_helper_refuses_scoped_operands():
     escaped = Expr("ref", ("_case0",), str, _scope=TraceScope())
     with pytest.raises(PythonFrontendError, match="python_scope_escape"):

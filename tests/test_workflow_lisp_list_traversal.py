@@ -41,6 +41,9 @@ _LIST_TRAVERSAL_AUTHORED_HEADS = (
     "list/rest",
     "list/append",
     "list/length",
+    "list/take",
+    "list/all",
+    "list/any",
 )
 
 
@@ -1289,6 +1292,69 @@ def test_list_traversal_authored_head_inventory_is_exact() -> None:
     assert registry.list_traversal_authored_heads() == frozenset(
         _LIST_TRAVERSAL_AUTHORED_HEADS
     )
+
+
+_REDUCTIONS_PROGRAM = """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule reductions) (export run)
+  (defun first-of ((xs List[Int]) (n Int)) -> List[Int] (list/take xs n))
+  (defun all-positive ((xs List[Int])) -> Bool (list/all (list/map ((x xs)) (> x 0))))
+  (defun any-large ((xs List[Int])) -> Bool (list/any (list/map ((x xs)) (> x 5))))
+  (defworkflow run ((xs List[Int])) -> RESULT
+    BODY))"""
+
+
+@pytest.mark.parametrize(
+    ("result", "body", "expected"),
+    (
+        ("List[Int]", "(first-of xs 2)", [1, 2]),
+        ("Bool", "(all-positive xs)", True),
+        ("Bool", "(any-large (first-of xs 2))", False),
+        ("List[Int]", "(list/map ((x xs)) (list/length (list/take xs x)))", [1, 2, 3]),
+        ("List[Bool]", "(list/map ((x xs)) (list/any (list (> x 5) (= x 1))))", [True, False, True]),
+        ("Int", "(if (list/all (list/map ((x xs)) (> x 0))) (list/length (list/take xs 2)) 0)", 2),
+        ("Int", "(if (list/any (list/map ((x xs)) (> x 9))) 1 0)", 0),
+    ),
+    ids=("defun-take", "defun-all", "defun-any", "map-body-take", "map-body-any", "condition-all",
+         "condition-any"),
+)
+def test_reduction_operators_are_pure_everywhere(tmp_path: Path, result: str, body: str, expected) -> None:
+    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+    from orchestrator.workflow.evaluated.values import EvaluatedValue
+    from tests.test_workflow_evaluated_control import INT, _build_read_back
+
+    source = _REDUCTIONS_PROGRAM.replace("RESULT", result).replace("BODY", body)
+    program = _build_read_back(tmp_path, {"reductions.orc": source}, "reductions::run")
+    xs = EvaluatedValue([1, 2, 9], {"kind": "list", "item": INT}, {"input:xs"})
+
+    def no_effect(*_args):
+        raise AssertionError("a pure operator performed an effect")
+
+    assert evaluate_closed_program(program, {"xs": xs}, effect_handler=no_effect).json_value() == expected
+
+
+@pytest.mark.parametrize(
+    ("result", "body"),
+    (
+        ("List[Int]", "(list/take xs 1.5)"),
+        ("List[Int]", "(list/take xs flag)"),
+        ("Bool", "(list/all xs)"),
+        ("Bool", "(list/any xs)"),
+        ("Bool", "(list/all flag)"),
+    ),
+    ids=("take-float-count", "take-bool-count", "all-of-ints", "any-of-ints", "all-of-a-bool"),
+)
+def test_take_and_reductions_refuse_operands_of_the_wrong_type(tmp_path: Path, result: str, body: str) -> None:
+    from tests.test_workflow_evaluated_control import _build_read_back
+
+    source = (
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n'
+        "  (defmodule refusal) (export run)\n"
+        f"  (defworkflow run ((xs List[Int]) (flag Bool)) -> {result}\n    {body}))"
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_read_back(tmp_path, {"refusal.orc": source}, "refusal::run")
+
+    assert excinfo.value.diagnostics[0].code == "pure_expr_operand_type_mismatch"
 
 
 

@@ -793,6 +793,178 @@
     "expected_value": 3
   },
   {
+    "name": "list_take_zero",
+    "operator": "list/take",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/take",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+            "value": [1, 2, 3]
+          },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 0 }
+        ]
+      }
+    },
+    "expected_value": []
+  },
+  {
+    "name": "list_take_prefix",
+    "operator": "list/take",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/take",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+            "value": [1, 2, 3]
+          },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 2 }
+        ]
+      }
+    },
+    "expected_value": [1, 2]
+  },
+  {
+    "name": "list_take_more_than_length",
+    "operator": "list/take",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/take",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+            "value": [1, 2, 3]
+          },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 9 }
+        ]
+      }
+    },
+    "expected_value": [1, 2, 3]
+  },
+  {
+    "name": "list_take_negative",
+    "operator": "list/take",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/take",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "Int" } },
+            "value": [1, 2, 3]
+          },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": -1 }
+        ]
+      }
+    },
+    "expected_value": []
+  },
+  {
+    "name": "list_all_empty",
+    "operator": "list/all",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/all",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "Bool" } },
+            "value": []
+          }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "list_all_mixed",
+    "operator": "list/all",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/all",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "Bool" } },
+            "value": [true, false, true]
+          }
+        ]
+      }
+    },
+    "expected_value": false
+  },
+  {
+    "name": "list_any_empty",
+    "operator": "list/any",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/any",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "Bool" } },
+            "value": []
+          }
+        ]
+      }
+    },
+    "expected_value": false
+  },
+  {
+    "name": "list_any_mixed",
+    "operator": "list/any",
+    "payload": {
+      "pure_expr_schema_version": 2,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "list/any",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "list", "item": { "kind": "primitive", "name": "Bool" } },
+            "value": [false, true, false]
+          }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
     "name": "list_map_order_preserving",
     "payload": {
       "pure_expr_schema_version": 2,

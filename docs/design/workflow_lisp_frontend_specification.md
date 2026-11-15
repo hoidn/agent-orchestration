@@ -776,6 +776,9 @@ entry here or in a heading.
 | `list/rest` | A list without its first element | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/append` | A list with one element added at the end | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/length` | A list's length | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/take` | A list's first `n` elements | [§10.2](#102-closed-pure-expression-surface) |
+| `list/all` | Whether every element of a `List[Bool]` is true | [§10.2](#102-closed-pure-expression-surface) |
+| `list/any` | Whether some element of a `List[Bool]` is true | [§10.2](#102-closed-pure-expression-surface) |
 | `print` | Writes a value to stdout and returns it | [§10.2](#102-closed-pure-expression-surface) |
 | `list` | Constructs a `List[T]` from elements of one type | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/map` | Maps a pure body over a list | [§10.3](#103-target-218-bounded-list-traversal) |
@@ -2189,6 +2192,7 @@ Supported operators are exact and closed:
 | Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
 | Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
 | List (target 2.18) | `list/empty?`, `list/head`, `list/rest`, `list/append`, `list/length` | eligible `List[T]`; `list/head` returns `Optional[T]` | All five operators are total; eligibility uses the shared whole-list transportability predicate. |
+| List, cut and reduce | `list/take`, `list/all`, `list/any` | `list/take`: eligible `List[T]` and `Int` -> `List[T]`; `list/all`, `list/any`: `List[Bool]` -> `Bool` | All three are total. `list/take` gives the whole list when the count exceeds its length and the empty list when the count is below 1; `list/all` is `true` and `list/any` is `false` on the empty list. A count that is not an `Int`, or a reduced list that is not a `List[Bool]`, is refused (`pure_expr_operand_type_mismatch`). They need no new target ([versioning](../../specs/versioning.md)); a build that predates them refuses a source that uses one, also on `resume` (`pure_expr_operator_unsupported`), and a closed program that holds one (`closed_program_invalid`, naming the operator). |
 | Observation (target 2.35) | `print` | one operand of any type `T` -> the same `T` | Writes the operand's canonical compact JSON and a newline to the process's stdout, then returns the operand unchanged. Never folded at compile time. Not an effect: it has no identity and no memo record. Only the run's own evaluation writes, so `resume` prints again what it re-evaluates; readers that replay the program (views, `report`, the REPL) evaluate `print` as the identity. |
 
 Deliberate exclusions stay enforced by typed diagnostics:
@@ -2196,7 +2200,8 @@ Deliberate exclusions stay enforced by typed diagnostics:
 - no division or modulo before target 2.34; decimal literals in expressions from
   target 2.34 only (numeric surface rule N1);
 - no path string concatenation;
-- no collection operators beyond the exact target-2.18 list surface;
+- no collection operators beyond the list rows of this table (no fold, `list/filter`,
+  `list/contains?` or `list/concat`);
 - no regex, time, randomness, workflow calls, provider calls, or command execution, and no IO beyond the stdout line `print` writes;
 - no proof creation from computed equality/comparison alone.
 
@@ -2278,11 +2283,15 @@ operand:
 | `list/rest` | `List[T] -> List[T]` | the list without its first element; the empty list stays empty |
 | `list/append` | `(List[T], T) -> List[T]` | a new list with the element added at the end |
 | `list/length` | `List[T] -> Int` | the number of elements |
+| `list/take` | `(List[T], Int) -> List[T]` | the first `n` elements; the whole list when `n` exceeds its length, the empty list when `n` is below 1 |
+| `list/all` | `List[Bool] -> Bool` | whether every element is true; `true` for the empty list |
+| `list/any` | `List[Bool] -> Bool` | whether some element is true; `false` for the empty list |
 
 Each gives a value for the empty list as for any other. `list/rest` and `list/append` give a
 new list and leave their operand as it was. The value of `list/head` is read with `some?` or
-`or-else`. A first operand that is not a list, a `list/append` element of another type and a
-wrong number of operands are refused. Diagnostics: `pure_expr_operand_type_mismatch`.
+`or-else`. A first operand that is not a list, a `list/append` element of another type, a
+`list/take` count that is not an `Int`, a `list/all` or `list/any` list that is not a
+`List[Bool]` and a wrong number of operands are refused. Diagnostics: `pure_expr_operand_type_mismatch`.
 `(list/nth xs 0)` is refused with `pure_expr_operator_unsupported`: the catalog has no indexing
 operator.
 

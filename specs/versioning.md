@@ -1405,6 +1405,15 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   name or field of a type other than `Int` was `provider_result_timeout_literal_required` and is
   `provider_result_timeout_type_invalid`. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
+- **O, three list operators.** `(list/take xs n)` gives the first `n` items of a list (all of
+  them when `n` exceeds its length, none when `n` is below 1); `(list/all bools)` and `(list/any bools)` reduce a `List[Bool]`, `true`
+  and `false` on the empty list. They are pure operators of the list group of the frontend
+  specification's section 10.2, usable in a `defun` and a `list/map` body, under every target the
+  other list operators are. Each was refused before (`pure_expr_operator_unsupported`); a build that
+  predates them still refuses such a source with that code, also on `resume`, and a closed program
+  that holds one with `closed_program_invalid`, naming the operator. A serial map's cap is
+  unchanged. Every program that compiled before keeps its closed program, digest and identities,
+  and its recorded runs resume.
 
 - **E1, an effect inside a value.** A record or variant field, a list element, a
   `path/join-under` child, a `list/map` or `list/map-effect` source and an `:on-exhausted` value

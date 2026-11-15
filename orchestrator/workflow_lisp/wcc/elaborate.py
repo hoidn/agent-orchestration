@@ -7013,7 +7013,7 @@ def _infer_expr_type(
             return arg_types[1]
         if operator == "string/concat":
             return PrimitiveTypeRef(name="String")
-        if operator == "list/empty?":
+        if operator in {"list/empty?", "list/all", "list/any"}:
             return PrimitiveTypeRef(name="Bool")
         if operator == "list/head":
             if not isinstance(arg_types[0], ListTypeRef):
@@ -7022,7 +7022,7 @@ def _infer_expr_type(
                 name=f"Optional[{arg_types[0].item_type_ref.name}]",
                 item_type_ref=arg_types[0].item_type_ref,
             )
-        if operator in {"list/rest", "list/append"}:
+        if operator in {"list/rest", "list/append", "list/take"}:
             return arg_types[0]
         if operator == "list/length":
             return PrimitiveTypeRef(name="Int")
