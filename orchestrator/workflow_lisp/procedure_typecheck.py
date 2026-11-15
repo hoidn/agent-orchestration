@@ -1812,22 +1812,12 @@ def _is_held_reference(name, reads, value_env) -> bool:
         read in value_env and not isinstance(value_env[read], ProcRefTypeRef) for read, _ in reads)
 
 
-def _refuse_a_rebound_read(expr, role, reads, binding_env):
-    """The copy of `role` in the local's body must read the binders `role` read: by the typechecker's binding
-    identity, the one visible at the local is the one recorded where `role` was typed, and no parameter of the
-    local (always a new binder) takes the name."""
+def _reads_a_rebound_name(expr, reads, binding_env) -> bool:
+    """Whether a copy of the reference in the local's body would read another binder than the reference read: by
+    the typechecker's binding identity, the binder visible at the local is not the one recorded where the reference
+    was typed, or a parameter of the local (always a new binder) takes the name."""
     params = {param.name for param in expr.binding.params}
-    for read, origin in reads:
-        inner = "local parameter" if read in params else getattr(binding_env.get(read), "kind", "unrecorded")
-        if read in params or origin is None or binding_env.get(read) != origin:
-            _raise_error(
-                f"`let-proc` local `{expr.binding.local_name}` uses `{role}`, which reads `{read}`; here `{read}` "
-                f"is bound again by a {inner} binder: rename one of them",
-                code="let_proc_capture_rebound",
-                span=expr.binding.span,
-                form_path=expr.binding.form_path,
-                expansion_stack=expr.binding.expansion_stack,
-            )
+    return any(read in params or origin is None or binding_env.get(read) != origin for read, origin in reads)
 
 
 def _bind_captured_references(expr, *, type_env, value_env, binding_env, value_exprs):
@@ -1835,7 +1825,7 @@ def _bind_captured_references(expr, *, type_env, value_env, binding_env, value_e
     instead of becoming a capture parameter of the local; the value names that reference reads are captured.
     Applied from the target where locals lower inline, to a local its `let-proc` body references; an earlier
     target, or a local never referenced, keeps the capture parameter and the identity it has. The copied
-    reference must read the bindings the original read; where it would not, the program is refused."""
+    reference must read the bindings the original read; where one would not, the local is left as it is."""
     if not target_dsl_supports_effect_ceilings(type_env.target_dsl_version):
         return expr
     if not _collect_proc_ref_use_spans(expr.body, authored_name=expr.binding.local_name):
@@ -1845,7 +1835,8 @@ def _bind_captured_references(expr, *, type_env, value_env, binding_env, value_e
         reads = _reference_reads(value_exprs.get(name))
         if not _is_held_reference(name, reads, value_env):
             continue
-        _refuse_a_rebound_read(expr, name, reads, binding_env)
+        if _reads_a_rebound_name(expr, reads, binding_env):
+            return expr  # a copy would read another binder: the local keeps every capture parameter, as before
         held.append((name, value_exprs[name]))
         read_names.extend(read for read, _ in reads)
     if not held:

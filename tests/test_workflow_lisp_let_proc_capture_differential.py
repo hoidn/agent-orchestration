@@ -19,7 +19,9 @@ The tests assert, per program:
 
 - each spelling gives one outcome and digest in two builds in one process;
 - no spelling crashes outside the signatures of the defect record's `KNOWN`;
-- a spelling that builds on `main` builds here with the recorded digest;
+- a spelling that builds on `main` builds here, never refused, with the recorded digest;
+- a local spelling whose read name is bound again (`rebound-k/…`) keeps the capture parameter, so it gives
+  exactly the outcome it gave on `main`;
 - a local spelling that builds here, whose direct spelling builds on `main`, runs to the value and command log the
   direct spelling ran to on `main`.
 
@@ -208,9 +210,12 @@ def test_capture_program(program_id, tmp_path):
         if outcome[0] in ("crash", "traceback"):
             assert tuple(outcome) in _known_crashes(), f"{name}: crash outside KNOWN: {outcome}"
         if recorded[name]["outcome"] == ["builds"]:
+            assert outcome == ["builds"], f"{name}: built on main, here {outcome}"
             assert digest == recorded[name]["digest"], f"{name}: built on main with another digest"
         observed[name] = (outcome, path)
     local, local_path = observed["local"]
+    if program_id.startswith("rebound-k/"):
+        assert local == recorded["local"]["outcome"], "a rebound read keeps the capture parameter, as on main"
     if local == ["builds"] and recorded["direct"]["value"] is not None:
         ran, detail = backlog._run(local_path.parent, local_path, "m::run", ("k=1",))
         assert list(ran) == recorded["direct"]["value"], detail

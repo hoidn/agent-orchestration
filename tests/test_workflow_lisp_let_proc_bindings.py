@@ -787,40 +787,35 @@ def test_role_bound_over_a_workflow_input_is_a_map_body(tmp_path):
     assert observed == backlog.value(2, "add", "add"), detail
 
 
-# A role bound over `k` and a local using it, with `k` bound again between them. The copied role must read the
-# binding the role read, so where `k` is bound again the program is refused; with the inner binder renamed it
-# runs and gives the role's value. `ADDV` is a command-backed `add` whose value is `n + x`.
+# A role bound over `k` and a local using it, with a binder between them. Where the binder is `k`, the copied role
+# would read it, so the role stays a capture parameter, as on `main` (the record's `D10-rebound-*` rows); with the
+# inner binder renamed it runs and gives the role's value. `ADDV` is a command-backed `add` whose value is `n + x`.
 ADDV = ('(defproc add ((n Int) (x Int)) -> Int (let* ((z (command-result c :argv ("python" "c.py" "add" "0") '
         ':returns Int))) (+ (+ n x) z)))')
 UNION_U = "(defunion U (A (n Int)) (B (why String)))"
 BIND_AS = "(defmacro bind-as (nm body) (let* ((nm 100)) body))"
 WITH_K = "(defmacro with-k (body) (let* ((k 100)) body))"
+IGNORE = "(defproc ignore ((f ProcRef[Int -> Int]) (v Int)) -> Int v)"
 ROLE_OVER_K = "(let* ((role (bind-proc (proc-ref add) :n k))) BODY)"
 STEP_LOCAL = "(let-proc ((step ((x Int)) -> Int (role x))) (step 1))"
 REBINDINGS = {
-    "loop-binder": ("Int", "(loop/recur ((K 100)) :max 1 :on-exhausted 0 (done LOCAL))", "let_proc_capture_rebound"),
-    "fn-state-binder": ("Int", "(loop/recur :max 1 :state 100 :on-exhausted 0 (fn (K) (done LOCAL)))",
-                        "let_proc_capture_rebound"),
-    "let-binder": ("Int", "(let* ((K 100)) LOCAL)", "let_proc_capture_rebound"),
-    "let-in-loop": ("Int", "(loop/recur ((s 0)) :max 1 :on-exhausted 0 (let* ((K 100)) (done LOCAL)))",
-                    "let_proc_capture_rebound"),
-    "match-arm-binder": ("Int", "(match (variant U A :n 100) ((A K) LOCAL) ((B b) 0))", "let_proc_capture_rebound"),
-    "macro-binder": ("Int", "(bind-as K LOCAL)", "let_proc_capture_rebound"),
-    "local-parameter": ("Int", "(let-proc ((step ((K Int)) -> Int (role K))) (step 1))", "let_proc_capture_rebound"),
-    "map-effect-binder": ("List[Int]", "(list/map-effect ((K (list 100))) :max 1 LOCAL)", "list_map_binder_invalid"),
-    "map-binder": ("List[Int]", "(list/map ((K (list 100))) LOCAL)", "list_map_binder_invalid"),
-    "enclosing-local-parameter": ("Int", "(let-proc ((outer ((K Int)) -> Int LOCAL)) (outer 100))",
-                                  "let_proc_nested_unsupported"),
+    "loop-binder": "(loop/recur ((K 100)) :max 1 :on-exhausted 0 (done LOCAL))",
+    "fn-state-binder": "(loop/recur :max 1 :state 100 :on-exhausted 0 (fn (K) (done LOCAL)))",
+    "let-binder": "(let* ((K 100)) LOCAL)",
+    "let-in-loop": "(loop/recur ((s 0)) :max 1 :on-exhausted 0 (let* ((K 100)) (done LOCAL)))",
+    "match-arm-binder": "(match (variant U A :n 100) ((A K) LOCAL) ((B b) 0))",
+    "macro-binder": "(bind-as K LOCAL)",
+    "local-parameter": "(let-proc ((step ((K Int)) -> Int (role K))) (step 1))",
 }
 
 
 def _rebinding(case, binder):
-    returns, body, _ = REBINDINGS[case]
-    return f"((k Int)) -> {returns} " + ROLE_OVER_K.replace("BODY", body.replace("LOCAL", STEP_LOCAL).replace("K", binder))
+    return "((k Int)) -> Int " + ROLE_OVER_K.replace("BODY", REBINDINGS[case].replace("LOCAL", STEP_LOCAL)
+                                                      .replace("K", binder))
 
 
 def _build_twice(tmp_path, run):
-    path = backlog._install(tmp_path, {"m.orc": backlog.module(run, ADDV, UNION_U, BIND_AS, WITH_K)})
+    path = backlog._install(tmp_path, {"m.orc": backlog.module(run, ADDV, UNION_U, BIND_AS, WITH_K, IGNORE)})
 
     def build():
         return build_closed_program_bundle(FrontendBuildRequest(source_path=path, source_roots=(tmp_path,),
@@ -852,13 +847,6 @@ def _run_in_one_process_after_a_compile(root, path, inputs):
 
 
 @pytest.mark.parametrize("case", sorted(REBINDINGS))
-def test_role_read_name_bound_again_before_the_local_is_refused(tmp_path, case):
-    _, first, second = _build_twice(tmp_path, _rebinding(case, "k"))
-    assert (first, second) == (("refused", REBINDINGS[case][2]),) * 2
-
-
-@pytest.mark.parametrize("case", ["loop-binder", "fn-state-binder", "let-binder", "let-in-loop", "match-arm-binder",
-                                  "macro-binder", "local-parameter"])
 def test_role_read_name_with_the_inner_binder_renamed_gives_the_role_value(tmp_path, case):
     _assert_runs_to(tmp_path, _rebinding(case, "q"), backlog.value(2, "add"))
 
@@ -886,8 +874,9 @@ def _assert_runs_to(tmp_path, run, wanted):
     assert warm == wanted, detail
 
 
-# A local the `let-proc` body never references keeps the capture parameter, as on `main`, where each of these
-# builds and runs to 7: the copied role is never made, so a read name bound again before it is not refused.
+# A local that is never lowered, over a role whose read name is bound again before it, builds as on `main` and runs
+# to 7: one the `let-proc` body never references keeps the capture parameter, and so does one referenced only by a
+# `let*` nothing reads or by an argument its callee ignores, because the role's read is rebound.
 UNREFERENCED = "(let-proc ((step ((x Int)) -> Int (role x))) 7)"
 UNREFERENCED_LOCALS = {
     "loop-binder": f"(loop/recur ((k 100)) :max 1 :on-exhausted 0 (done {UNREFERENCED}))",
@@ -895,11 +884,13 @@ UNREFERENCED_LOCALS = {
     "local-parameter": "(let-proc ((step ((k Int)) -> Int (role k))) 7)",
     "group-member": "(let* ((k 100)) (let-proc ((step ((x Int)) -> Int (role x)) (other ((x Int)) -> Int (+ x 0))) "
                     "(other 7)))",
+    "unread-binding": "(let* ((k 100)) (let-proc ((step ((x Int)) -> Int (role x))) (let* ((f (proc-ref step))) 7)))",
+    "ignored-argument": "(let* ((k 100)) (let-proc ((step ((x Int)) -> Int (role x))) (ignore (proc-ref step) 7)))",
 }
 
 
 @pytest.mark.parametrize("case", sorted(UNREFERENCED_LOCALS))
-def test_unreferenced_local_over_a_role_whose_read_name_is_bound_again_builds(tmp_path, case):
+def test_local_never_lowered_over_a_role_whose_read_name_is_bound_again_builds(tmp_path, case):
     _assert_runs_to(tmp_path, "((k Int)) -> Int " + ROLE_OVER_K.replace("BODY", UNREFERENCED_LOCALS[case]),
                     backlog.value(7))
 
