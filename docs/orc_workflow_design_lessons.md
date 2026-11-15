@@ -22,7 +22,7 @@ one comparison on a calibration-qualified task, [E-B3](reports/2026-10-16-eb3-or
 left both of its claims not evaluated: too few valid runs remained.
 
 The linked historical compiler observations/workarounds describe the original
-pre-2.35 experiment targets. For current 2.35/2.36 admission and execution,
+pre-2.35 experiment targets. For current admission and execution,
 use the [drafting guide](lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today);
 do not downgrade a new workflow to reproduce a historical workaround.
 
