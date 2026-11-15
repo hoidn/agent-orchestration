@@ -58,7 +58,8 @@ No program, listed only (plan row id):
 Rows D21, D21-continue, D22 and E27 are the roadmap's tenth batch; the plan's Defect Table does not hold them yet. Rows
 B7-*, D23, D24 and D25 (the eleventh batch, found by the call-site fix) are in the Defect Table.
 Rows D5-binder-hidden, D5-binder-hidden-match, D5-if-whole and D5-if-whole-return, found by the review of
-TD2, and D5-if-match and D20-map-argument, found by its re-review, are not in it either.
+TD2, D5-if-match and D20-map-argument, found by its re-review, and D4-subject-match and D4-subject-loop, found
+by the differential corpus of TD1, are not in it either.
 """
 
 from __future__ import annotations
@@ -122,6 +123,7 @@ KNOWN: dict[str, tuple] = {
     "D5-binder-hidden": NO_NARROWING, "D5-binder-hidden-match": NO_NARROWING,
     "D5-if-whole": NO_NARROWING, "D5-if-whole-return": NO_NARROWING, "D5-if-match": NO_NARROWING,
     "D20-map-argument": NO_NARROWING,
+    "D4-subject-match": NO_ELABORATION, "D4-subject-loop": NO_ELABORATION,
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
     "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
@@ -189,6 +191,8 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D5-if-whole-return": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D5-if-match": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D20-map-argument": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D4-subject-match": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
+    "D4-subject-loop": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
     "D6": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D7-hoisted": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
@@ -292,6 +296,8 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D5-if-whole-return": ("builds",),
     "D5-if-match": ("value", 3),
     "D20-map-argument": ("value", 2),
+    "D4-subject-match": ("value", 3),
+    "D4-subject-loop": ("value", 0),
     "D5-other-variant": ("refused", "variant_ref_wrong_variant"),
     "D6": ("value", 4),
     "D7": ("value", 2, "step", "step", "check"),
@@ -636,6 +642,12 @@ ROWS: dict[str, Row] = {
                        inputs=U_IS_A_3),
     "D20-map-argument": row(value(2), "((n Int)) -> Int (match (mkshape (list/length (list/map ((x (list 1 2))) x))) "
                             f"{D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
+    # Found while widening the differential corpus of TD1: a pure `match` or a loop as a `match` subject, with
+    # D12-literal's key. An `if` there builds.
+    "D4-subject-match": row(value(3), "((u U)) -> Int (match (match u ((A a) (variant Shape CIRCLE :r a.n)) "
+                            f"((B b) (variant Shape SQUARE :side 1))) {D20_ARMS})", U, SHAPE, inputs=U_IS_A_3),
+    "D4-subject-loop": row(value(0), "() -> Int (match (loop/recur ((s 0)) :max 2 :on-exhausted (variant Shape SQUARE "
+                           f":side 1) (done (variant Shape CIRCLE :r s))) {D20_ARMS})", SHAPE),
     # 4: the inner `u` is `A 1`, the workflow's is `A 3`. A fix of the crash alone returns a wrong value.
     "D6": row(value(4), "((u U)) -> Int (+ (let* ((u (variant U A :n 1))) (if (= u.variant A) u.n 0)) "
               "(if (= u.variant A) u.n 0))", U, inputs=U_IS_A_3),
