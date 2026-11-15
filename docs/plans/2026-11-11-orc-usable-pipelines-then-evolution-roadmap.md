@@ -486,7 +486,14 @@ every removed test is listed with the code it covered".
      in the bound-reference path beside rows `E23-*`, not local; a `let-proc`
      written in a serial `list/map-effect` body is `proc_ref_unknown` (row
      E7-local); a `match` arm whose value is its own binder, used as a value of
-     the union, fails the closed check with `compiler_defect` (row D26).
+     the union, fails the closed check with `compiler_defect` (row
+     match-arm-binder); from its review: a `let-proc` local that captures a
+     name bound to a generic call is refused `procedure_call_unknown` naming
+     the generated procedure (row let-proc-generic-capture); one that captures
+     the result of a procedure with an effect and calls one ends in
+     `compiler_defect` (row let-proc-effect-capture); a `match` subject that is
+     an `if` on a variant test reading the tested variant's field ends in
+     `compiler_defect` (row D20-subject-tag).
    The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
    (accepted 2026-11-13 after an independent review and one revision) orders
    this list by harm. By the owner's direction of 2026-11-13 it is cut to

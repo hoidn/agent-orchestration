@@ -353,9 +353,12 @@ the step, as a changed model does. An agent turn takes the same operand.
 ```
 
 A position that already states the item type keeps supplying it: a field, an
-argument, a workflow result, the other arm of an `if`, a loop-state field, a
-`continue` value, a `defun` argument and a `match` arm. The last three are
-added by this design (the `match` arm is D2).
+argument, a workflow result, a loop-state field, a `continue` value and a
+`defun` argument; the last two are added by this design. An arm of an `if`,
+`cond` or `match` takes the type from the position the whole form stands in,
+never from the other arm: `(list/length (if c (list 1) (list)))` is refused
+with `list_empty_type_context_required`. A `match` arm in a stating position
+built only once its subject did (D2).
 
 - **`:of` is allowed on a non-empty list** and checks its items.
 - **`(list :of T)` where the position states `T`** builds the program of

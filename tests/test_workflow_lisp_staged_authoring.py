@@ -85,16 +85,15 @@ def test_let_in_a_map_body_reading_the_binder_inside_a_loop(tmp_path):
 
 def test_local_capturing_the_binder_in_a_map_body_inside_a_loop(tmp_path):
     """The map's binder is in the loop's command scope from the start, so a local that captures it is typed
-    there too. Compared with a procedure the binder is passed to."""
-    condition = D1_CONDITIONS["if"][0].replace("HEAD", "(or-else (list/head (list/map ((v vs)) CALL)) false)")
-    captures = "(let-proc ((g ((k Int)) -> Bool (match v ((A a) (> k a.n)) ((B b) true)))) (g s))"
-    procedure = "(defproc gp ((w U) (k Int)) -> Bool (match w ((A a) (> k a.n)) ((B b) true)))"
+    there too. Compared with the local's body written in place of its call, with the condition bound first (a
+    procedure called there is expanded into the map body and had the defect too)."""
+    written, bound = D1_CONDITIONS["if"]
+    captures = "(list/map ((v vs)) (let-proc ((g ((k Int)) -> Bool (match v ((A a) (> k a.n)) ((B b) true)))) (g s)))"
 
-    ran, ran_passed = same_run(tmp_path, D1_RUN.replace("BODY", condition.replace("CALL", captures)),
-                               D1_RUN.replace("BODY", condition.replace("CALL", "(gp v s)")), f"u={A_3}",
-                               definitions=(U, procedure))
+    ran, ran_in_place = same_run(tmp_path, d1(written.replace("HEAD", HEAD.replace("MAP", captures))),
+                                 d1(f"(let* ((ok HEAD)) {bound})"), f"u={A_3}")
 
-    assert ran == ran_passed == (4, [])
+    assert ran == ran_in_place == (4, [])
 
 
 # ---------------------------------------------------------------------------------------------

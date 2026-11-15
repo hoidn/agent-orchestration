@@ -195,8 +195,9 @@ The numbers are those of the design's §2.
 - [ ] D1, `tests/test_workflow_lisp_staged_authoring.py::test_map_with_a_match_body_is_a_condition_inside_a_loop`:
       builds and runs to the value the `let*` spelling gives. Today: `compiler_defect`
       (`KeyError`).
-- [ ] D2, `::test_empty_list_in_a_match_arm_is_typed_by_the_other_arm`: builds; today
-      `compiler_defect`.
+- [ ] D2, `::test_empty_list_in_a_match_arm_is_typed_by_the_workflow_result`: builds; today
+      `compiler_defect`. The arm's type comes from the position the `match` stands in, not from
+      the other arm.
 - [ ] D3, `::test_generic_procedure_called_in_a_map_body_runs_once_per_item` (two items, two
       logged commands, the list of results); today `procedure_call_unknown` naming an internal
       specialization. Prototyped: a typed call already rewritten to a specialization requested in

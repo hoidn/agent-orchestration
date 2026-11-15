@@ -62,7 +62,9 @@ differential corpus of TD1, and D4-subject-argument and D20-let-proc-subject, fo
 not in it either. Row D14 has the program of finding T8.1 of the corpus rule ledger (a list in a `match` subject),
 which the Defect Table does not have; rows E7-local (a `let-proc` local written in a serial map body) and
 match-arm-binder (a `match` arm whose value is its binder) were found by Task 0b of the staged-authoring plan, and
-let-proc-generic-capture (a local capturing a generic call's result) by its review.
+let-proc-generic-capture (a local capturing a generic call's result) and let-proc-effect-capture (a local
+capturing the result of a procedure with an effect and calling one) and D20-subject-tag (a `match` subject that is
+an `if` on a variant test) by its review.
 """
 
 from __future__ import annotations
@@ -141,12 +143,14 @@ KNOWN: dict[str, tuple] = {
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "match-arm-binder": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
+    "D20-subject-tag": BINDER_OUT_OF_SCOPE,
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
     "E6": refused("name_unknown"),
     "E7-local": refused("proc_ref_unknown"),
     "let-proc-generic-capture": refused("procedure_call_unknown"),
+    "let-proc-effect-capture": crash("ValueError", "workflow_lisp/closed/build.py:Builder.call"),
     "E8": refused("proc_ref_binding_parameter_unsupported"),
     "E9": refused("procedure_call_unknown"), "E9-local": refused("procedure_call_unknown"),
     "E11": refused("workflow_signature_mismatch"),
@@ -230,6 +234,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D24": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "match-arm-binder": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
+    "D20-subject-tag": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "E1-and": ("refused", "variant_ref_unproved"),
     "E1-or": ("refused", "variant_ref_unproved"),
     "E2": ("refused", "variant_ref_unproved"),
@@ -238,6 +243,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "E7": ("refused", "procedure_call_unknown"),
     "E7-local": ("refused", "proc_ref_unknown"),
     "let-proc-generic-capture": ("refused", "procedure_call_unknown"),
+    "let-proc-effect-capture": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder.call"),
     "E8": ("refused", "procedure_lowering_unresolved"),
     "E9": ("refused", "procedure_call_unknown"),
     "E9-local": ("refused", "procedure_call_unknown"),
@@ -354,6 +360,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D24": None,
     "D25": None,
     "match-arm-binder": ("value", 5),
+    "D20-subject-tag": ("value", 4),
     "E1-and": None,
     "E1-or": None,
     "E2": None,
@@ -368,6 +375,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "E7": ("value", 2, "g", "g"),
     "E7-local": ("value", 2),
     "let-proc-generic-capture": ("value", 6, "g"),
+    "let-proc-effect-capture": ("value", 6, "q", "q"),
     "E8": ("value", 3),
     "E9": ("value", 1),
     "E9-local": ("value", 5),
@@ -745,6 +753,12 @@ ROWS: dict[str, Row] = {
     "match-arm-binder": row(value(5), "((v V)) -> Int (let* ((w (match v ((HAS h) (variant V NO :k 2)) ((NO o) o)))) "
                "(match w ((HAS h) 0) ((NO o) o.k)))", "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
                inputs=('v={"variant":"NO","k":5}',)),
+    # Found by the review of Task 0b: a `match` subject that is an `if` on a variant test reading a field of the
+    # tested variant in a branch. Bound with `let*` first, it builds. With a list in the call of a `let-proc` local
+    # in that branch it ends in another key, NO_NARROWING's.
+    "D20-subject-tag": row(value(4), "((u U)) -> Int (match (if (= u.variant A) (variant V NO :k (+ u.n 1)) "
+                           "(variant V NO :k 0)) ((HAS h) 0) ((NO o) o.k))", U,
+                           "(defunion V (HAS (xs List[Int])) (NO (k Int)))", inputs=U_IS_A_3),
     "D23-macro": row(value(705), "((n Int)) -> Int (both n)", D23_MACRO,
                      "(defproc both ((n Int)) -> Int (+ (with-loop n 5) (* 100 (with-loop n 7))))", inputs=("n=3",)),
 
@@ -777,6 +791,10 @@ ROWS: dict[str, Row] = {
     "let-proc-generic-capture": row(value(6, "g"), "() -> Int (let* ((a (gstep 5))) (let-proc ((h ((x Int)) -> Int "
                                     "(+ a x))) (h 1)))",
                                     f"(defproc gstep :forall (T) ((v T)) -> T (let* ((x {E('g', 1, 'Int')})) v))"),
+    # Found by the same review: a local that captures the result of a procedure with an effect and calls one.
+    "let-proc-effect-capture": row(value(6, "q", "q"), "() -> Int (let* ((a (plain 5))) (let-proc ((h ((x Int)) -> "
+                                   "Int (+ a (plain x)))) (h 1)))",
+                                   f"(defproc plain ((x Int)) -> Int (let* ((seen {E('q', 1, 'Int')})) x))"),
     "E8": row(value(3), "() -> Int (outer 2)", AP, ADD,
               "(defproc outer ((k Int)) -> Int (apply1 (bind-proc (proc-ref add) :n k) 1))"),
     "E9": row(value(1), E9_RUN, AP, E9_H, inputs=("n=1",)),

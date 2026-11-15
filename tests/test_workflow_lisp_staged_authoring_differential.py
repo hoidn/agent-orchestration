@@ -1,13 +1,16 @@
 """Differential corpus for Task 0b of the staged-workflow authoring plan: every program of
-`tests/workflow_lisp_staged_authoring_differential_cases.py` against its build on `main` at `1b910fc8`, and the
-programs the fixes newly build against their pinned digest and the value of their bound spelling on `main`.
+`tests/workflow_lisp_staged_authoring_differential_cases.py` (the task's shapes, their neighbours and the probe
+programs of its review) against its build on `main` at `b7e2e2b5`, and the programs the fixes newly build against
+their pinned digest and the value of their bound spelling on `main`.
 
 The three expectation files are written by the cases module's `__main__`, never by hand; its docstring gives the
 commands. A program that built on `main` builds with the same closed program digest; a refusal keeps its codes,
-except the two the task changes (D3's `procedure_call_unknown` now builds; D5's `procedure_lowering_unresolved` is
-now `proc_ref_binding_parameter_unsupported`); a crash is either fixed and pinned or has the signature of a row in
-the defect backlog's `KNOWN`. Every newly built program runs with the value and command log its bound spelling
-gives on `main`.
+except those the task changes: D2's `list_empty_type_context_required` of an empty list in a subject's argument
+and D3's `procedure_call_unknown` now build, a recursive generic call in a serial map body is
+`parametric_specialization_cycle`, and D5's `procedure_lowering_unresolved` is
+`proc_ref_binding_parameter_unsupported`; a crash is either fixed and pinned or has the signature of a row in the
+defect backlog's `KNOWN`. Every newly built program runs with the value and command log its bound spelling gives on
+`main`.
 """
 
 from __future__ import annotations
@@ -26,7 +29,9 @@ PINS = json.loads((FIXTURES / "staged_authoring_differential_pins.json").read_te
 BOUND_VALUES = json.loads((FIXTURES / "staged_authoring_differential_bound_values.json").read_text())
 CRASHES = ("crash", "traceback")
 # (family, outcome on `main`, outcome on the tip): the refusals the task changes.
-CHANGED_REFUSALS = {("d3", ("refused", "procedure_call_unknown"), "builds"),
+CHANGED_REFUSALS = {("d2", ("refused", "list_empty_type_context_required"), "builds"),
+                    ("d3", ("refused", "procedure_call_unknown"), "builds"),
+                    ("d3", ("refused", "procedure_call_unknown"), ("refused", "parametric_specialization_cycle")),
                     ("d5", ("refused", "procedure_lowering_unresolved"),
                      ("refused", "proc_ref_binding_parameter_unsupported"))}
 

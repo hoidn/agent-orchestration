@@ -1516,7 +1516,9 @@ that has no row yet; the ledger gives the smallest program of each finding.
 | `T9.18` | In a loop body, a `let*`-bound `bind-proc` whose bound value holds an effect, called in the `done` value or nested in an operand of the `continue` value | `procedure_lowering_unresolved` | bind the effect's result with `let*` first |
 | `T9.6` | A local that reads a captured effect's result and binds an effect in its own body (§16.3) | `compiler_defect` | - |
 | `T9.4` | In one `let-proc`, a local with a declared signature and a capture, used in the arguments of the call that gives a sibling its signature | `proc_ref_binding_duplicate` | declare both signatures, or bind the first local's result with `let*` |
-| `T9.3` | A `let-proc` written in the body of a `list/map-effect` without `:parallel` | `proc_ref_unknown` | write the `let-proc` around the map |
+| `T9.3`, `E7-local` | A `let-proc` written in the body of a `list/map-effect` without `:parallel` | `proc_ref_unknown` | write the `let-proc` around the map |
+| `let-proc-generic-capture` | A local that captures a `let*` name bound to a call of a generic procedure | `procedure_call_unknown`, naming the procedure the compiler generated for the call; in a serial map's body the same | a local that calls the generic procedure itself; a captured name bound to another value |
+| `let-proc-effect-capture` | A local that captures a `let*` name bound to a call of a procedure that has effects, and calls a procedure that has effects | `compiler_defect` | a local whose own body has no effect |
 | `T9.15` | A local whose body is pure, called in the body of a pure `list/map` | `list_map_body_effect_forbidden` | a `defproc` with the same body |
 | `T9.11` | A `defun` called from a workflow, a procedure or a local with the wrong number of arguments (§14) | `compiler_defect` | - |
 | `T9.12` | A `defun` called from a workflow, a procedure or a local with an argument that has not its parameter's type (§14) | not checked: the program builds and the value passes through | - |
@@ -2240,8 +2242,8 @@ value that holds no effect is not concerned.
 is converted, so an `Int` beside a `Float`, an `Int` beside an `Optional[Int]` and two path
 types with one root are each refused. Where the form around the list states its type, the two
 must agree. Diagnostics: `pure_expr_operand_type_mismatch`. An element may hold an effect
-under the rule above. Open defect: a `variant` with a list in a field, written directly as a
-`match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
+under the rule above. A list may stand in a `match` subject, in a variant field or an argument
+for example (§11).
 
 **Empty list.** `(list)` has no element to take a type from. It is accepted where the form
 around it states the list's type: the result of a workflow, a procedure or a function; an
@@ -2291,9 +2293,10 @@ element of `source`, in the source's order; an empty source gives the empty list
 - A body that fails for one element, by a division by zero or a refused `path/join-under` child
   for example, fails the run with that failure's own code. A map over literals that fails for
   an element builds, and fails when the program runs.
-- Open defect (defect backlog row D8): a `list/map` whose body is a `match` on its binder,
-  written in the condition of an `if` inside a loop body, ends in `compiler_defect`; bound with
-  `let*` before the `if`, it builds.
+- Inside a loop body, and in a parallel map body or a `match` arm there, the body reads `name`
+  as it does elsewhere: a `let*` in it may bind a value that reads `name`, and a `match` on
+  `name` may stand in an `if`, `cond`, `and`, `or` or `not` condition (defect backlog row D8,
+  fixed).
 
 **`list/map-effect`.** `(list/map-effect ((name source)) :max n body)` evaluates `body` once
 per element of `source`, one element after the other, and gives the list of its values in the
@@ -2331,9 +2334,12 @@ source's order. An empty source gives the empty list and evaluates no body.
   ([evaluated execution](workflow_lisp_evaluated_execution.md) owns resume). A parallel map
   differs: see *Parallel, at run time*.
 - A discriminant proof does not reach a serial map's body (§12.2).
-- Open defect (defect backlog row E7): a serial map's body that calls a generic procedure
-  (§7.9) is refused with `procedure_call_unknown`, whether or not the procedure holds an
-  effect; a parallel map's body and a `list/map` body take the call.
+- A body, serial or parallel, may call a generic procedure (§7.9), directly, nested, in an
+  argument, a `let*` or an `if`, also in a serial map's `:max`; each call is specialized
+  as a call outside the map is, and a recursive one is refused with
+  `parametric_specialization_cycle`, as outside a map (row E7, fixed). A `let-proc` written in
+  the body of a serial map is refused with `proc_ref_unknown`: write it around the map (open
+  defect `T9.3`, row E7-local, §7.8).
 - A serial map takes each element with a compiler-owned head read. That read fails with
   `list_nonempty_invariant_broken` on an empty list; the map evaluates it after testing that
   elements remain, and no source form names it.
@@ -2974,17 +2980,20 @@ exceptions below.
   `let*` whose argument or binding holds an effect under a conditional, a loop
   or beside a pure `match` (`(match (mk (+ E M)) …)`), or a `cond` choosing
   such a value, runs as its `let*`-bound spelling does: the same value, and
-  its effects run once. A subject that holds a `cond`, a list or a `list/map`
-  the compiler reaches (anywhere but in the body of a `let-proc` local) lowers
-  in its typechecked form, so it builds, pure or not: directly, in a call
-  argument, a variant field, a `let*` binding or body, an `if` branch or
-  condition, an `and` operand or a macro expansion. In such a subject a
-  `list/map-effect` in the argument builds too. Open defects, each ending in
-  `compiler_defect`; bind the subject first: a pure `match` or a loop as the whole subject (rows
-  D4-subject-match, D4-subject-loop) or as a call argument in it
-  (D4-subject-argument), also when a `cond` sits inside it; a `let-proc`
-  subject whose body passes the local's call in an `if` argument
-  (D20-let-proc-subject).
+  its effects run once. A subject that holds a `cond` the compiler reaches
+  (anywhere but in the body of a `let-proc` local), or a list or a `list/map`
+  outside every `let-proc` form, lowers in its typechecked form, so it builds,
+  pure or not: directly, in a call argument, a variant field, a `let*` binding
+  or body, an `if` branch or condition, an `and` operand or a macro expansion.
+  In such a subject a `list/map-effect` in the argument builds too. A list or a
+  `list/map` in a `let-proc` form of the subject, its call included, lowers as
+  the form's typechecked rewrite, and the subject as written. Open defects,
+  each ending in `compiler_defect`; bind the subject first: a pure `match` or a
+  loop as the whole subject (rows D4-subject-match, D4-subject-loop) or as a
+  call argument in it (D4-subject-argument), also when a `cond` or a list sits
+  inside it; a `let-proc` subject whose body passes the local's call in an
+  `if` argument (D20-let-proc-subject); an `if` on a variant test whose branch
+  reads a field of the tested variant (D20-subject-tag).
 - *A parallel map whose binder a macro template introduces takes a pure
   source.* With an effect in its source it is refused as before
   (`effect_not_permitted`, or `list_map_effect_body_unsupported` when the
