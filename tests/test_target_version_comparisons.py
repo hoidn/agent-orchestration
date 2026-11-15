@@ -142,9 +142,6 @@ ALLOWED = {
         'if target_dsl_supports_effect_ceilings(target_dsl_version):',
         'if (not target_dsl_supports_effect_ceilings(target_dsl_version or "")',
     ),
-    "orchestrator/workflow_lisp/modules.py": (  # 3
-        'if target_dsl_supports_local_hook_inference(syntax_module.target_dsl_version):',
-    ),
     "orchestrator/workflow_lisp/parallel_map.py": (  # 4
         'if not target_dsl_supports_parallel_map(target):',
     ),
