@@ -48,6 +48,22 @@
       "errors": [],
       "passes": true
      }
+    ],
+    "oracle_uidfix_recorded": [
+     {
+      "label": "vba-userform-port-uidfix",
+      "reference": [
+       1,
+       1
+      ],
+      "untouched": [
+       0,
+       1
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
     ]
    },
    "images": {
@@ -91,6 +107,28 @@
     "rulings": [],
     "unruled": [],
     "verdict": "withheld"
+   },
+   "variant": {
+    "label": "vba-userform-port-uidfix",
+    "ruling": "Coordinator ruling, Task 2b fix round 1: the labelled reading of D1's one-line verifier change (owner question 4), for use only if the owner does not run `podman system migrate`; the sub-id range is not widened.",
+    "base_ref": "harborframework/terminal-bench:vba-userform-port-verifier-2561c54d4ae37e58@sha256:ce013facbe7cdaf21cd60b1930282bcfc3cdb6b0543682bed253453952e82a28",
+    "base_digest": "sha256:ce013facbe7cdaf21cd60b1930282bcfc3cdb6b0543682bed253453952e82a28",
+    "base_image_id": "cb25df7dcaf1bd89e87f87373fe6c2e238d154f8b93338140eeea1c0d70c073d",
+    "image": "lh-oracle/vba-userform-port-uidfix:verifier",
+    "keeper": "lh-keep/vba-userform-port-uidfix:verifier",
+    "image_id": "01b5f971fcee8209f835d39d267205fe17057104896a918a488c8846156467ca",
+    "recipe": "FROM docker.io/harborframework/terminal-bench:vba-userform-port-verifier-2561c54d4ae37e58@sha256:ce013facbe7cdaf21cd60b1930282bcfc3cdb6b0543682bed253453952e82a28\nRUN test \"$(grep -cF 'secrets.randbelow(1000000000)' /tests/app_worker.py)\" = 1 && sed -i 's/secrets\\.randbelow(1000000000)/secrets.randbelow(55000)/' /tests/app_worker.py\n",
+    "file": "tests/app_worker.py",
+    "sha256_before": "d30b3eaf6dd735055004c494ee96edfa3bdde10157dfb74840ac1d0296a86df7",
+    "sha256_after": "f760628dd73232993af30540a68a96962d7477bc946518c92a35d57b90accf2a",
+    "diff": "--- a/tests/app_worker.py\n+++ b/tests/app_worker.py\n@@ -55 +55 @@\n-        uid = 10000 + secrets.randbelow(1000000000)\n+        uid = 10000 + secrets.randbelow(55000)\n",
+    "differing_paths": [
+     "tests/app_worker.py"
+    ],
+    "image_diff": [
+     "C /tests",
+     "C /tests/app_worker.py"
+    ]
    }
   },
   {
@@ -691,6 +729,17 @@
     "rulings": [],
     "unruled": [],
     "verdict": "withheld"
+   },
+   "egress_refused": {
+    "host": "www.gsea-msigdb.org",
+    "addresses": [
+     "32.184.146.215:443",
+     "44.234.139.57:443"
+    ],
+    "refused": 8,
+    "by": "the bundled GSEA tool calling home at start, once per run (the reference runs it 8 times)",
+    "needed": false,
+    "evidence": "first pass: the reference passed 16 of 16 with the host refused; the name is from the Task 2b review (it resolves to exactly these addresses, and the GSEA jar holds https://www.gsea-msigdb.org/gsea). Do not add it to extra_hosts."
    }
   },
   {

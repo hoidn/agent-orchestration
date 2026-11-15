@@ -6,8 +6,8 @@ A label passes when every reference run earns reward 1 and no untouched run does
 
 Usage: python -I summarize.py <jobs> [--write <records.json>]
   prints one line per label: reference k of n, untouched k of n, install, wall time, load at start and end;
-  --write also writes one JSON line per trial (outcomes, timings, load, images, digests, connections the egress
-  sidecar refused, by address; no log text) and puts each task's counts, under the records file's stem, and its
+  --write also writes one JSON line per trial (outcomes, CTRF and hidden-trace counts, timings, load, images,
+  digests, network policies seen, connections the egress sidecar refused, by address; no log text) and puts each task's counts, under the records file's stem, and its
   overlay digest into tasks.json.
 """
 
@@ -108,6 +108,15 @@ def _verifier_files(trial):
             {k: summary[k] for k in ("tests", "passed", "failed", "skipped")} if summary else None)
 
 
+def _traces(trial):
+    """The hidden-trace counts of a verifier that grades by traces (vba-userform-port), or None."""
+    path = trial / "verifier" / "trace_summary.json"
+    if not path.exists():
+        return None
+    summary = json.loads(path.read_text())
+    return {"passed": summary["passed_traces"], "total": summary["total_traces"]}
+
+
 def _outcome(round_dir):
     """The harness's trial result of one round: reward, rewards, error, phase seconds and verifier files."""
     results = sorted(round_dir.glob("*/*/result.json"))
@@ -115,7 +124,7 @@ def _outcome(round_dir):
         raise ValueError(f"{round_dir}: {len(results)} trials, expected one")
     if not results:
         return {"trial": None, "reward": None, "rewards": None, "error": "no result.json", "verifier_output": None,
-                "ctrf": None}
+                "ctrf": None, "traces": None}
     result = json.loads(results[0].read_text())
     rewards = (result.get("verifier_result") or {}).get("rewards")
     output, ctrf = _verifier_files(results[0].parent)
@@ -123,7 +132,7 @@ def _outcome(round_dir):
             "error": (result.get("exception_info") or {}).get("exception_type"),
             "env_s": _seconds(result.get("environment_setup")), "agent_setup_s": _seconds(result.get("agent_setup")),
             "agent_s": _seconds(result.get("agent_execution")), "verify_s": _seconds(result.get("verifier")),
-            "verifier_output": output, "ctrf": ctrf}
+            "verifier_output": output, "ctrf": ctrf, "traces": _traces(results[0].parent)}
 
 
 def trial_record(round_dir):

@@ -185,3 +185,14 @@ def test_a_trial_record_counts_refused_connections_of_its_own_sidecars(tmp_path)
     (out / "egress-t1__abc1234__env_harbor-docker-egress-control-sidecar_1.log").write_text(EGRESS)
     (out / "egress-t1__zzz__env_harbor-docker-egress-control-sidecar_1.log").write_text(EGRESS)
     assert summarize.trial_record(out)["egress"]["refused"] == 2
+
+
+def test_a_trial_record_keeps_the_hidden_trace_counts_a_verifier_grades_by(tmp_path):
+    out = _trial(tmp_path, "t1", "oracle", 1)
+    trial = next(out.glob("*/*/verifier"))
+    (trial / "trace_summary.json").write_text(json.dumps({"passed_traces": 29, "total_traces": 29, "traces": []}))
+    assert summarize.trial_record(out)["traces"] == {"passed": 29, "total": 29}
+
+
+def test_a_trial_record_without_trace_counts_says_none(tmp_path):
+    assert summarize.trial_record(_trial(tmp_path, "t1", "oracle", 1))["traces"] is None
