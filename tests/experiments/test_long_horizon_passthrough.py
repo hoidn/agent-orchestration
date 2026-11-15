@@ -14,6 +14,7 @@ import gzip
 import http.client
 import importlib.util
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -636,12 +637,41 @@ def test_a_compressed_response_is_not_passed_on_and_stops_the_tranche(short, can
         b"", [("stop", "response not checkable"), ("close_starts", "usage incomplete")])
 
 
+def _bound(prompt, output):
+    """The worst case D4 states: the prompt all at the one-hour write rate, `max_tokens` as output."""
+    return price_check.price({"input_tokens": 0, "cache_creation_input_tokens": prompt, "output_tokens": output}, RULE)
+
+
+def _usages(prompt, output):
+    """Every corner of what a response could bill for a prompt of at most `prompt` tokens and at most `output`
+    output tokens: the whole prompt as each kind of token, at each size that changes the rate (none, one, either
+    side of the long-prompt threshold, the whole). A split between kinds costs no more than its dearest corner."""
+    above = RULE["long_prompt"]["above_prompt_tokens"]
+    kinds = [lambda n: {"input_tokens": n}, lambda n: {"input_tokens": 0, "cache_read_input_tokens": n},
+             lambda n: {"input_tokens": 0, "cache_creation_input_tokens": n,
+                        "cache_creation": {"ephemeral_5m_input_tokens": n}},
+             lambda n: {"input_tokens": 0, "cache_creation_input_tokens": n,
+                        "cache_creation": {"ephemeral_1h_input_tokens": n}}]
+    sizes = sorted({n for n in (0, 1, above, above + 1, prompt) if n <= prompt})
+    return [{**kind(n), "output_tokens": out} for n, kind, out in itertools.product(sizes, kinds, (0, output))]
+
+
+@pytest.mark.parametrize("text,start", [("x" * 150_000, None), ("x", {"input_tokens": 1000, "output_tokens": 1})],
+                         ids=["a long body, no usage read", "a short body, a larger prompt in message_start"])
+def test_the_worst_case_is_at_least_what_any_usage_of_the_request_could_cost(text, start):
+    request = {**_request(), "max_tokens": 64000, "messages": [{"role": "user", "content": text}]}
+    size = len(json.dumps(request).encode())
+    worst = passthrough._price(passthrough._worst_case(start, request, size))
+    prompt = max(size, (start or {}).get("input_tokens", 0))  # D4: the vendor counts no more prompt than this
+    assert [u for u in _usages(prompt, 64000) if price_check.price(u, RULE) > worst] == []
+
+
 def test_usage_the_meter_cannot_read_is_priced_at_the_requests_worst_case_and_closes_starts(short, canned, inproc):
     upstream = canned(_http(200, [("content-type", "application/json")], b"not json"))
     sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
     request = json.dumps(_request(stream=False)).encode()
     status, _, data = _post(sock, "lh-fake-a", request)
-    worst = price_check.price({"input_tokens": len(request), "output_tokens": 1000}, RULE)
+    worst = _bound(len(request), 1000)
     assert (status, data, round(_rows(state)[0]["usd"], 12), _rows(state)[0]["worst_case"],
             [(e["event"], e["reason"]) for e in _events(state)]) == (
         200, b"not json", round(worst, 12), True, [("close_starts", "usage incomplete")])
@@ -1051,7 +1081,7 @@ def probe(short):
     kit = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%H", "--", str(KIT)], capture_output=True,
                          text=True).stdout.strip()
     ledger = short / "ledger.md"
-    ledger.write_text(f"| 2026-11-14 | live probe approved by the coordinator at `{kit}` |\n")
+    ledger.write_text(f"| 2026-11-14 | Live probe approved | {kit} under the stand-in's limits |\n")
     env = {"PATH": f"{NO_PROVIDER}:/usr/bin:/bin", "HOME": str(lh / "home"), "LH": str(lh), "LH_PYTHON": sys.executable,
            "LH_PROBE_COMMIT": kit, "LH_PROBE_STATE": str(short / "probe-state"),
            "LH_TRANSCRIPTS": str(lh / "transcripts"), "LH_PROBE_LEDGER": str(ledger)}
@@ -1131,20 +1161,39 @@ def test_a_body_larger_than_the_limit_is_refused_unread(short, stub, inproc):
             _stub_rows(upstream_log)) == ("403", True, "request too large", [])
 
 
-APPROVAL_ROWS = [
-    ("another commit", lambda kit: f"| d | live probe approved at `{'0' * 40}` |\n"),
-    ("the commit's first eight characters", lambda kit: f"| d | live probe approved at `{kit[:8]}` |\n"),
-    ("another phrase", lambda kit: f"| d | Live probe approved at `{kit}` |\n"),
-    ("the phrase and the commit on two rows", lambda kit: f"| d | live probe approved |\n| d | `{kit}` |\n"),
-    ("two approval rows", lambda kit: f"| d | live probe approved at `{kit}` |\n" * 2),
+APPROVAL = "| d | Live probe approved | {kit} under the limits of item 1 |\n"
+NEGATED = "| d | Task 4 | the live probe approved row is still missing for `{kit}` |\n"
+REFUSED_ROWS = [
+    ("a negated sentence", NEGATED),
+    ("the phrase in the wrong cell", "| d | {kit} under the limits | Live probe approved |\n"),
+    ("two approval rows", APPROVAL * 2),
+    ("another commit", APPROVAL.replace("{kit}", "0" * 40)),
+    ("the commit's first eight characters", "| d | Live probe approved | {short} under the limits |\n"),
+    ("the hash in backticks", "| d | Live probe approved | `{kit}` under the limits |\n"),
+    ("the hash running on", "| d | Live probe approved | {kit}0 |\n"),
+    ("another phrase", "| d | live probe approved | {kit} under the limits |\n"),
+    ("a line that is not a table row", " " + APPROVAL),
+]
+APPROVED_ROWS = [
+    ("the hash and a space", APPROVAL),
+    ("the hash and a period", "| d | Live probe approved | {kit}. Limits of item 1 |\n"),
+    ("the row beside a negated sentence", NEGATED + APPROVAL),
 ]
 
 
-@pytest.mark.parametrize("case,rows", APPROVAL_ROWS, ids=[case for case, _ in APPROVAL_ROWS])
-def test_a_probe_without_exactly_one_approval_row_naming_its_full_commit_is_refused(probe, case, rows):
-    probe.ledger.write_text(rows(probe.kit))
+@pytest.mark.parametrize("case,rows", REFUSED_ROWS, ids=[case for case, _ in REFUSED_ROWS])
+def test_a_probe_without_exactly_one_approval_row_of_the_fixed_form_is_refused(probe, case, rows):
+    probe.ledger.write_text(rows.format(kit=probe.kit, short=probe.kit[:8]))
     result = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
-    assert (result.returncode, "'live probe approved'" in result.stderr, probe.state.exists()) == (3, True, False)
+    assert (result.returncode, "| Live probe approved |" in result.stderr, probe.state.exists()) == (3, True, False)
+
+
+@pytest.mark.parametrize("case,rows", APPROVED_ROWS, ids=[case for case, _ in APPROVED_ROWS])
+def test_a_probe_with_exactly_one_approval_row_of_the_fixed_form_passes_the_gate(probe, case, rows):
+    probe.ledger.write_text(rows.format(kit=probe.kit))
+    (probe.lh / "recordings" / "live-probe").mkdir()  # the next check refuses, so nothing runs
+    result = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
+    assert (result.returncode, "exists" in result.stderr, "Live probe approved" in result.stderr) == (3, True, False)
 
 
 def test_a_start_that_fails_before_the_passthrough_listens_claims_nothing(probe):
@@ -1522,7 +1571,7 @@ def test_a_stream_that_ends_before_its_message_stop_is_priced_at_the_requests_wo
                             stream[:stream.index(b"event: message_delta")]))
     sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
     _post(sock, "lh-fake-a", _request())
-    worst = price_check.price({**USAGE, "output_tokens": 1000}, RULE)  # message_start's usage, max_tokens as output
+    worst = _bound(max(len(json.dumps(_request())), USAGE["input_tokens"]), 1000)  # message_start's prompt is larger
     assert (round(_rows(state)[0]["usd"], 12), _rows(state)[0]["worst_case"],
             [(e["event"], e["reason"]) for e in _events(state)]) == (
         round(worst, 12), True, [("close_starts", "usage incomplete")])

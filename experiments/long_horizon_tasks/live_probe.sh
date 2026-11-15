@@ -3,9 +3,10 @@
 # scratch task, one after another at effort low, medium and high, in the ladder's configuration (CLI 2.1.311 in
 # the task container, token mode with a fake token per session, the relay as base URL, the deny list, the
 # recordings' allowlist, model claude-haiku-5-5, verification off), through passthrough.py on the owner's
-# subscription token. It runs only under the coordinator's approval row in the plan's ledger: exactly one line of
-# the plan holds both the exact phrase "live probe approved" and the kit's commit in full (40 hex characters; the
-# kit's commit is the last commit that changed this directory, and the row itself is committed after it).
+# subscription token. It runs only under the coordinator's approval row in the plan's ledger: exactly one table
+# row of the plan reads `| <date> | Live probe approved | <the kit's commit> <the limits> |`, its second cell
+# exactly that phrase and its third cell starting with the kit's commit in full (40 hex characters) and a space or
+# a period. The kit's commit is the last commit that changed this directory; the row is committed after it.
 #
 #   LH_PROBE_SPEND_AUTHORIZED=yes LH_PROBE_COMMIT=<the kit's last commit> LH_TOKEN_FILE=<path> \
 #     live_probe.sh OUT                                                   (the probe: subscription usage)
@@ -61,7 +62,7 @@ LH=${LH:-$HOME/lh-cache}
 NO_PROVIDER=$REPO/experiments/thread_m/no_provider
 [ -x "$NO_PROVIDER/claude" ] || refuse "no provider guard at $NO_PROVIDER"
 KIT_COMMIT=$(git -C "$REPO" log -1 --format=%H -- "$HERE")
-APPROVAL="LH_PROBE_COMMIT must be the kit's last commit (git log -1 --format=%H -- $HERE), and exactly one ledger row must hold that full 40-character hash and the exact phrase 'live probe approved'"
+APPROVAL="LH_PROBE_COMMIT must be the kit's last commit (git log -1 --format=%H -- $HERE), and exactly one ledger row must read '| <date> | Live probe approved | <that full 40-character hash> <the limits> |' (the hash first in the third cell, then a space or a period)"
 [[ $KIT_COMMIT =~ ^[0-9a-f]{40}$ ]] || refuse "no 40-character commit for the kit; $APPROVAL"
 [ "$KIT_COMMIT" = "${LH_PROBE_COMMIT:-}" ] || refuse "LH_PROBE_COMMIT is not the kit's commit $KIT_COMMIT; $APPROVAL"
 LEDGER=$REPO/docs/plans/2026-11-13-long-horizon-task-family-and-seed-plan.md
@@ -74,7 +75,13 @@ else
   [ -z "$(git -C "$REPO" status --porcelain -- "$HERE")" ] || refuse "the kit has uncommitted changes"
   STATE=$HOME/.local/state/lh-probe TRANSCRIPTS=${LH_TRANSCRIPTS:-$HOME/.claude/projects} CREDENTIAL=live
 fi
-ROWS=$( { grep -F -- "$KIT_COMMIT" "$LEDGER" 2>/dev/null || true; } | { grep -cF 'live probe approved' || true; })
+ROWS=$(awk -F'|' -v hash="$KIT_COMMIT" '
+  function trim(s) { sub(/^ +/, "", s); sub(/ +$/, "", s); return s }
+  substr($0, 1, 2) == "| " && trim($3) == "Live probe approved" {
+    cell = $4; sub(/^ +/, "", cell)
+    if (index(cell, hash) == 1 && substr(cell, length(hash) + 1, 1) ~ /^[ .]$/) rows++
+  }
+  END { print rows + 0 }' "$LEDGER" 2>/dev/null) || ROWS=0
 [ "$ROWS" = 1 ] || refuse "$ROWS approval rows for $KIT_COMMIT in $LEDGER; $APPROVAL"
 OUT=$(realpath -m "$1")
 [ ! -e "$OUT" ] || refuse "$OUT exists"

@@ -35,8 +35,9 @@ nothing more is sent, the client connection is dropped and the tranche is stoppe
 index and name, or a body offset) and the form, never the bytes; a response whose `content-encoding` is not
 identity is handled the same way, since it cannot be checked. The meter reads the response to its end even
 when the client has gone; a 200 whose usage cannot be read whole, or a request that got no status back, is
-priced at the request's worst case (its `max_tokens` as output; as input, the measured figure or the body's
-size in bytes), flagged, and closes starts ("usage incomplete"). Prices are `price_rule.json`
+priced at a bound, flagged, and closes starts ("usage incomplete"): as prompt, the body's size in bytes (or the
+prompt message_start reported, when larger) at the one-hour cache-write rate, the dearest prompt rate; as output,
+the request's `max_tokens`. Prices are `price_rule.json`
 (`price_check.price`, each cache write at its lifetime's rate).
 
 The vendor's answers, recorded before the response is passed on: a 429 closes starts ("usage limit" with its
@@ -363,11 +364,17 @@ def _row(slot, request, credential, headers):
             "beta": headers.get("anthropic-beta"), "cache_marks": _cache_marks(request)}
 
 
+PROMPT_TOKENS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+
+
 def _worst_case(start, request, body_size):
-    """The usage a response could have had when its own cannot be read whole."""
+    """A bound on what a response whose own usage cannot be read whole could cost (D4): as prompt, the body's size
+    in bytes, or the prompt message_start reported when that is larger, all at the one-hour cache-write rate, the
+    price rule's dearest prompt rate; as output, the request's `max_tokens`. `price` applies the long-prompt
+    multiplier to that prompt. A bound while the vendor counts no more prompt tokens than that."""
+    measured = sum(v for k, v in (start or {}).items() if k in PROMPT_TOKENS and type(v) is int)
     output = request.get("max_tokens", ALLOW["max_tokens_max"])
-    usage = {k: v for k, v in (start or {}).items() if v is not None} or {"input_tokens": body_size}
-    return {**usage, "output_tokens": output}
+    return {"input_tokens": 0, "cache_creation_input_tokens": max(body_size, measured), "output_tokens": output}
 
 
 # --- the response: meter and guard ----------------------------------------------------------------------
