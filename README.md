@@ -303,7 +303,7 @@ Current source compilation, typed imports and REPL/LSP analysis also require
 every module to target 2.40. A run recorded at 2.35 through 2.39 is still read
 by `report`, the dashboard and the monitor, and is continued only with
 `v0.2.1`. Older source and saved run data remain
-historical evidence; `report` and the dashboard refuse old runs (the old
+historical evidence; `report` and the dashboard refuse flat-profile runs (targets through 2.34; the old
 readers are kept at the git tag `archive/retired-run-readers-2026-11-11`).
 [`specs/versioning.md`](specs/versioning.md#version-gating-summary) records
 what each target admits.
