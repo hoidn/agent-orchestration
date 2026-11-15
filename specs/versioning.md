@@ -1474,7 +1474,11 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   - a `let*` in a pure `list/map` body whose value reads the map's binder, written there or put
     there by a `match` in an `if`, `cond`, `and`, `or` or `not` condition, builds and runs in a loop
     body, a parallel map body and a `match` arm there, as does a `let-proc` local in such a body
-    that captures the binder (D1; frontend specification §10.3);
+    that captures the binder. In a loop that holds a command, a pure map body that passes the
+    binder to a `defproc`, a generic procedure, a `defun` or a `let-proc` local, or that holds a
+    `bind-proc` over the binder (row D29) or over another value, builds too, in an `if` condition
+    and as the `done` value; in an `if` condition also a body that reads a
+    field of the binder after a tag test or is a `match` on it (D1; frontend specification §10.3);
   - a `match` whose subject holds a list (with `:of` or without) or a `list/map` outside every
     `let-proc` form of the subject builds and runs as its `let*`-bound spelling, wherever the `match` is written (a
     `defun` and a local's body included), also with an empty `(list)` in an arm whose position
@@ -1492,7 +1496,7 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
 
   Every program that compiled before keeps its closed program, digest and identities, and its
   recorded runs resume; a differential corpus test over these shapes, their neighbours and the
-  probe programs of the task's review holds the digests and refusal codes read on `main` before
+  probe programs of the task's review and re-review holds the digests and refusal codes read on `main` before
   the change, pins the outcome of each program that moved, and runs every newly built program
   against the value of its `let*`-bound spelling, or of a spelling without the fixed form, on
   `main` (`tests/test_workflow_lisp_staged_authoring_differential.py`).
