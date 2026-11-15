@@ -1631,13 +1631,18 @@ def hold(head, text, labels):
     return None
 
 
-def config_refusal(ctx, label):
+def config_refusal(ctx, label, ladder):
     """The launch's checks again, before each start (Task 8 part A M6): the manifest hash is still the one the
     preflight checked, the kit still matches the manifest, and when live the ledger's current label, the runtime
-    commit, the detached checkout and a clean kit; a reason, or None."""
+    commit, the detached checkout and a clean kit; then the harness venv and the host-side overrides, which are
+    outside the manifest (re-review R-m3). A reason, or None."""
     if this_label() != label:
         return f"the manifest is no longer {label}"
-    return _manifest_refusal(ctx.live) or (_live_refusal(ctx) if ctx.live else None)
+    reason = _manifest_refusal(ctx.live) or (_live_refusal(ctx) if ctx.live else None)
+    try:
+        return reason or harness_refusal(ctx, ladder)
+    except Refused as refused:  # the venv's Python failed: the harness environment cannot be read
+        return str(refused)
 
 
 def this_label():
@@ -2276,7 +2281,7 @@ class Tranche:
 
     def config_ok(self):
         """The launch's checks again (Task 8 part A M6); a change stops the tranche."""
-        reason = config_refusal(self.ctx, self.label)
+        reason = config_refusal(self.ctx, self.label, self.ladder)
         if reason:
             self.stop(f"the configuration changed under the launcher: {reason}")
         return reason is None

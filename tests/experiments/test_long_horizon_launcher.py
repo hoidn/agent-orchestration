@@ -2330,6 +2330,25 @@ def _holder(root):
     return proc
 
 
+@pytest.mark.parametrize("change,named", [
+    (lambda lh: (lh / "logs" / "limits-compose.yaml").write_text("services: {}\n"), "limits-compose.yaml"),
+    (lambda lh: (lh / "logs" / "containers-override.conf").write_text("# a comment\n[engine]\n"),
+     "containers-override.conf"),
+    (lambda lh: (lh / "standin" / "versions.json").write_text(json.dumps({"harbor": "0.26.0", "podman-compose": "1.6.0"})),
+     "the harness environment")])
+def test_a_host_side_override_or_the_harness_venv_changed_after_the_preflight_is_refused_before_the_next_start(
+        short, change, named):
+    """Re-review R-m3: the checks before each start include the host-side overrides and the harness venv (D1, D2)."""
+    kit = Kit(short)
+    copy = kit.ladder
+    ctx = copy.Ctx(kit.env())
+    criterion = copy.criterion(ctx)
+    before = copy.config_refusal(ctx, copy.this_label(), criterion)
+    change(kit.lh)
+    after = copy.config_refusal(ctx, copy.this_label(), criterion)
+    assert (before, named in (after or "")) == (None, True)
+
+
 def test_a_kit_changed_after_the_preflight_stops_the_tranche_before_the_next_start(rig):
     """Task 8 part A M6: the change lands between the preflight and the first start (a regrade that reconcile
     finishes changes a kit file, as a person editing the checkout would); no start is made under it."""
