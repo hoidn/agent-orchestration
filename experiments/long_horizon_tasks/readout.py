@@ -124,6 +124,7 @@ def pooled_label(K, n, rule):
     if K == rule["floor_K"]:
         return "floor"
     band = rule["screened_in"]
+    # Open ruling R4: the ratio rule is applied at any n; D6 states it, and its phrase, at 15 attempts.
     inside = Fraction(band["from"]) <= Fraction(K, n) <= Fraction(band["to"])
     return "screened in" if inside else "above the band"
 
@@ -202,6 +203,7 @@ def fall_bound(tasks, low, high, rule):
             for task in sorted(tasks)]
     if not rows:
         return None
+    # Open ruling R5: D6 names no generator or quantile; these are random.Random(seed) and the ceil(0.95 R)-th fall.
     rng, resamples = random.Random(rule["seed"]), rule["resamples"]
     falls = []
     for _ in range(resamples):
@@ -485,8 +487,7 @@ def _level_cost(starts, effort, classes):
 
 def _beats(other, effort, per_effort, triples, rule):
     """Whether other beats effort on the sign-flip test at p <= 0.05 and has a lower mean cost (D6)."""
-    # Open ruling (report, "For the coordinator"): ladder.json states the dominance threshold in prose only
-    # (readout.cost.dominated, "p <= 0.05"); the readout takes effort_test.rises.p_at_most, the same 0.05.
+    # Open ruling R3: ladder.json states this threshold in prose only; effort_test.rises.p_at_most is the same 0.05.
     difference = _difference(triples, other, effort)
     mine, theirs = per_effort[effort]["mean_usd"], per_effort[other]["mean_usd"]
     cheaper = None not in (mine, theirs) and theirs < mine
@@ -565,6 +566,7 @@ def compute(ladder, export, standins=None):
     level = rules["interval"]["level"]
     current = [start for start in starts if start["label"] == export["label"]]
     triples = _triples(current, efforts)
+    # Open ruling R2: "prints no placement" is read as withholding the bound on the fall, which D6 "always" reports.
     place = export["end"] is None or export["end"]["by"] != "stop"
     return {"rehearsal": rehearsal, "configuration": _configuration(criterion), "label": export["label"],
             "end": export["end"], "stop": not place,
@@ -742,6 +744,7 @@ def family(result, criterion_sha256, tasks_doc):
 
     Only from a complete readout (the tranche ended) that did not end in a stop. A pure function of its arguments.
     """
+    # Open ruling R1: the plan's headline has family.json name "the stop that prevented it"; the brief writes none.
     if result["end"] is None or result["stop"]:
         state = "is in progress" if result["end"] is None else f"ended in a stop ({result['end']['cause']})"
         raise ReadoutError(f"family.json is written only from a complete readout that did not end in a stop; this "

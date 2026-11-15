@@ -104,3 +104,29 @@ Tests (no container, no network, no CLI; the upstream is `stub_api.py`):
 ```
 pytest -q -n 4 tests/experiments/test_long_horizon_passthrough.py
 ```
+
+## The readout (plan Task 6)
+
+`readout.py` turns the launcher's export into the readout of D6 and, at the end of the tranche, into
+`results/family.json` (step 7). It reads every rule from `ladder.json` (`readout`, `classification`, `attempt`,
+`schedule`) and prints no public figure. The record it reads (one JSON document: the current label, the earlier
+labels with the ledger row that ended each, how the tranche ended, the schedule's slots and every start) is stated in
+its docstring; a start that joins no slot, or any field that does not fit, is an error. Every figure is computed once,
+by `compute`, from the starts joined to their slots by slot id: the cells and pooled counts with their exact
+intervals and labels, the band effort, the effort test over complete triples with its verdict and the bound on the
+fall, the cost per effort, the lists (exclusions, flags, cuts per effort, the pilot's attempts, refused connections),
+the graded outcome, an earlier label's counts and the allowance. The last three enter no rule. A readout that ends
+in a stop places nothing.
+
+```
+python -I experiments/long_horizon_tasks/readout.py <export.json> [--family experiments/long_horizon_tasks/results/family.json]
+python -I experiments/long_horizon_tasks/readout.py <export.json> --rehearsal <stand-ins.json> [--family <path>]
+pytest -q -n 4 tests/experiments/test_long_horizon_readout.py
+```
+
+A final readout is refused while `ladder.json` marks a `readout.*` field pending, and unless the export's label is
+the SHA-256 of `manifest.json` and that manifest holds the SHA-256 of the `ladder.json` read. `--rehearsal` takes a
+JSON object with a stand-in for each pending readout field (and for nothing else) and stamps the readout and
+`family.json` as a rehearsal. `family.json` is written only from a readout whose tranche ended and did not end in a
+stop; the same records give the same bytes. `readout.py` is a kit file, so the manifest covers it and a change to it
+makes a new label; its test module is not covered.
