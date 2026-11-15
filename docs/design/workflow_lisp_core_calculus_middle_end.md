@@ -5,7 +5,7 @@ steps and the step runtime that executed them, targets through 2.34) was
 retired on 2026-10-13 and executable entries through 2.34 are refused; the
 retained middle-end (WCC elaboration, ANF normalization, scope/effect/proof
 analysis) feeds the closed program that the evaluated runtime executes at
-2.35–2.40 (§§10.1, 11.4, 13.5, 15), within each target's admitted effect surface
+the one admitted target, 2.40 (§§10.1, 11.4, 13.5, 15), within its admitted effect surface
 Kind: architecture decision / compiler architecture
 Created: 2026-06-09
 Updated: 2026-10-16 (source floor and complete executable WCC boundary)
@@ -135,8 +135,8 @@ selects caller-owned inline composition for definitions originating at target
 classification, including procedure bodies with loops. WCC consumes that resolved
 policy and inferred effect summary; authored ceilings do not select lowering.
 Existing ordinary `defworkflow`/`call` carries
-an intentional runtime boundary. Admitted 2.35–2.38 imported procedure origins retain
-AUTO/private-workflow behavior and existing diagnostic validation. This source
+an intentional runtime boundary. Source at 2.35–2.38 is no longer admitted, so
+no procedure origin keeps AUTO/private-workflow behavior. This source
 version change does not weaken the completed executable body/command contracts
 in §13.4, shared typechecking modes, closure validation, or checked-program
 source/capture identity. It introduces no second elaborator or runtime.

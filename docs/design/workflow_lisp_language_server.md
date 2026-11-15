@@ -49,8 +49,10 @@ type checker, linter or workflow validator.
 
 ## Summary
 
-The selected [source floor](workflow_lisp_executor_retirement.md#source-floor-235)
-is 2.35 for every source dependency. Old module headers receive the shared
+Every source dependency must declare the one admitted target, 2.40
+([targets and identity](../../specs/versioning.md#targets-and-identity));
+passages below on definition origins 2.35–2.38 describe the release tagged
+`v0.2.1`. Old module headers receive the shared
 unsupported-target diagnostic; no legacy analysis, import fallback or stale
 callable snapshot survives the refusal. Current evaluated inspection and
 no-effect guarantees remain. Source migration does not qualify an otherwise
@@ -613,7 +615,7 @@ LSP messages.
   selection. Selected analysis returns the same typed result with entry selection;
   neither manufactures `LoadedWorkflowBundle`, flat IR, source-map artifacts,
   prospective flat build paths or a runtime plan. Every source and typed
-  imported dependency must target 2.35 or newer; old-header analysis/imports
+  imported dependency must target 2.40; old-header analysis/imports
   refuse before catalog publication and invalidate callable snapshots.
 - Persistent executable builds use the checked closed-program route. The LSP
   never creates or mutates `.orchestrate/build`. Source spans/catalogs and exact
