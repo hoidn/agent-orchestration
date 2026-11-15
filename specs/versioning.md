@@ -971,8 +971,8 @@ own delivery status and captured evidence.
     and the separate internal run-reference target `2.35` retain their contracts.
   - W3 extends `let-proc` with several nonempty local bindings, inferred lexical
     captures and bounded expected `ProcRef` signatures; the
-    [local-hook contract](../docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)
-    owns grammar and preparation. An incomplete signature requires exactly one
+    [frontend specification §7.8](../docs/design/workflow_lisp_frontend_specification.md#78-procedure-references)
+    owns the grammar and its diagnostics. An incomplete signature requires exactly one
     authored direct consumer call site; complete signatures retain reuse.
     Only used lexical captures are retained, ordered by resolved name at 2.36.
     Older targets preserve authored capture order and syntax admission.
@@ -1398,6 +1398,38 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   The effect names of an admitted program are the same whether the value is bound with `let*`
   first or written in place. Every program that compiled before keeps its closed program, digest
   and identities, and its recorded runs resume.
+
+- **Defect backlog, crashes made to build or refused by name.** Source that passed typecheck and
+  then stopped with `compiler_defect` now builds, or is refused with a named code
+  ([defect backlog plan](../docs/plans/2026-11-13-compiler-and-runtime-defect-backlog-plan.md)):
+  - a `let-proc` local whose body is a loop with state, or a serial map, in the binding-list
+    spelling, builds and runs (Task TD5);
+  - a variant field read of a name subject inside its arm, `(match u ((A a) u.n) …)`, builds
+    and reads the arm's variant (TD2; frontend specification §11);
+  - a pure `match` as a loop's `:max` or `:state` or a serial map's `:max`, and a pure value with
+    a `match` in it there that did not build (`(if c (match …) 4)`, `(let* ((k 1)) (match …))`,
+    a `cond` or a pure procedure call holding a `match`, a loop as `:state`, a nested `:max`),
+    build and run; a value with a `match` in it that built before, such as a record, keeps its
+    program (TD1, D4);
+  - a `match` subject whose effect lowers to a join (a procedure call or a `let*` whose argument
+    or binding holds an effect under a conditional, a loop or beside a pure `match`, or a `cond`
+    choosing one) builds and runs as its `let*`-bound spelling (TD1, D20; §16.3);
+  - a `match` subject holding a `cond` outside a `let-proc` local's body, pure or not, builds:
+    directly, in a call argument, a variant field, a `let*` binding or body, an `if` branch or
+    condition, an `and` operand or a macro expansion, and with it a `list/map` or
+    `list/map-effect` in the subject's argument (TD1; §16.3). A subject with a map and no `cond`
+    still ends in `compiler_defect`, and so do the other open subject shapes §16.3 lists;
+  - a `continue` value that is an `if` whose branch is an `if` or `cond` holding a command or an
+    effectful call of a workflow, a `defproc` or a `let-proc` local is refused with
+    `effect_not_permitted` (TD1, D19; §16.3);
+  - a `done` or `continue` as the value of a `let*` binding is refused by the build with
+    `loop_recur_contract_invalid` (D21; §13.1).
+
+  Every program that compiled before keeps its closed program, digest and identities, and its
+  recorded runs resume; a differential corpus test over the shapes around these fixes and every
+  loop and map operand position holds the digests and refusal codes read on `main` before them,
+  pins the digest of each program the fixes newly build, and runs a fixed sample of those against
+  the value of its `let*`-bound spelling on `main` (`tests/test_workflow_lisp_td21_differential.py`).
 
 ### Run-time corrections without a new target
 
