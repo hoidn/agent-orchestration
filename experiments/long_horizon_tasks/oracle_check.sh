@@ -114,16 +114,16 @@ follow() {  # <harbor pid> <out dir> <label>: sample the label's containers unti
       kill -INT "$pid"
       stopped=1
     fi
-    for c in $(podman ps --filter "name=^$prefix" --format '{{.Names}}' 2> /dev/null); do
-      cpid=$(podman inspect -f '{{.State.Pid}}' "$c" 2> /dev/null) || continue
-      cg=/sys/fs/cgroup$(cut -d: -f3 "/proc/$cpid/cgroup" 2> /dev/null)
+    while read -r c cpid; do
+      cg=$(cut -d: -f3 "/proc/$cpid/cgroup" 2> /dev/null) && [ -n "$cg" ] || continue  # exited meanwhile
+      cg=/sys/fs/cgroup$cg
       echo "container $c peak=$(cat "$cg/memory.peak" 2> /dev/null) affinity=$(for p in $(cat "$cg/cgroup.procs" \
         2> /dev/null); do taskset -cp "$p" 2> /dev/null | sed 's/.*: //'; done | sort -u | paste -sd'|')" >> "$out/samples"
       case "$seen" in *" $c "*) continue ;; esac
       seen="$seen$c "
       case "$c" in *egress-control-sidecar*) podman logs -f "$c" > "$out/egress-$c.log" 2>&1 & ;; esac
-    done
-    sleep 10
+    done < <(podman ps --filter "name=^$prefix" --format '{{.Names}} {{.Pid}}' 2> /dev/null)
+    sleep 5
   done
 }
 
