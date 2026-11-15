@@ -92,10 +92,18 @@ def test_a_record_that_fits_loads_joined_to_its_slot_and_its_row():
         "success": True}
 
 
-def test_a_timeout_with_no_reward_is_an_observation_scored_zero():
-    """D5: an observation enters k and n with the verifier's reward, 0 if the verifier gives none (row 3)."""
-    first = _load(export({TASKS[0]: {"low": [{"row": 3, "reward": None}], "medium": [0], "high": [0]}}))[0]
-    assert (first["counted"], first["success"]) == (True, False)
+def test_an_observation_with_no_reward_is_refused_until_it_is_regraded():
+    """Task 7 ruling 3: a reward is only what a verifier gave; a time-limit ending with none (row 3) is regraded
+    first, never scored 0."""
+    with pytest.raises(slot_record.RecordError, match="regraded first"):
+        _load(export({TASKS[0]: {"low": [{"row": 3, "reward": None}], "medium": [0], "high": [0]}}))
+
+
+def test_no_reward_after_the_regrades_of_any_observation_s_ending_is_an_infrastructure_failure_never_scored():
+    """Task 7 ruling 3: regrade case 1 holds after any ending whose row is an observation's (row 3 here)."""
+    first = _load(_one(CASE_1 | {"row": 3}))[0]
+    assert (first["row"], first["class"], first["counted"], first["success"]) == (
+        3, "infrastructure_failure", False, None)
 
 
 def test_a_cut_s_reward_is_never_read():
@@ -270,7 +278,7 @@ def test_an_exclusion_that_contradicts_its_d5_case_is_refused(fields):
         _load(_one(fields))
 
 
-@pytest.mark.parametrize("fields", [CASE_1 | {"row": 3}, {"class": "infrastructure_failure", "reward": None}])
+@pytest.mark.parametrize("fields", [CASE_1 | {"row": 10}, {"class": "infrastructure_failure", "reward": None}])
 def test_an_infrastructure_failure_on_an_observation_s_row_is_only_regrade_case_1(fields):
     with pytest.raises(slot_record.RecordError, match="does not fit row"):
         _load(_one(fields))

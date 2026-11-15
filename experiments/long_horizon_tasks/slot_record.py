@@ -24,15 +24,16 @@ neither imports the other. Standard library only.
                                       a ruling and is refused until the ruling gives the start its row
                     "class"           the class the launcher decided: the row's class, "stop" when the launcher
                                       stopped the tranche on this attempt (then "stop_cause" names why), or
-                                      "infrastructure_failure" on the normal ending's row for regrade case 1
+                                      "infrastructure_failure" on an observation's row for regrade case 1
                     "stop_cause"      null, or one of LAUNCHER_STOPS: a stop of D7.7 the launcher sees in an attempt
                                       whose row is not a stop row; required exactly then, and only where the cause
                                       can occur (LAUNCHER_STOPS: on a session's start, on the smoke's slot, or on any)
                     "reward"          the verifier's reward, 0 or 1, or null; read only for an observation, where
-                                      null is 0 (D5), except after a normal ending, which is regraded first (D5)
-                    "excluded"        null, or the D5 regrade case that takes a normal ending out of k and n: "no
-                                      reward after regrades" (regrade case 1: class "infrastructure_failure", a
-                                      normal ending, reward null; ladder.json and D5: still no reward file is an
+                                      it is only what a verifier gave: a counted observation has one, and one with
+                                      none is regraded first (D5 case 1, after any ending; Task 7 ruling 3)
+                    "excluded"        null, or the D5 regrade case that takes an observation out of k and n: "no
+                                      reward after regrades" (regrade case 1: class "infrastructure_failure" on an
+                                      observation's row, reward null; ladder.json and D5: still no reward file is an
                                       infrastructure failure) or "indeterminate" (regrade case 2: an observation
                                       with a reward of 0 that could not be regraded)
                     "contamination"   the SHA-256 of each frozen term the launcher's scan found in the attempt's
@@ -65,7 +66,8 @@ How the launcher's own records map to this layout (they differ from it in three 
 regrade case 2 is excluded "indeterminate", reward 0, not a flag `indeterminate`; a row-16 ending is not exported
 until the ruling has given it a row and the class that row has (the class "ruling" is refused); the stream's
 api_retry count is "api_retry". Regrade case 1 is exported as the launcher records it, class
-"infrastructure_failure" on row 5, with excluded "no reward after regrades" naming the case (coordinator ruling).
+"infrastructure_failure" on its observation row (row 5 after a normal ending), with excluded "no reward after
+regrades" naming the case (coordinator rulings, Task 5 and Task 7 ruling 3).
 """
 
 import hashlib
@@ -260,47 +262,48 @@ def _stop_seen(cause, row, slot, ladder):
 
 
 def _class(start, row, slot, ladder, where):
-    """The launcher's class, checked against the row: the row's class; an infrastructure failure on the normal
-    ending's row marked as regrade case 1 (_exclusion checks the case); or a stop with a launcher cause where that
-    cause can occur (D5, D7.7)."""
+    """The launcher's class, checked against the row: the row's class; an infrastructure failure on an
+    observation's row marked as regrade case 1 (_exclusion checks the case); or a stop with a launcher cause where
+    that cause can occur (D5, D7.7)."""
     cls, cause = start["class"], start["stop_cause"]
-    case_1 = cls == "infrastructure_failure" and row["ending"] == "Normal" and start["excluded"] == EXCLUSIONS[0]
+    case_1 = cls == "infrastructure_failure" and row["class"] == "observation" and start["excluded"] == EXCLUSIONS[0]
     if (cause is None and (cls == row["class"] or case_1)) or (cls == "stop" != row["class"]
                                                                 and _stop_seen(cause, row, slot, ladder)):
         return cls
     raise RecordError(f"{where}: class {cls!r} with stop_cause {cause!r} does not fit row {row['row']} "
                       f"({row['class']}) on slot {slot['slot']!r}: the class is the row's, 'infrastructure_failure' "
-                      f"for regrade case 1 on the normal ending's row, or 'stop' with a cause of LAUNCHER_STOPS where "
+                      f"for regrade case 1 on an observation's row, or 'stop' with a cause of LAUNCHER_STOPS where "
                       f"it can occur, {LAUNCHER_STOPS}")
 
 
-def _exclusion(start, cls, normal, where):
-    """An exclusion fits its D5 regrade case: case 1, a normal ending still with no reward after its regrades, is an
-    infrastructure failure (ladder.json, D5); case 2, a reward of 0 that could not be regraded, an observation."""
+def _exclusion(start, cls, observed, where):
+    """An exclusion fits its D5 regrade case: case 1, an observation's ending still with no reward after its
+    regrades, is an infrastructure failure (ladder.json, D5, Task 7 ruling 3); case 2, a reward of 0 that could not
+    be regraded, an observation."""
     excluded, reward = start["excluded"], start["reward"]
     if excluded not in EXCLUSIONS:
         raise RecordError(f"{where}: excluded {excluded!r} is not one of {EXCLUSIONS}")
-    case_1 = (excluded == EXCLUSIONS[0] and cls == "infrastructure_failure" and start["row"] == normal
+    case_1 = (excluded == EXCLUSIONS[0] and cls == "infrastructure_failure" and start["row"] in observed
               and reward is None)
     case_2 = excluded == EXCLUSIONS[1] and cls == "observation" and reward == 0
     if not (case_1 or case_2):
         raise RecordError(f"{where}: excluded {excluded!r} with class {cls!r} does not fit its D5 case (case 1: an "
-                          f"infrastructure failure, a normal ending, reward null; case 2: an observation, reward 0); "
+                          f"infrastructure failure on an observation's row, reward null; case 2: an observation, reward 0); "
                           f"row {start['row']}, reward {reward!r}")
 
 
-def _outcome(start, cls, normal, where):
+def _outcome(start, cls, observed, where):
     """(counted, success): whether the start enters k and n, and whether it succeeded (None when not counted)."""
     reward = start["reward"]
     if reward not in (0, 1, None):
         raise RecordError(f"{where}: reward {reward!r} is not 0, 1 or null")
     if start["excluded"] is not None:
-        _exclusion(start, cls, normal, where)
+        _exclusion(start, cls, observed, where)
     if cls != "observation" or start["excluded"] is not None or start["contamination"]:
         return False, None
-    if reward is None and start["row"] == normal:
-        raise RecordError(f"{where}: a normal ending with no reward is regraded first (D5): record the reward, or "
-                          "exclude it as 'no reward after regrades'")
+    if reward is None:
+        raise RecordError(f"{where}: an observation with no reward is regraded first (D5, Task 7 ruling 3): record "
+                          "the reward, or exclude it as 'no reward after regrades'")
     return True, reward == 1
 
 
@@ -320,8 +323,8 @@ def _start(start, slots, labels, ladder):
     cls = _class(start, row, slot, ladder, where)
     _usage(start, where)
     _contamination(start, frozen_term_digests(ladder), where)
-    normal = next(r["row"] for r in rows.values() if r["ending"] == "Normal")
-    counted, success = _outcome(start, cls, normal, where)
+    observed = {r["row"] for r in rows.values() if r["class"] == "observation"}
+    counted, success = _outcome(start, cls, observed, where)
     return start | {key: slot[key] for key in ("task", "effort", "round", "pilot")} | {
         "flagged": bool(row.get("flagged")) and cls == "observation", "ending": row["ending"], "counted": counted,
         "success": success}

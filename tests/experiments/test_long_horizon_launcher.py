@@ -999,7 +999,7 @@ def _unclosed(short, fixture, rows, entry=None, reward=None):
     root = ctx.root
     ladder.ensure_state(root)
     attempt = ladder.reserve(root, entry or _entry(), CRITERION, 0.0)
-    fx = json.loads((KIT / "fixtures" / f"{fixture}.json").read_text())
+    fx = fixture if isinstance(fixture, dict) else json.loads((KIT / "fixtures" / f"{fixture}.json").read_text())
     if reward is not None:
         fx = {**fx, "verifier_result": {"rewards": {"reward": reward}}}
     _replay(fx, root / "slots" / attempt["id"] / "jobs" / attempt["id"] / "wal-recovery-ordering__abcdefg")
@@ -1169,6 +1169,33 @@ def test_no_reward_after_a_normal_ending_is_regraded_twice_at_most_and_a_regrade
             (exported["class"], exported["excluded"])) == (
         want, {"trial regrade"}, [set()] * len(calls), [],
         (want[0], "no reward after regrades" if want[0] == "infrastructure_failure" else None))
+
+
+@pytest.mark.parametrize("outcomes,want", [
+    ([{"exception": "RewardFileNotFoundError"}] * 2, ("infrastructure_failure", None, "no reward after regrades")),
+    ([{"reward": 1.0}], ("observation", 1.0, None))])
+def test_an_ending_whose_verifier_gave_no_result_is_regraded_never_scored_zero(short, outcomes, want):
+    """Task 7 ruling 3: a reward is only what a verifier gave. A time-limit ending (row 3) whose verifier was
+    cancelled (verifier_result null) has no reward; it is regraded as case 1 and keeps its row."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": outcomes}))
+    cancelled = {**criterion_tests._fixture("stub-timeout-AgentTimeoutError"), "verifier_result": None}
+    root, attempt, record = _closed(short, cancelled, [])
+    after = ladder.regraded(_ctx(short, lh), CRITERION, attempt, record, gate=lambda: True)
+    exported = ladder._start_record(root, {**attempt, "settled": after}, STANDING)
+    assert ((record["row"], record["class"], record["reward"]), (exported["row"], exported["class"],
+            exported["reward"], exported["excluded"])) == ((3, "observation", None), (3, *want))
+
+
+def test_a_ruling_to_an_observation_s_row_for_a_start_with_no_reward_is_refused(short, capsys):
+    """Task 7 ruling 3 with part A m9: the ruling path runs no regrade, and no ending's missing reward is a 0."""
+    root, attempt, record = _closed(short, "token-usage-limit-NonZeroAgentExitCodeError", [{"status": 429}])
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    (ctx.rehearsal / "ledger.md").write_text(f"| 2026-11-21 | Ruling | {attempt['id']} row 3: a time limit |\n")
+    code = ladder.main(["ruling", attempt["id"], "--row", "3", "--date", "2026-11-21"], env=ctx.env)
+    assert (code, "no reward" in capsys.readouterr().err, ladder.attempts(root)[0]["settled"]["class"]) == (
+        3, True, "ruling")
 
 
 def test_a_load_sensitive_task_s_zero_under_load_is_regraded_once_below_the_gate(short):

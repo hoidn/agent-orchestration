@@ -226,8 +226,9 @@ Task 7's rehearsal is where the real harness, Podman, relay and CLI are exercise
 record. Each start carries the class the launcher decided (`class`, with `stop_cause` for a stop from the closed
 list `LAUNCHER_STOPS`, which also says where each cause can occur, found on a row of another class) and its D5 row as
 evidence; a stop is never scored. A `contamination` result may sit on a start of any class: it excludes an
-observation, and on any other class is listed and counted for D7.7 without changing the class. Regrade case 1 (a
-normal ending still with no reward file after its regrades) is an infrastructure failure, never scored. A null
+observation, and on any other class is listed and counted for D7.7 without changing the class. A reward is only what
+a verifier gave: an observation with none, after any ending, is regraded (case 1), and one still with no reward file
+after its regrades is an infrastructure failure on its own row, never scored. A null
 `minutes`, token count or `api_retry` was not recorded: the readout prints "not recorded", leaves it out of its
 means and gives how many it left out; it never reads a null as zero. The launcher writes that layout and the readout
 reads it. The export lists the attempts still open (`open`), which enter no count, and the readout says how many

@@ -839,7 +839,7 @@ def judge(root, attempt, ladder, ended_at=None, closed=None):
     spec = ladder["classification"]["rows"][row - 1]
     stop = _launcher_stop(trial, ladder)
     cls, own = "stop" if stop else spec["class"], [r for r in window if r.get("slot") == attempt["id"]]
-    return {"row": row, "class": cls, "flagged": spec.get("flagged", False), "reward": _observed(cls, row, trial),
+    return {"row": row, "class": cls, "flagged": spec.get("flagged", False), "reward": _observed(cls, trial),
             "stop": stop or (f"D5 row {row}" if cls == "stop" or spec.get("stop") else None),
             "api_retry": None if session is None else session["n_api_retry"], "minutes": session_minutes(trial),
             "graded": graded(trial, ladder, attempt["task"]), "load_refused": _load_refused(own, ladder),
@@ -876,13 +876,10 @@ def graded(trial, ladder, task):
     return {"passed": summary["passed"], "total": summary["tests"]}
 
 
-def _observed(cls, row, trial):
-    """An observation's reward: the verifier's, 0 when it gave none (D5), except after a normal ending, which is
-    regraded first. Any other class's reward is never read (a cut's above all)."""
-    if cls != "observation":
-        return None
-    reward = _reward(trial)
-    return 0.0 if reward is None and row != 5 else reward
+def _observed(cls, trial):
+    """An observation's reward: only what its verifier gave (Task 7 ruling 3), None when it gave none, which is
+    regraded first (D5 case 1). Any other class's reward is never read (a cut's above all)."""
+    return _reward(trial) if cls == "observation" else None
 
 
 def close(ctx, root, attempt, ladder, prior, ended_at=None, extra=None):
@@ -963,9 +960,10 @@ def _regrade_once(ctx, ladder, attempt, n):
 
 
 def _case(ladder, attempt, record):
-    """Which regrade case of D5 an attempt is in: 1 (no reward after a normal ending), 2 (a load-sensitive task's
-    0 while the load was above the gate during verification), or None."""
-    if record["class"] == "observation" and record["row"] == 5 and record["reward"] is None:
+    """Which regrade case of D5 an attempt is in: 1 (an observation whose verifier gave no reward, after any ending:
+    Task 7 ruling 3), 2 (a load-sensitive task's 0 while the load was above the gate during verification), or
+    None."""
+    if record["class"] == "observation" and record["reward"] is None:
         return 1
     sensitive = attempt["task"] in (ladder["tasks"]["load_sensitive"] or [])
     if record["class"] == "observation" and record["reward"] == 0 and sensitive and record.get("verifier_load_above_gate"):
@@ -2434,9 +2432,9 @@ def record_ruling(ctx, args):
         if settled["class"] != "ruling":
             raise Refused(f"{args.attempt} awaits no ruling")
         cls = rows[args.row]["class"]
-        reward = _observed(cls, args.row, trial_dir(ctx.root / "slots" / args.attempt))
-        if cls == "observation" and rows[args.row]["ending"] == "Normal" and reward is None:  # Task 8 part A m9
-            raise Refused(f"{args.attempt}: row {args.row} is a normal ending, and its trial holds no reward; the "
+        reward = _observed(cls, trial_dir(ctx.root / "slots" / args.attempt))
+        if cls == "observation" and reward is None:  # Task 8 part A m9, Task 7 ruling 3
+            raise Refused(f"{args.attempt}: row {args.row} is an observation, and its trial holds no reward; the "
                           "ruling path runs no regrade, so rule another row")
         _write_json(path, {**settled, "row": args.row, "class": cls, "reward": reward,
                            "ruled": {"row": args.row, "date": args.date}})

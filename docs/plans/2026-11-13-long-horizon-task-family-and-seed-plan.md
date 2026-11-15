@@ -751,8 +751,10 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
   `stub-dropped-stream-recovered-normal-end`). They change no class; their count is recorded
   per attempt.
 - **What each class means.** An *observation* counts against the 240 and the USD 200 and
-  enters k and n with the verifier's reward, 0 if the verifier gives none; the verifier ran
-  after a timeout kill (recorded). An *infrastructure failure* counts against both and is
+  enters k and n with the verifier's reward. A reward is only what a verifier gave: an
+  observation whose verifier gave none (one cancelled when the harness was stopped, for
+  example) is regraded as case 1 below, never scored 0 (coordinator ruling on Task 7). The
+  verifier ran after a timeout kill (recorded). An *infrastructure failure* counts against both and is
   excluded from k and n, listed, never scored zero; its slot is not run again. A *pre-session
   failure* counts against neither; the slot is relaunched at most twice and is lost after the
   third failure. A *stop* halts the tranche: no new start. The attempt in which it occurred is
@@ -778,9 +780,10 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
   met only by requests after the ending (the CLI's after-limit tail) excludes nothing. **A slot whose session ended in any other way is never
   run again,** so a retry cannot turn a model failure into a pass.
 - **Verifier-only regrade** (no model call, the saved artifacts unchanged), in two cases. (1)
-  No reward after a normal ending: up to two regrades below the load gate; a reward then
-  stands; a verifier timeout twice is reward 0; still no reward file is an infrastructure
-  failure. (2) A task on the load-sensitive list returned reward 0 while the load was above the
+  No reward after an observation's ending (a normal ending, or any other observation row
+  whose verifier gave none; the row is kept): up to two regrades below the load gate; a
+  reward then stands; a verifier timeout twice is reward 0; still no reward file is an
+  infrastructure failure, excluded "no reward after regrades". (2) A task on the load-sensitive list returned reward 0 while the load was above the
   gate during verification: one regrade below the gate, and its reward stands. Only a reward of
   0 is regraded, because the known defect of such a verifier under load is a false failure. If
   the harness cannot regrade on Podman, case 1 becomes an infrastructure failure and case 2 is
