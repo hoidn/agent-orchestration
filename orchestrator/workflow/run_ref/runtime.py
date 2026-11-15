@@ -150,7 +150,11 @@ class RunRefRuntimeError(ValueError):
         self.code = code
         self.detail = detail
         self._machine_fields_json = frozen_machine_fields
-        super().__init__(f"{code}: {detail}")
+        message = f"{code}: {detail}"
+        rows = ((machine_fields or {}).get("compile_diagnostics") or {}).get("diagnostics") or ()
+        if rows:  # the child's first compile refusal, so a parent says why (an older target names its migration)
+            message += f" ([{rows[0]['code']}] {rows[0]['message']})"
+        super().__init__(message)
 
     @property
     def machine_fields(self) -> dict[str, Any]:

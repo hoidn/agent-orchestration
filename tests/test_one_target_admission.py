@@ -103,5 +103,6 @@ def test_older_target_run_ref_child_refuses_before_a_child_run_exists(tmp_path, 
     assert result.returncode != 0
     _authority_, memo = _authority(parent)
     assert (memo.terminal.data["outcome"], memo.terminal.data["code"]) == ("failed", "trial_program_compile_rejected")
+    assert all(marker in memo.terminal.data["message"] for marker in MIGRATION)  # the child's cause reaches the parent
     assert not memo.active_commits
     assert not list(refs.rglob("state.json")) and not list(refs.rglob("run.json"))
