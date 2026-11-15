@@ -7,7 +7,7 @@ Implementation plan: `docs/plans/2026-07-02-verified-iteration-drain.md`
 
 <a id="original-delivery-metadata"></a>
 
-Original YAML/flat promotion and dual-route implementation receipts are historical. Current maintained drain execution uses target 2.35 and the history-input contract below. See the [preserved record](../reports/documentation-history/verified_iteration_drain-history.md#original-delivery-metadata).
+Original YAML/flat promotion and dual-route implementation receipts are historical. Current maintained drain execution uses target 2.40 and the history-input contract below. See the [preserved record](../reports/documentation-history/verified_iteration_drain-history.md#original-delivery-metadata).
 
 ## Problem
 
@@ -261,7 +261,7 @@ route.
 ## Accepted Extension: Prepare-Selected History Input
 
 The maintained `workflows/library/verified_iteration_drain/drain.orc` executes
-at target 2.35 using the ordinary checked-program/memo lifecycle and required
+at target 2.40 using the ordinary checked-program/memo lifecycle and required
 manifests/closures. Prepare-selected history is the baseline input contract,
 not a separate drain implementation. Existing runs are not migrated or rewritten;
 program/closure/input compatibility and retirement refusals remain applicable.
