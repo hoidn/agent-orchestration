@@ -74,9 +74,9 @@ and, for each placed competition, its medals of fifteen attempts by effort. Afte
   only at 1 to 5 medals of fifteen.
 - **What is measured:** how often a direct `claude-haiku-5-5` Claude Code session earns a medal on
   each competition, under this plan's configuration: CLI 2.1.311 signed in through the subscription
-  route, the tools Bash, Edit and Read, the allowlist network policy, and a fixed set of pretrained
-  weights (M6). Every attempt also records its score, its leaderboard percentile and whether it is
-  above the leaderboard median.
+  route, the tools Bash, Edit and Read, the allowlist network policy and, if the owner decides M6 as
+  recommended, a fixed set of pretrained weights. Every attempt also records its score, its
+  leaderboard percentile and whether it is above the leaderboard median.
 - **Not claimed:** anything about a workflow; that a competition's true rate lies in 10 to 30
   percent (three attempts cannot show it, and fifteen give "screened at n of 15", as in ladder D6);
   an ordering of competitions; any comparison with a published MLE-bench rate, which used other
@@ -111,8 +111,9 @@ figures as the report read them (report §3.2, §3.3). **They are a rough guide 
 does not say what they measure, and the figure for the Russian text-normalization competition cannot
 be right, since its preparation script writes 10.5 million rows (scout report C; probably a few
 hundred MB, an estimate). Each competition's size on disk is measured after its download (Task 10).
-"Class" is the resource class of M5; "needs a GPU" is the report's estimate, not a measurement. The competition's id in the benchmark is its Kaggle slug, and
-its rules page is `https://www.kaggle.com/competitions/<slug>/rules`.
+"Class" is the resource class of M5; that a class needs no GPU is the report's estimate, not a
+measurement. The competition's id in the benchmark is its Kaggle slug, and its rules page is
+`https://www.kaggle.com/competitions/<slug>/rules`.
 
 | Order | Kaggle slug | GB | Class | Rank in report §8.2 |
 | --- | --- | --- | --- | --- |
@@ -132,12 +133,14 @@ its rules page is `https://www.kaggle.com/competitions/<slug>/rules`.
 
 The order is the order of preparation: the three CPU-only competitions (0.64 GB together by the
 README's figures), then the GPU competitions from the smallest. The total is 13.4 GB (report
-§8.2). The report expects 2 to 5 of the 13 to fall in the band (report §1, an estimate). The three further CPU-only competitions that
-report §8.2 offers as upper anchors are not in the screen: the roadmap stages 13.
+§8.2), a lower bound. The report expects 2 to 5 of the 13 to fall in the band (report §1, an
+estimate). The three further CPU-only competitions that report §8.2 offers as upper anchors are not
+in the screen: the roadmap stages 13.
 
 ## Decisions
 
-Each decision gives the choice, the reason, what it costs if wrong, and who decides: **owner** (the
+The decisions are numbered M1 to M10, to keep them apart from the ladder plan's D1 to D7. Each
+gives the choice, the reason, what it costs if wrong, and who decides: **owner** (the
 owner's to make; the plan gives a recommendation) or **coordinator** (the coordinator can rule within
 decision 17 and records the ruling under [Rulings](#rulings)). Nothing here is frozen until its
 tranche's criterion is frozen and its label is in the ledger.
@@ -192,7 +195,9 @@ as the verifier runs it, tells a perfect submission from a useless one.
 - **Three legs, each through the verifier path an attempt uses** (the same package, the same
   verifier image, the allowlist policy, the tranche's CPU set):
   1. *Answers.* The harness's reference agent writes the held-out answers as the submission. It must
-     earn reward 1 with a gold medal.
+     earn reward 1 with a gold medal. Where the answers file is not itself a valid submission, the
+     leg uses the gold submission the competition's configuration names (`kuzushiji-recognition`;
+     scout report J).
   2. *Sample submission.* The competition's own sample submission is submitted. It must earn reward 0
      and be valid, and its score must equal the floor the benchmark's own test lists for it (report
      §3.2, column "Floor"), where one is listed.
@@ -225,8 +230,9 @@ as the verifier runs it, tells a perfect submission from a useless one.
 ### M3. Withholding (coordinator)
 
 - **Two images per competition, built here.** The agent image holds the public data, the
-  description, the sample submission and the pretrained weights (M6). The verifier image holds the
-  held-out answers, the benchmark's grader and the leaderboard snapshot with the thresholds. The
+  description, the sample submission and, if M6 is decided as recommended, the pretrained weights.
+  The verifier image holds the held-out answers, the benchmark's grader and the leaderboard snapshot
+  with the thresholds. The
   agent's container never holds any of the last three, and the benchmark's package is not installed
   in it. The installed harness supports this shape: a verifier in its own container, built from its
   own image, receiving only the files the task declares as artifacts (scout report D3).
@@ -295,9 +301,12 @@ changes, so the ladder's configuration and manifest do not move.**
   its reservation and settlement, the classification, the allowance guard, the usage-limit and
   paid-usage handling, the token scan and the runtime check, the teardown, the reconcile, the
   passthrough and the relay. The wrapper replaces no function; the one class it replaces, `Ctx`,
-  differs only in the state root. Two key names in `tasks.json` keep the
-  ladder's spelling (`digest_4_1_0` holds the digest of the package the wrapper built); the file says
-  so.
+  differs only in the state root. One key name in `tasks.json` keeps the ladder's spelling
+  (`digest_4_1_0` holds the digest of the package the wrapper built), and the file says so.
+- **An older ready-made dataset does not save this work.** `mlebench-lite`, made for the first
+  Terminal-Bench, is in the old task format, keeps the answers and a Kaggle credential inside the
+  agent's image and scores "above median" (scout report E). Two things are taken from it: how the
+  instruction is assembled, and its grader call, which is the whole verifier.
 - **How a package satisfies the launcher's task check.** The wrapper writes a Harbor task package
   per competition: `task.toml` (the agent's time limit, CPUs and memory, the artifact, the two images
   by their local names, and a canary line of this family, which the launcher requires and scans
@@ -316,12 +325,18 @@ changes, so the ladder's configuration and manifest do not move.**
      (scout report I3, I7). So a tranche holds competitions of one class, and a GPU tranche runs one
      attempt at a time (M5).
   2. *No ceiling per calendar day* (scout report I6). So no tranche's ceiling is above USD 200, and
-     two tranches never start attempts on the same calendar day (M9).
+     a tranche starts only on a later calendar day than the one on which the previous tranche's last
+     attempt settled (M9).
   3. *No per-task compose file and no mount.* The launcher passes two fixed compose files and no
      mount setting. The GPU device and the shared-memory size therefore go into the tranche's limits
      file, which is criterion data: a device entry in an extra compose file reached a task's
      container under Harbor 0.25.0 and rootless Podman, where the task field for a GPU is refused
-     (run: scout report D5). The public data goes into the agent image, not into a mount.
+     (run: scout report D5). The public data and the weights go into the agent image, not into a
+     mount.
+  4. *No disk limit during an attempt.* A container has no storage limit, and the launcher checks
+     free disk only before a start (scout report G). So each tranche's free-disk threshold, which is
+     criterion data, is the ladder's 20 GB plus the scratch its attempts in flight may write: 50 GB
+     (M9).
 - **What must be reviewed again, by a reviewer who wrote none of it:** the wrapper's list of replaced
   names, with a test that no use of a replaced name is bound when the module is loaded; the
   criterion generator, with a test that every group it does not replace equals the ladder's; the
@@ -350,13 +365,15 @@ changes, so the ladder's configuration and manifest do not move.**
   shorten the exposure to usage limits (M8). It was not chosen because it would cap the staged arm of
   a later comparison, which must run under the same limit, and so would force a second calibration.
 - **Parallelism.** The screen's first tranche runs the three CPU-only competitions at up to three
-  attempts at once (one for its smoke, one for its pilot). The second runs the ten GPU competitions
+  attempts at once (its smoke and its pilot each run alone). The second runs the ten GPU competitions
   one attempt at a time. The roadmap's "about four at once, one of them on the GPU" is not reachable
   without a change to the reviewed launcher (M4); what is lost is the overlap of nine short attempts,
   under a day at the report's estimate.
 - **Per attempt** (report §9.2, estimates): a CPU-class attempt gets 6 CPUs, 16 GB of memory and 4 GB
   of shared memory; a GPU-class attempt gets 8 CPUs, 32 GB, 8 GB of shared memory and the whole RTX
-  3090. The process limit stays 4,096. These are fields of each package and of the tranche's limits
+  3090. Shared memory must be set: Podman's default is 64 MB (scout report J). The verifier's
+  container gets no GPU. The process limit stays 4,096. These are fields of each package and of the
+  tranche's limits
   file, equal for every attempt of a competition, and a later comparison uses the same.
 - **CPU set and load:** the ladder's set, CPUs 8 to 31, and its load gate (both load averages at or
   below 24), unchanged.
@@ -380,13 +397,15 @@ changes, so the ladder's configuration and manifest do not move.**
 
 | Option | Reproducibility | Contamination | Cost |
 | --- | --- | --- | --- |
-| A. A model hub on the allowlist | The hub's content changes; an attempt next month may fetch something else | A hub also serves datasets and other users' checkpoints, some trained on competition data; the dog-breed test images come from a public labelled set (report §5.2). The egress log names only refused connections, so what an attempt fetched from an allowed host is visible only where the transcript prints it | No image work; several more hosts on the list, since hubs serve files from other names |
+| A. A model hub on the allowlist | The hub's content changes; an attempt next month may fetch something else | A hub also serves datasets and other users' checkpoints, some trained on competition data; the dog-breed test images come from a public labelled set (report §5.2). The egress log names only refused connections, so what an attempt fetched from an allowed host is visible only where the transcript prints it | No image work; several more hosts on the list, since a hub serves files from other names, and the egress filter sees host names only, never paths (scout report H) |
 | **B. A fixed set of weights in the agent image** | Fixed by SHA-256 in the criterion | Nothing is reachable that the image does not hold | A few GB of disk (report §5.2); engineering in Task 11; the list bounds what an attempt can build |
 
 - **Recommendation: B.** It keeps the one network policy for both families, and it is the only
   option under which the readout can say what an attempt had. The list is general-purpose image and
   text encoders, the same for every competition, chosen before the screen and named in the
-  instruction; it is fixed in Task 11 and recorded in the ledger.
+  instruction; it is fixed in Task 11 and recorded in the ledger. The image sets the libraries'
+  offline switches, so that they read the placed files (scout report H). An agent can still install
+  packages, PyTorch included, from the package index, which is on the list.
 - **What B costs if wrong.** Rates are lower than under the benchmark's usual policy and are not
   comparable with it. A competition whose medal needs a model outside the list sits at the floor for
   a reason of ours. The readout counts refused connections per attempt, which shows an agent that
@@ -416,7 +435,10 @@ changes, so the ladder's configuration and manifest do not move.**
 ### M8. Usage limits (coordinator; the inputs are the owner's)
 
 The ladder's rules apply unchanged, because the passthrough and the launcher are unchanged (ladder
-D4, D5).
+D4, D5). The ladder's allowance guard is reused as it is; its inputs and readings are entered for
+each tranche. Its two figures (priced dollars per meter point, weekly and five-hour) are the ladder
+pilot's when that has run, entered with a ledger row; a tranche's own pilot is one cheap attempt,
+which will often move a meter by less than two points and then gives only bounds (ladder D7).
 
 - **How a tranche pauses.** When the passthrough sees the vendor's usage-limit answer, the launcher
   closes all starts and reopens them by itself five minutes after the reset the answer names, with
@@ -452,7 +474,7 @@ that stops by itself: USD 1 to 8, central about USD 3) and are not measured.
 
 | Tranche | Competitions | Effort | Slots | Starts at most | Cap per attempt | Ceiling | Attempts at once |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Screen, CPU | The 3 CPU-class | `medium` | 9 | 11 | USD 8 | USD 60 | 1, 1, then 3 |
+| Screen, CPU | The 3 CPU-class | `medium` | 9 | 11 | USD 8 | USD 60 | 1 (smoke), 1 (pilot), then 3 |
 | Screen, GPU | The 10 GPU-class | `medium` | 30 | 34 | USD 8 | USD 140 | 1 |
 | Placement, each | At most 3 survivors of one class | `low`, `medium`, `high` | At most 45 | At most 50 | USD 8 | USD 200 | As its class |
 
@@ -476,13 +498,16 @@ that stops by itself: USD 1 to 8, central about USD 3) and are not measured.
 - **Each tranche's order,** as the launcher runs it: a smoke (one attempt, then a person's read
   against the ladder's smoke checks), a pilot (one attempt at the screen, the owner reading the
   meters before and after), then the rounds, with a read after round 1. The CPU tranche's smoke is
-  `leaf-classification`; the GPU tranche's is `us-patent-phrase-to-phrase-matching`, the smallest
-  that needs the weights and the GPU.
+  `leaf-classification` and its pilot `mlsp-2013-birds`; the GPU tranche's smoke is
+  `us-patent-phrase-to-phrase-matching`, the smallest that needs the weights and the GPU, and its
+  pilot `tweet-sentiment-extraction`. All four have small data, because the launcher exports the
+  agent's whole file system after a smoke and a pilot, within 300 seconds (scout report I5).
 - **A tranche stops** at any stop of ladder D7.7, which the criterion copies: a failed smoke, another
   model in a response, another CLI version or tool list, a passthrough refusal for model, tool, path
   or token, a vendor 401, a sign of paid extra usage, a match of the token scan, three usage-limit
-  answers in a row, contaminated attempts on three competitions, under 20 GB of free disk. The
-  share-of-starts thresholds are judged from fewer starts than the ladder's twenty, because the
+  answers in a row, contaminated attempts on three competitions, and free disk under 50 GB: the
+  ladder's 20 GB and 30 GB of scratch, which is three CPU-class attempts at 10 GB or one GPU-class
+  attempt at 30 GB (the upper figures of report §9.2, estimates). The share-of-starts thresholds are judged from fewer starts than the ladder's twenty, because the
   tranches are small: infrastructure failures above 10 percent from 5 starts (CPU) or 10 (GPU), and
   the ladder's pause for cuts from the same counts.
 - **The line stops for a competition** when the screen puts it at the floor or above the band (M1).
@@ -530,7 +555,7 @@ that stops by itself: USD 1 to 8, central about USD 3) and are not measured.
 The list is written to be put to the owner as it stands. Each item says why it is needed, what to
 do, and what it blocks. Nothing here blocks Tasks 1 to 9.
 
-1. **A Kaggle account and an API token.** *Why:* the benchmark downloads each competition's data
+1. **A Kaggle account and an API credential.** *Why:* the benchmark downloads each competition's data
    through Kaggle's API under the user's own account (report §4). *What to do:*
    1. Use or create a personal Kaggle account, and verify a phone number if the site asks (report
       §4: accounts without one are reported to be unable to accept rules).
@@ -572,13 +597,19 @@ do, and what it blocks. Nothing here blocks Tasks 1 to 9.
    reads the Kaggle token (M10). *What to do,* once Task 10's script exists, in the same kind of
    terminal: `KAGGLE_CONFIG_DIR="$HOME/.local/state/mle-secret" experiments/mle_bench_tasks/fetch.sh
    <slugs>`. It prints one line per competition. *Blocks:* Tasks 10 and 12.
-5. **Disk for the GPU tranche.** *Why:* `/home`, where Podman keeps its images and where the caches
-   are, has 62 GB free and is 97 percent full; the report estimates 65 to 110 GB for a slim image,
-   the data and four scratch areas, and asks for about 60 GB free (report §9.2, §12; estimates, and
-   the ladder's 23.86 GB of pinned images come out of the same space). *What to do:* free space on
-   `/home`, or name another disk for Podman's image store and this kit's cache. The CPU tranche is
-   small enough to fit today (0.64 GB of data and one image without a deep-learning stack; not
-   measured). *Blocks:* Tasks 11 and 12 and the GPU tranche.
+5. **Disk.** *Why:* everything Podman owns (images and whatever an attempt writes in its container)
+   is on `/home`, which has 61 GB free and is 97 percent full; `/` has 48 GB free (scout report G).
+   Nothing limits what an attempt writes, so each tranche starts only above a free-disk threshold
+   (M9). *What is needed on `/home`,* all estimates until measured:
+   - *For the CPU tranche:* about 55 GB free (images about 3 GB, data about 2 GB, the 50 GB
+     threshold). That fits today, narrowly, and no longer fits once the ladder's 23.86 GB of pinned
+     images are in the store.
+   - *For the GPU tranche:* about 75 GB free (a GPU image of 8 to 12 GB, at least 13 GB of data in
+     the images, the 50 GB threshold), and about 100 GB with the ladder's images.
+
+   *What to do:* free that space on `/home`, or name another disk for Podman's image store. The
+   scout's listing shows where the space on `/` went; it is the owner's to judge. *Blocks:* the GPU
+   tranche and Tasks 11 and 12; the CPU tranche once the ladder's images are pulled.
 6. **Decide the pretrained-weights policy** (M6). *Why:* it changes what is measured and cannot be
    changed after a tranche's first attempt. *Recommendation:* a fixed set of weights in the agent
    image, and no model hub on the allowlist. *Blocks:* Task 11 and the GPU tranche; not the CPU
@@ -594,7 +625,8 @@ do, and what it blocks. Nothing here blocks Tasks 1 to 9.
    - Will the owner read the meters before each window and before and after each tranche's pilot, as
      for the ladder? With no reading nothing starts.
    - May the GPU be reserved for the GPU tranche: three to four days if sessions stop by themselves,
-     up to thirty if they use the limit (report §10; estimates)? The owner's own GPU work would have
+     up to thirty if they use the limit (report §10; estimates; the eight-hour read of M5 stops the
+     tranche for a report long before thirty)? The owner's own GPU work would have
      to wait.
 
    *Blocks:* each tranche's smoke.
@@ -644,7 +676,8 @@ wrapping).
 *Files:* create `family.json` (the thirteen candidates: slug, class, resources, the benchmark's
 commit, each size with its source), `wrap.py`, the fixture and its generator,
 `tests/experiments/test_mle_bench_wrap.py`. *Produces:* from a prepared competition directory, the
-agent image's build context, the verifier image's build context, the attempt package, and the two
+agent image's build context, the verifier image's build context, the attempt package (its instruction
+assembled as the older dataset of M4 does, less the paragraph on the format server), and the two
 packages for the answers and sample-submission legs. *Tests first:* the agent context holds no file
 of the private directory, of the grader or of the leaderboard snapshot, by SHA-256; the attempt
 package holds `task.toml` and the instruction only; `task.toml` carries the class's limits, the time
@@ -755,19 +788,20 @@ contamination terms over those jobs, after which the terms are frozen. *Tests fi
 the download no terminal input, and prints only its fixed lines when the download tool fails noisily
 or asks a question (a stand-in tool on a closed `PATH`). The Russian text-normalization competition
 is prepared last of the three: its preparation loads about ten million rows and needs a few GB of
-memory (scout report C, an estimate). *Verify:* `qualify.sh` on each; `tasks.json` holds digests, image ids, sizes on disk, the
-withholding result and the six outcomes; the ledger gets the surviving list and the measured sizes.
+memory (scout report C, an estimate). *Verify:* `qualify.sh` on each; `tasks.json` holds digests,
+image ids, sizes on disk, the withholding result and the six outcomes; the ledger gets the surviving
+list and the measured sizes.
 
 ### Waits for disk and the weights decision (owner actions 5 and 6); the GPU itself is ready
 
 **Task 11: the GPU path** (impl_code; 8 h; report §13 gives 6 to 10; no spend).
 *Does, in this order:* the one-line container check of the operating note above; the GPU base image,
-with a deep-learning stack that fits this driver (the benchmark pins PyTorch 2.2.0, which may not;
-report §14); the fixture run with the GPU tranche's limits file under the allowlist, the agent's
+with the benchmark's own pinned deep-learning stack (PyTorch 2.2.0 with its CUDA 12.1 libraries,
+which this driver covers; scout report F; PyTorch itself has not been run here); the fixture run
+with the GPU tranche's limits file under the allowlist, the agent's
 container seeing the card (shown on a scratch task without the allowlist: scout report D5); the
-weights of M6 fetched on the host, recorded by SHA-256 and
-placed in the image; the rehearsal of Task 9 once more on the GPU image, with the export time
-measured on a container that has written several GB. *Verify:* the fixture's six outcomes on the GPU
+weights of M6 fetched on the host, recorded by SHA-256 and placed in the image; the rehearsal of
+Task 9 once more on the GPU image, with the export time measured on a container that has written several GB. *Verify:* the fixture's six outcomes on the GPU
 image; the agent's container lists the GPU; the ledger gets the image's size and the weights list.
 
 **Task 12: the ten GPU competitions** (impl_code; 12 h; report §13 gives 1 to 2 each).
@@ -785,7 +819,8 @@ ladder has nothing in flight. Then the freeze, the smoke and its read, the pilot
 rounds, and the export.
 
 **Task 14: the GPU tranche** (about 6 h of attention; three to four days of the GPU by report §10's
-estimate). The same list, on a later calendar day than Task 13's last start.
+estimate). The same list, on a later calendar day than the one on which Task 13's last attempt
+settled.
 
 **Task 15: the screen's report** (5 h). The readout, a report under `docs/reports/`, the priced usage
 and the allowance used in the ledger, the roadmap's step table, and the placement request with
@@ -816,6 +851,8 @@ rehearsal are the difference.
   reuses all of them or qualifies again.
 - **The owner is in the loop,** as for the ladder: a reading before every window, and here on whole
   days.
+- **The disk is the tightest resource.** An attempt can write tens of GB with no limit but the
+  threshold checked before it starts; a full `/home` would stop every session on this machine.
 - **Images are built here,** not pulled by a publisher's digest. A rebuilt image is a new image id and
   so a new label; the prepared data and the answers must be kept, or prepared again, to rebuild one.
 
@@ -835,22 +872,25 @@ guard); that the process limit of 4,096 is enough for data loaders; how the CLI'
 refuses a standalone `sleep` (ladder D2), lets a session wait on training that runs for hours.
 
 **Settled by the GPU path (Task 11):** that the device entry, the allowlist network mode and the
-CLI's install work together in one attempt (each was run without the others: scout report D5); which
-PyTorch build fits driver 580.178.04; the size of the GPU image and of the weights.
+CLI's install work together in one attempt (each was run without the others: scout report D5); that
+PyTorch runs on this card in a container (the driver library was exercised, PyTorch was not
+installed: scout report F); the size of the GPU image and of the weights.
 
-**Settled by the owner's actions or by Kaggle:** whether each of the thirteen competitions' rules can
-still be accepted; what the rules and Kaggle's terms allow; whether the token page lets a token be
-expired; whether the benchmark's download and preparation can be run as two steps, so that only the
-first can read the token.
+**Settled by the owner's actions or by Kaggle:** whether Kaggle's site still issues the older
+credential the pinned client needs; whether each of the thirteen competitions' rules can still be
+accepted, and what the download says when they are not; what the rules and Kaggle's terms allow;
+whether a credential can be expired on the site. **Settled by the first preparation (Task 10):**
+whether the download and the preparation can be run as two steps, so that only the first can read
+the credential; whether the preparation's checksums match under the pinned dependency set; each
+competition's real size on disk and the memory its preparation needs.
 
 **Settled only by the screen:** the cost, length and medal rate of a direct session on any
 competition; whether sessions end by themselves; whether the thresholds are fair on each rebuilt test
 set (report §14); what an attempt costs against the allowance when most of its hours are waiting.
 
-**From the scout report, still open when this plan was written:** the state of the older
-`mlebench-lite` dataset of the harness's registry (if it holds usable task packages, Task 1's
-wrapper is checked against them; this plan does not depend on it); the measured disk figures; the
-hosts a model hub would add to the allowlist. The plan reads its sections A to D and I.
+**The scout report was complete when this plan was finished,** and the plan reads all of it. Its own
+list of what it left unsettled is covered by the paragraphs above. Its installation of the grader
+and its scratch tasks are scratch files outside the repository; Task 7 builds this kit's own.
 
 **Not knowable by reading:** how much of a medal is recall (M7).
 
@@ -899,5 +939,5 @@ third holds its content.
 
 | Date | Entry | Detail |
 | --- | --- | --- |
-| 2026-11-15 | Plan written | Against `3ac3a2e4` (`integ/20261115b`: `main` with the day's documentation pass and the ladder's 15-task configuration). Not reviewed. No spend authorized: this line has no rule in `AGENTS.md` and no approval row. Spend to date: 0. Evidence used: the feasibility report (a desk study) and sections A to D and I of the scout's fact-finding of the same day, which was still in progress |
+| 2026-11-15 | Plan written | Against `3ac3a2e4` (`integ/20261115b`: `main` with the day's documentation pass and the ladder's 15-task configuration). Not reviewed. No spend authorized: this line has no rule in `AGENTS.md` and no approval row. Spend to date: 0. Evidence used: the feasibility report (a desk study) and the scout's fact-finding of the same day (read in source or run on this machine with no model call; not committed) |
 | 2026-11-15 | Owner action done: GPU toolkit | NVIDIA Container Toolkit 1.20.2 installed by the owner; rootless Podman 4.9.3 passes the RTX 3090 to a container (coordinator's check). `/etc/cdi/nvidia.yaml` is a stripped copy at `cdiVersion: 0.6.0`, to be rebuilt after a driver update (the operating note under "Owner actions and questions") |
