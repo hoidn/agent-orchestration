@@ -130,7 +130,8 @@ pytest -q -n 4 tests/experiments/test_long_horizon_passthrough.py
 
 `ladder.py` runs the tranche. It reserves money under one lock and starts each attempt through the harness. At
 teardown it scans the attempt and removes its containers by name; only then does it settle the attempt and classify
-it by D5. **A live launch spends**, so it refuses unless every condition holds. It needs `LH_SPEND_AUTHORIZED=yes`,
+it by D5. An attempt left open by a launcher that died gets the same teardown at the next launch: the same scans, and
+any stop already written for it. **A live launch spends**, so it refuses unless every condition holds. It needs `LH_SPEND_AUTHORIZED=yes`,
 plus `LH_MANIFEST_SHA256` and `LH_RUNTIME_COMMIT` that match the ledger's current `Configuration label` row. It
 also needs a frozen manifest with nothing pending in `ladder.json`, a detached checkout of that commit and a clean
 kit. Its preflight checks the harness environment, the host-side overrides, the 4.1.0 package digests and the

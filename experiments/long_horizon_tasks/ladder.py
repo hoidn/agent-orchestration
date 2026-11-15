@@ -1012,9 +1012,10 @@ def stop_group(pid, start, grace=None):
     return not alive(pid, start)
 
 
-def reconcile(ctx, ladder, prior):
+def reconcile(ctx, ladder, prior, gate):
     """Attempts left open by a launcher that is gone (its pid and start time do not both match a live process):
-    their harness is stopped if it is still the same process, their containers are removed, and they are closed."""
+    their harness is stopped if it is still the same process, and each is torn down as its own thread would have
+    torn it down (tear_down: the scans, the stops already written for it, the regrades below the load `gate`)."""
     done = []
     for attempt in [a for a in attempts(ctx.root) if a["settled"] is None]:
         owner = attempt["launcher"]
@@ -1023,8 +1024,8 @@ def reconcile(ctx, ladder, prior):
         harness = attempt.get("harness")
         if harness:
             stop_group(harness["pid"], harness["start"])
-        if remove_containers(ctx, ctx.root / "slots" / attempt["id"]):
-            done.append(close(ctx, ctx.root, attempt, ladder, prior))
+        record = tear_down(ctx, ladder, attempt, prior, scan_terms(ctx, ladder, attempt["task"]), gate)
+        done += [record] if record else []
     return done
 
 
@@ -1718,11 +1719,14 @@ def contamination(trial, terms, chunk=1 << 20):
     the offset of its first occurrence there: never the term or the text around it."""
     wanted = [(t.encode(), hashlib.sha256(t.encode()).hexdigest()) for t in terms if t]
     keep = max((len(t) for t, _ in wanted), default=1) - 1
-    hits = []
+    hits, unreadable = [], []
     for top in ("agent", "artifacts"):
         for path in sorted(p for p in (trial / top).rglob("*") if p.is_file() and not p.is_symlink()):
-            hits += _hits_in(path, trial, wanted, keep, chunk)
-    return {"contaminated": bool(hits), "hits": hits}
+            try:
+                hits += _hits_in(path, trial, wanted, keep, chunk)
+            except OSError:  # named here; token_scan.py reads the same file, and its incomplete scan is a stop
+                unreadable.append(path.relative_to(trial).as_posix())
+    return {"contaminated": bool(hits), "hits": hits, "unreadable": unreadable}
 
 
 def _hits_in(path, trial, wanted, keep, chunk):
@@ -1874,28 +1878,47 @@ class Attempt:
             _write_slot(self.ctx, self.a)
 
     def teardown(self):
-        """The scans, then the containers removed by name; only then is the slot closed and its token retired."""
-        trial = trial_dir(self.dir)
-        found = runtime_check(self.ctx, self.dir, self.a["kind"] in ("smoke", "pilot") or not self.ctx.live)
-        found = found or _scan_verdict(token_scan(self.ctx, self.dir), TOKEN_MATCH, TOKEN_INCOMPLETE)
-        if found:
-            self.stop(found)
-        scanned = contamination(trial, self.terms) if trial else {"contaminated": False, "hits": []}
-        if not remove_containers(self.ctx, self.dir):
-            tranche_event(self.ctx.root, "pause", slot=self.a["id"], reason="the attempt's containers were not removed")
-            return
-        extra = {"contamination": scanned, "verifier_load_above_gate": self.loaded(trial)}
-        extra.update({"stop": self.stops[0], "class": "stop"} if self.stops else {})
-        record = close(self.ctx, self.ctx.root, self.a, self.ladder, self.t.prior, extra=extra)
-        regraded(self.ctx, self.ladder, self.a, record, self.t.wait_for_load)
+        tear_down(self.ctx, self.ladder, self.a, self.t.prior, self.terms, self.t.wait_for_load)
 
-    def loaded(self, trial):
-        """Whether the load was above the gate while the verifier ran (D5, regrade case 2)."""
-        verifier = (_result_json(trial) or {}).get("verifier") or {}
-        start, end = _epoch(verifier.get("started_at")), _epoch(verifier.get("finished_at"))
-        gate = self.ladder["host"]["load_gate"]["at_or_below"]
-        samples = _jsonl(self.dir / "load.jsonl") if start and end else []
-        return any(start <= s["time"] <= end and max(s["load"]) > gate for s in samples)
+
+def slot_stops(root, attempt_id):
+    """The launcher's stops written for the slot (causes of slot_record.LAUNCHER_STOPS), first found first. The
+    record's stop is the first, whoever closes the attempt: a launcher that died after writing one still leaves a
+    stop for reconcile to close."""
+    found = [e["reason"] for e in _jsonl(root / "passthrough" / "tranche.jsonl") if e.get("event") == "stop"
+             and e.get("slot") == attempt_id and e.get("reason") in slot_record.LAUNCHER_STOPS]
+    return list(dict.fromkeys(found))
+
+
+def verifier_loaded(attempt_dir, trial, ladder):
+    """Whether the load was above the gate while the verifier ran (D5, regrade case 2)."""
+    verifier = (_result_json(trial) or {}).get("verifier") or {}
+    start, end = _epoch(verifier.get("started_at")), _epoch(verifier.get("finished_at"))
+    gate = ladder["host"]["load_gate"]["at_or_below"]
+    samples = _jsonl(attempt_dir / "load.jsonl") if start and end else []
+    return any(start <= s["time"] <= end and max(s["load"]) > gate for s in samples)
+
+
+def tear_down(ctx, ladder, attempt, prior, terms, gate):
+    """An ended attempt's teardown, by its own thread or by reconcile: the runtime check and token_scan.py (a
+    finding is a stop, written at once), the contamination scan, then the containers removed by name; only then is
+    the slot closed (as its first launcher stop, if any), its token retired, and the record regraded below the load
+    `gate`. The record, or None when the containers stay (the tranche pauses)."""
+    root, attempt_dir = ctx.root, ctx.root / "slots" / attempt["id"]
+    trial = trial_dir(attempt_dir)
+    found = runtime_check(ctx, attempt_dir, attempt["kind"] in ("smoke", "pilot") or not ctx.live)
+    found = found or _scan_verdict(token_scan(ctx, attempt_dir), TOKEN_MATCH, TOKEN_INCOMPLETE)
+    if found and found not in slot_stops(root, attempt["id"]):
+        tranche_event(root, "stop", slot=attempt["id"], reason=found)
+    scanned = contamination(trial, terms) if trial else {"contaminated": False, "hits": [], "unreadable": []}
+    if not remove_containers(ctx, attempt_dir):
+        tranche_event(root, "pause", slot=attempt["id"], reason="the attempt's containers were not removed")
+        return None
+    stops = slot_stops(root, attempt["id"])
+    extra = {"contamination": scanned, "verifier_load_above_gate": verifier_loaded(attempt_dir, trial, ladder)}
+    extra.update({"stop": stops[0], "class": "stop"} if stops else {})
+    record = close(ctx, root, attempt, ladder, prior, extra=extra)
+    return regraded(ctx, ladder, attempt, record, gate)
 
 
 SELF_ENDING = ("limit",)  # a closed gate of these kinds reopens by itself: the launcher waits through it
@@ -1912,7 +1935,7 @@ class Tranche:
     def run(self):
         """Until the tranche ends, or waits for a person with nothing in flight; why."""
         ensure_state(self.root)
-        reconcile(self.ctx, self.ladder, self.prior)
+        reconcile(self.ctx, self.ladder, self.prior, self.wait_for_load)
         while True:
             self.started = False
             why = self.step(time.time())

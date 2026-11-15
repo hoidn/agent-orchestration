@@ -300,10 +300,10 @@ elif cmd == "exec":
         sys.exit(125)
     sys.stdout.write("\0".join(found.get("env", [])))
 elif cmd == "export":
-    fs = (load(operands(rest)[0]) or {}).get("fs")
-    if fs is None:  # a container whose file system cannot be exported
+    found = load(operands(rest)[0]) or {}
+    if "fs" in found and found["fs"] is None:  # a container whose file system cannot be exported
         sys.exit(125)
-    sys.stdout.write(fs)
+    sys.stdout.write(found.get("fs", ""))
 else:
     sys.exit(f"stand-in podman: unexpected {args[:2]}")
 '''
@@ -1125,7 +1125,8 @@ def test_reconcile_stops_only_the_containers_of_a_dead_launcher_whose_pid_and_st
         trial = root / "slots" / attempt["id"] / "jobs" / attempt["id"] / f"Trial{n}__abcdefg"
         trial.mkdir(parents=True)
         _container(lh, f"trial{n}__abcdefg__env_main_1")
-    ladder.reconcile(ctx, CRITERION, 0.0)
+    _fingerprint(root, "lh-test-" + os.urandom(16).hex())
+    ladder.reconcile(ctx, STANDING, 0.0, gate=lambda: True)  # the criterion a launch reads
     states = [s.poll() for s in sleepers]
     for s in sleepers:
         s.kill()
@@ -1134,6 +1135,48 @@ def test_reconcile_stops_only_the_containers_of_a_dead_launcher_whose_pid_and_st
     assert (_containers(lh), settled, states[0] is not None, states[1]) == (
         ["trial0__abcdefg__env_main_1"], {"001": None, "002": "infrastructure_failure", "003": "infrastructure_failure"},
         True, None)
+
+
+TOKEN_SCAN = _load("lh_token_scan_for_the_launcher", KIT / "token_scan.py")
+
+
+def _fingerprint(root, token):
+    """The passthrough's fingerprint of a generated stand-in token, written beside its log as it writes it."""
+    (root / "passthrough" / "fingerprint.json").write_text(json.dumps(TOKEN_SCAN.fingerprint(token)))
+
+
+def _orphan(short, lh):
+    """A normal ending with reward 1 left open by a launcher that is gone (a pid no process has)."""
+    ctx = _ctx(short, lh)
+    ladder.ensure_state(ctx.root)
+    attempt = ladder.reserve(ctx.root, _entry(), CRITERION, 0.0)
+    attempt = {**attempt, "launcher": {"pid": 2 ** 22 + 7, "start": 1}}
+    ladder._write_json(ctx.root / "slots" / attempt["id"] / "slot.json", attempt)
+    fx = json.loads((KIT / "fixtures" / "token-three-tools-normal-end.json").read_text())
+    trial = ctx.root / "slots" / attempt["id"] / "jobs" / attempt["id"] / "wal-recovery-ordering__abcdefg"
+    _replay({**fx, "verifier_result": {"rewards": {"reward": 1.0}}}, trial)
+    return ctx, attempt, trial
+
+
+@pytest.mark.parametrize("written, leaked, cause", [
+    ("a subagent file", False, "a subagent file"), (None, True, "a match of token_scan.py")])
+def test_reconcile_closes_a_dead_launcher_s_attempt_as_its_stop_never_as_a_scored_observation(
+        short, written, leaked, cause):
+    """A stop written before the launcher died, or one its teardown's scans find, makes the attempt a stop when
+    reconcile closes it, exactly as the attempt's own teardown would have."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    ctx, attempt, trial = _orphan(short, lh)
+    token = "lh-test-" + os.urandom(16).hex()
+    _fingerprint(ctx.root, token)
+    if written:
+        ladder.tranche_event(ctx.root, "stop", slot=attempt["id"], reason=written)
+    if leaked:
+        (trial / "agent" / "kept.log").write_text(f"x {token} y")
+    ladder.reconcile(ctx, STANDING, 0.0, gate=lambda: True)  # the criterion a launch reads
+    settled = ladder.attempts(ctx.root)[0]["settled"]
+    stops = [e["reason"] for e in _jsonl_events(ctx) if e["event"] == "stop"]
+    assert ((settled["row"], settled["class"], settled["stop"], settled["reward"]), stops) == (
+        (5, "stop", cause, None), [cause])
 
 
 # ---- Allowance (Task 5, fourth checkbox) -----------------------------------------------------------------------
@@ -1743,7 +1786,8 @@ def test_the_runtime_check_scans_every_container_s_configuration_and_environment
     (lambda r: {"container_env": ["PATH=/usr/bin", f"X={r.canary}"]},
      "a match of the runtime check in the attempt's containers"),
     (lambda r: {"container_fs": None}, "an incomplete scan of the runtime check in the attempt's containers"),
-    (lambda r: {"unreadable": ["verifier/blocked.bin"]}, "an incomplete scan of token_scan.py")])
+    (lambda r: {"unreadable": ["verifier/blocked.bin"]}, "an incomplete scan of token_scan.py"),
+    (lambda r: {"unreadable": ["agent/blocked.txt"]}, "an incomplete scan of token_scan.py")])
 def test_a_teardown_scan_that_matches_or_cannot_finish_stops_the_tranche_and_exports_a_stop(rig, behaviour, cause):
     """The session ended normally (row 5) with reward 1; the stop makes it a stop with the cause slot_record.py
     accepts, never scored."""
@@ -1892,14 +1936,26 @@ def test_the_contamination_scan_finds_a_term_in_the_transcript_and_in_an_exporte
     assert (found, any(t in json.dumps(found) for t in terms)) == (
         {"contaminated": True, "hits": [
             {"term_sha256": sha["secret-term-one"], "file": "agent/claude-code.txt", "offset": 13},
-            {"term_sha256": sha["secret-term-two"], "file": "artifacts/out.txt", "offset": 21}]}, False)
+            {"term_sha256": sha["secret-term-two"], "file": "artifacts/out.txt", "offset": 21}], "unreadable": []},
+        False)
 
 
 def test_the_contamination_scan_finds_nothing_in_a_clean_trial(short):
     trial = short / "trial"
     (trial / "agent").mkdir(parents=True)
     (trial / "agent" / "claude-code.txt").write_text("all clean\n")
-    assert ladder.contamination(trial, ["secret-term-one"]) == {"contaminated": False, "hits": []}
+    assert ladder.contamination(trial, ["secret-term-one"]) == {"contaminated": False, "hits": [], "unreadable": []}
+
+
+def test_a_file_the_contamination_scan_cannot_read_is_named_and_the_scan_goes_on(short):
+    """token_scan.py reads the same file, and its incomplete scan stops the tranche; this scan names the file."""
+    trial = short / "trial"
+    (trial / "agent").mkdir(parents=True)
+    (trial / "agent" / "a.txt").write_text("secret-term-one\n")
+    (trial / "agent" / "b.txt").write_text("x")
+    (trial / "agent" / "b.txt").chmod(0)
+    found = ladder.contamination(trial, ["secret-term-one"])
+    assert (found["contaminated"], found["unreadable"]) == (True, ["agent/b.txt"])
 
 
 def test_the_contamination_scan_finds_a_term_split_across_a_chunk_boundary(short):
