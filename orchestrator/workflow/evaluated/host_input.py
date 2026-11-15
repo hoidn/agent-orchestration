@@ -410,6 +410,8 @@ def _settle(run_root, request_id, variant, answer_value, *, by, attestation, acc
     from .machine import site_classes
     from .resume_prefix import checked_resume_prefix
     from orchestrator.cli.commands.evaluated import prepare_evaluated_resume
+    from .authority import refuse_retired_run_target
+    refuse_retired_run_target(Path(run_root))
     by = _principal(by)
     if attestation is not None and not isinstance(attestation, str):
         raise HostInputError('host_input_invalid_attestation', 'attestation must be opaque text')

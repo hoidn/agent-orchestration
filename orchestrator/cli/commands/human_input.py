@@ -93,6 +93,9 @@ def human_input_command(args: Any) -> int:
 
 
 def _print_refusal(exc: Exception, run_id: str) -> None:
+    if getattr(exc, "code", None) == "run_target_retired":
+        print(f"input: [{exc.code}] {exc}", file=sys.stderr)
+        return
     if getattr(exc, "code", None) != "resume_program_changed":
         print(f"input: {exc}", file=sys.stderr)
         return

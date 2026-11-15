@@ -7,6 +7,8 @@ from pathlib import Path
 import shutil
 import sys
 
+import pytest
+
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
 from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block
@@ -450,58 +452,42 @@ def _pre_change_workspace(root: Path, fixture: Path = _PRE_CHANGE) -> list[str]:
             "--input", "message=typed input"]
 
 
-def test_resume_reuses_the_checked_in_pre_change_provider_commit(tmp_path: Path) -> None:
-    """The fixture run was committed by the package before the `delivery` part existed and is never regenerated,
-    so this fails when the bytes the `legacy` rendering composes drift."""
-    baseline, root = tmp_path / "baseline", tmp_path / "resumed"
-    assert _env_cli(baseline, _pre_change_workspace(baseline), _env(baseline, provider=True)).returncode == 0
-    (baseline_run,) = (baseline / ".orchestrate" / "runs").iterdir()
-    _pre_change_workspace(root)
-    shutil.copytree(_PRE_CHANGE / "runs", root / ".orchestrate" / "runs")
-    (run_root,) = (root / ".orchestrate" / "runs").iterdir()
-    committed = (run_root / "memo.jsonl").read_bytes()
-
-    resumed = _env_cli(root, ["resume", run_root.name], _env(root, provider=True))
-
-    assert resumed.returncode == 0, resumed.stderr
-    assert (run_root / "memo.jsonl").read_bytes().startswith(committed)
-    rows = _memo_rows(run_root)
-    second = [row for row in rows[2:] if row["record"] in {"started", "committed"}]
-    assert [row["record"] for row in second] == ["started", "committed"]
-    assert second[0]["identity"] != rows[1]["identity"]
-    assert {row["input_parts"]["delivery"] for row in second} == {canonical_sha256("file/2")}
-    (request,) = _requests(root)
-    assert request["env"]["ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"] == (
-        "sha256:" + hashlib.sha256(second[0]["identity"].encode()).hexdigest())
-    assert rows[-1]["record"] == "terminal" and rows[-1]["value"] == _memo_rows(baseline_run)[-1]["value"]
+_RECORDED_235 = {"provider_delivery_pre_change": "20261013T200020Z-4ihtxh",
+                 "provider_delivery_file1": "20261013T224630Z-j8nqd4"}
 
 
-def test_resume_reuses_the_frozen_file1_provider_commit_and_selects_file2(tmp_path):
-    fixture = Path(__file__).parent / 'fixtures/provider_delivery_file1'
-    hashes = json.loads((fixture / 'hashes.json').read_text())
-    assert {name: hashlib.sha256((fixture / name).read_bytes()).hexdigest() for name in hashes} == hashes
-    root = tmp_path / 'resumed'
-    _pre_change_workspace(root, fixture)
-    shutil.copytree(fixture / 'runs', root / '.orchestrate/runs')
-    (run_root,) = (root / '.orchestrate/runs').iterdir()
-    committed = (run_root / 'memo.jsonl').read_bytes()
-    before_rows = _memo_rows(run_root)
-    assert {row['input_parts']['delivery'] for row in before_rows} == {canonical_sha256('file/1')}
-    old_attempts = {p.relative_to(run_root).as_posix(): p.read_bytes()
-                    for p in run_root.glob('effects/*/attempt-1/*') if p.is_file()}
+def _without_price_table(report: str) -> str:
+    """The price table line names the runtime's current table, not anything the run recorded."""
+    return "".join(line for line in report.splitlines(keepends=True) if not line.startswith("- price_table:"))
 
-    resumed = _env_cli(root, ['resume', run_root.name], _env(root, provider=True))
 
-    assert resumed.returncode == 0, resumed.stderr
-    assert (run_root / 'memo.jsonl').read_bytes().startswith(committed)
-    rows = _memo_rows(run_root)
-    assert rows[:2] == before_rows
-    assert {row['input_parts']['delivery'] for row in rows[2:] if row['record'] in {'started', 'committed'}} == {canonical_sha256('file/2')}
-    assert len(_requests(root)) == 1 and rows[-1]['record'] == 'terminal'
-    assert {name: (run_root / name).read_bytes() for name in old_attempts} == old_attempts
-    completed = _snapshot(root / '.orchestrate')
-    requests = (root / 'requests.jsonl').read_bytes()
-    for _ in range(2):
-        assert _env_cli(root, ['resume', run_root.name], _env(root, provider=True)).returncode == 0
-        assert _snapshot(root / '.orchestrate') == completed
-        assert (root / 'requests.jsonl').read_bytes() == requests
+@pytest.mark.parametrize("fixture", sorted(_RECORDED_235))
+def test_recorded_235_run_is_reported_and_refused_by_every_continuing_command(tmp_path, fixture):
+    """Ruling R5 of the one-target cut: these runs were committed by packages that predate 2.40 (one before the
+    `delivery` part, one with `file/1`) and are never regenerated. `report` reads them as Task 0 recorded; every
+    command that continues or rewrites a run refuses with `run_target_retired` and changes no byte (ruling R3)."""
+    from orchestrator.cli.commands import repl as repl_cli
+    from tests.test_executor_retirement_cutoff import tree
+
+    source = Path(__file__).parent / "fixtures" / fixture
+    root, run_id = tmp_path / "workspace", _RECORDED_235[fixture]
+    _pre_change_workspace(root, source)
+    shutil.copytree(source / "runs", root / ".orchestrate" / "runs")
+    identity = _memo_rows(root / ".orchestrate" / "runs" / run_id)[1]["identity"]
+    before = tree(root)
+    recorded = (Path(__file__).parent / "fixtures" / "one_target_cut" / f"report-{fixture}.md").read_text()
+
+    report = _env_cli(root, ["report", "--run-id", run_id], _env(root, provider=True))
+    assert report.returncode == 0, report.stderr
+    assert _without_price_table(report.stdout) == _without_price_table(recorded)
+    for argv in (["resume", run_id], ["resume", run_id, "--accept-changes"], ["invalidate", run_id, identity],
+                 ["input", "answer", run_id, "request", "--value", "1", "--by", "operator"]):
+        refused = _env_cli(root, argv, _env(root, provider=True))
+        assert refused.returncode == 2 and "[run_target_retired]" in refused.stderr, (argv, refused.stderr)
+        assert "v0.2.1" in refused.stderr
+        assert tree(root) == before, argv
+    with pytest.raises(repl_cli.ReplRefusal) as attach:
+        repl_cli._dispatch(repl_cli.ReplSession(workspace=root, state_dir=None), f":attach {run_id}")
+    assert attach.value.code == "run_target_retired"
+    assert tree(root) == before
+    assert not (tmp_path / "requests.jsonl").exists() and not (root / "requests.jsonl").exists()

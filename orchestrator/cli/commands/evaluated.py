@@ -17,7 +17,7 @@ from orchestrator.state import StateManager
 from orchestrator.run_lock import workspace_run_lock, reserved_run_writer_lock, ReservedRunRootError, run_root_matches_fd
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.evaluated.authority import (
-    publish_run_authority, load_run_authority, load_run_header,
+    publish_run_authority, load_run_authority, load_run_header, refuse_retired_run_target,
 )
 from orchestrator.workflow.evaluated.commands import workspace_relative_path
 from orchestrator.workflow.evaluated.effect_inputs import _PreflightRefusal
@@ -176,6 +176,7 @@ def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=F
     if run_files is not None:
         from orchestrator.workflow.evaluated.authority import _require_retained_root
         _require_retained_root(run_files)
+    refuse_retired_run_target(run_root, run_files)
     header = load_run_header(run_root, run_files=run_files)
     if "resume_request" not in header:
         raise _ResumeRefusal("resume_request_missing", "run header has no durable rebuild request")

@@ -85,6 +85,8 @@ def resume_workflow(
         if not _has_authority_header(run_root, None):
             from orchestrator.workflow.evaluated.memo import MemoError
             raise MemoError("workflow_execution_profile_retired", "historical workflow execution is retired; use a separately retained complete release/environment qualified for this run")
+        from orchestrator.workflow.evaluated.authority import refuse_retired_run_target
+        refuse_retired_run_target(run_root)      # before the locks, which create files (stage 4, R3)
         with ExitStack() as writer_locks:
             import uuid
             restart_run_id = uuid.uuid4().hex if force_restart else None
