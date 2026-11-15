@@ -998,7 +998,7 @@ def regraded(ctx, ladder, attempt, record, gate):
     timeouts, reward = _regrades(ctx, ladder, attempt, record, 2 if case == 1 else 1, gate)
     if case == 1 and record["reward"] is None:
         record["reward"], record["class"] = (0.0, "observation") if timeouts == 2 else (None, "infrastructure_failure")
-    if case == 2 and record["regrades"] and record["reward"] == 0 and reward is None:
+    if case == 2 and record["reward"] == 0 and reward is None:  # never ran, or no reward (Task 8 part A m8)
         record["indeterminate"] = True
     with _Lock(ctx.root):
         _write_json(ctx.root / "slots" / attempt["id"] / "settled.json", record)
@@ -1401,7 +1401,7 @@ def _hours_refusal(state, now):
         return "in the window's closing margin", None
     reading = _reading_for(state, window, now)
     if reading is None:
-        return "no meter reading for this window", None
+        return NO_READING, None
     skip = 100 - inputs["f_week"] - ALLOWANCE_SKIP
     if reading["weekly"] >= skip:
         return (f"window skipped: the weekly reading {reading['weekly']} leaves fewer than {ALLOWANCE_SKIP} points "
@@ -1412,6 +1412,7 @@ def _hours_refusal(state, now):
 
 
 ALLOWANCE_SKIP = 5  # allowance_guard.skip_margin_points
+NO_READING = "no meter reading for this window"  # D7.7: a pause for the owner's reading
 
 
 def _budget_refusal(root, ladder, state, reading, need, now):
@@ -2138,6 +2139,7 @@ class Tranche:
         self.ctx, self.ladder, self.root = ctx, ladder, ctx.root
         self.prior, self.plan = prior_usd(ctx), schedule(ladder)
         self.label = this_label()  # the manifest hash the preflight checked (against the ledger, when live)
+        self.guard_why = None  # the allowance guard's last refusal, logged once
         self.workers, self.interrupt, self.closed_since, self.started = {}, threading.Event(), None, False
 
     def run(self):
@@ -2216,12 +2218,24 @@ class Tranche:
             self.stop(f"the configuration changed under the launcher: {reason}")
         return reason is None
 
+    def room(self, head, gate, now):
+        """Whether the allowance guard (D4) and the concurrency limits allow one more start. A guard refusal is a
+        logged wait, once per reason (a skipped window is reported so); "no meter reading" with nothing in flight
+        is D7.7's pause for the owner's reading (Task 8 part A m10)."""
+        ok, why, most = guard(self.root, self.ladder, head, now)
+        if not ok:
+            if why == NO_READING and not self.workers:
+                tranche_event(self.root, "pause", reason=f"the allowance guard: {why}")
+            elif why != self.guard_why:
+                tranche_event(self.root, "wait", reason=f"the allowance guard: {why}")
+        self.guard_why = None if ok else why
+        limits = [self.ladder["host"]["concurrency"][CONCURRENCY[head["kind"]]], gate["most"], most]
+        return ok and len(self.workers) < min(n for n in limits if n is not None)
+
     def try_start(self, head, gate, now):
         if not self.passthrough_ok() or not self.load_ok(now):
             return None
-        ok, _, most = guard(self.root, self.ladder, head, now)
-        limits = [self.ladder["host"]["concurrency"][CONCURRENCY[head["kind"]]], gate["most"], most]
-        if not ok or len(self.workers) >= min(n for n in limits if n is not None) or not self.config_ok():
+        if not self.room(head, gate, now) or not self.config_ok():
             return None
         action, got = next_start(self.root, [head], self.ladder, self.prior, self.label, self.plan)
         if action == "start":
@@ -2394,6 +2408,9 @@ def record_ruling(ctx, args):
             raise Refused(f"{args.attempt} awaits no ruling")
         cls = rows[args.row]["class"]
         reward = _observed(cls, args.row, trial_dir(ctx.root / "slots" / args.attempt))
+        if cls == "observation" and rows[args.row]["ending"] == "Normal" and reward is None:  # Task 8 part A m9
+            raise Refused(f"{args.attempt}: row {args.row} is a normal ending, and its trial holds no reward; the "
+                          "ruling path runs no regrade, so rule another row")
         _write_json(path, {**settled, "row": args.row, "class": cls, "reward": reward,
                            "ruled": {"row": args.row, "date": args.date}})
     print(f"{args.attempt}: D5 row {args.row} ({cls}), by the ledger's ruling of {args.date}")
@@ -2424,6 +2441,8 @@ def record_resume(ctx, args):
     form = re.compile(rf"{re.escape(args.clears or '')}:\s*\S")
     if args.clears and not ruling_rows(ledger_text(ctx), args.date, form):
         raise Refused(f"no ledger row `| {args.date} | Ruling | {args.clears}: <the decision> |`")
+    if args.clears and args.clears not in over:  # Task 8 part A m7: a clearing would reset its count for nothing
+        raise Refused(f"{args.clears} is not over its bound: there is nothing to clear")
     left = {name: why for name, why in over.items() if name != args.clears}
     if left:
         raise Refused("over its bound, cleared only by `resume --clears`: " + "; ".join(f"{k} ({v})" for k, v in left.items()))

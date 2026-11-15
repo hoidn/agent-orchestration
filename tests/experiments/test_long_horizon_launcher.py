@@ -1118,6 +1118,51 @@ def test_a_load_sensitive_task_s_zero_under_load_is_regraded_once_below_the_gate
     assert ((quiet["reward"], loud["reward"], loud["regrades"]), len(_calls(lh))) == ((0.0, 1.0, 1), 1)
 
 
+def test_a_case_2_regrade_that_never_ran_is_indeterminate_never_a_scored_zero(short):
+    """Task 8 part A m8 (D5): the load gate's wait was interrupted, so the 0 taken under load is not kept."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    criterion = {**CRITERION, "tasks": {**CRITERION["tasks"], "load_sensitive": ["wal-recovery-ordering"]}}
+    root, attempt, record = _closed(short, "stub-budget-stop-NonZeroAgentExitCodeError", [], reward=0.0)
+    interrupted = ladder.regraded(_ctx(short, lh), criterion, attempt, {**record, "verifier_load_above_gate": True},
+                                  gate=lambda: False)
+    assert (interrupted["regrades"], interrupted.get("indeterminate"), len(_calls(lh))) == (0, True, 0)
+
+
+def test_a_ruling_to_the_normal_row_for_a_start_with_no_reward_is_refused_when_it_is_made(short, capsys):
+    """Task 8 part A m9: the ruling path runs no regrade, so the record would be refused at the export."""
+    root, attempt, record = _closed(short, "token-usage-limit-NonZeroAgentExitCodeError", [{"status": 429}])
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    (ctx.rehearsal / "ledger.md").write_text(f"| 2026-11-21 | Ruling | {attempt['id']} row 5: a normal ending |\n")
+    code = ladder.main(["ruling", attempt["id"], "--row", "5", "--date", "2026-11-21"], env=ctx.env)
+    assert (code, "no reward" in capsys.readouterr().err, ladder.attempts(root)[0]["settled"]["class"]) == (
+        3, True, "ruling")
+
+
+def test_clears_refuses_a_threshold_that_is_not_over_its_bound(short):
+    """Task 8 part A m7: a clearing would reset that threshold's count for nothing."""
+    ctx = _threshold_rig(short)
+    (ctx.rehearsal / "ledger.md").write_text("| 2026-11-22 | Ruling | cuts: go on |\n")
+    code = ladder.main(["resume", "--clears", "cuts", "--date", "2026-11-22"], env=ctx.env)
+    assert (code, (ctx.root / "clearings.jsonl").exists()) == (3, False)
+
+
+def test_the_guard_s_refusals_are_logged_and_no_meter_reading_with_nothing_in_flight_pauses(short):
+    """Task 8 part A m10 (D7.7): a guard refusal is a logged wait, once per reason; a window with no meter
+    reading is a pause for the owner's reading; a skipped window is reported."""
+    ctx = ladder.Ctx({"HOME": str(short / "home"), "LH_REHEARSAL": str(short / "reh")})
+    ladder.ensure_state(ctx.root)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    tranche = ladder.Tranche(ctx, STANDING)
+    head, gate = _entry("wal-recovery-ordering"), {"most": None}
+    _allowance(ctx.root, INPUTS, FIGURES, _reading(_local("2026-11-18 09:30"), weekly=66))
+    skipped = [tranche.room(head, gate, _local(WED_10)) for _ in range(2)]
+    _allowance(ctx.root, _reading(_local("2026-11-17 08:00")))
+    unread = tranche.room(head, gate, _local("2026-11-19 10:00"))
+    events = [(e["event"], e["reason"].split(":")[1].strip()[:14]) for e in _jsonl_events(ctx)]
+    assert (skipped, unread, events) == ([False, False], False, [("wait", "window skipped"), ("pause", "no meter readi")])
+
+
 # Reconcile: only a dead launcher's attempts are stopped and removed.
 
 def _container(lh, name, **fields):
