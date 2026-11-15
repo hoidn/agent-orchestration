@@ -167,7 +167,7 @@ The decisions are numbered M1 to M10, to keep them apart from the ladder plan's 
 gives the choice, the reason, what it costs if wrong, and who decides: **owner** (the
 owner's to make; the plan gives a recommendation) or **coordinator** (the coordinator can rule within
 decision 17 and records the ruling under [Rulings](#rulings)). Nothing here is frozen until its
-tranche's criterion is frozen and its label is in the ledger.
+tranche's criterion is frozen and its label is in the tranche's ledger.
 
 ### M1. Success, the screen's classes and the placement (owner: the definition; coordinator: the classes)
 
@@ -196,7 +196,7 @@ tranche's criterion is frozen and its label is in the ledger.
 - **What the screen does at a given true rate.** The table takes a competition's attempts as
   independent with one medal rate, and for the last two columns takes the rate pooled over the three
   efforts of the placement to be the same. Both are simplifications; the figures were computed for
-  this plan and checked against the independent review's.
+  this plan and agree with those of its independent review.
 
 | True rate | Above (3 of 3) | Goes to stage two | Excluded low (0 of 6) | Survives | Mean attempts used | Placement admits (1 to 5 of 15) | Enters the family |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -235,10 +235,10 @@ tranche's criterion is frozen and its label is in the ledger.
   with the 95 percent interval the ladder's readout prints. The interval's width is the limit of
   the placement: for 1, 2, 3, 4 and 5 medals of fifteen the 90 percent intervals are 0.3 to 27.9,
   2.4 to 36.3, 5.7 to 44.0, 9.7 to 51.1 and 14.2 to 57.7 percent. Every one reaches outside 10 to
-  30 percent. This is the rule the review criticised as wide (it admits a competition at a true 5
-  percent about half the time and one at 40 percent four times in ten); it is kept because a
-  different rule here would make the two families incomparable, and a narrower one needs about 90
-  attempts per competition (ladder plan, "What this size can and cannot support").
+  30 percent. The rule is wide: it admits a competition at a true 5 percent about half the time and
+  one at 40 percent four times in ten (ladder D6). It is kept because a different rule here would
+  make the two families incomparable, and a narrower one needs about 90 attempts per competition
+  (ladder plan, "What this size can and cannot support").
 - **The screen's attempts are never pooled with the fifteen.** They are printed beside them: a
   competition was chosen because of them, so pooling would bias its count upward.
 - **If fewer competitions are placed than is useful.** The family supplements the Terminal-Bench
@@ -334,8 +334,8 @@ as the verifier runs it, tells a perfect submission from a useless one.
   (run on a scratch task: scout report D5). The verifier trusts nothing in what crosses: its script
   reads only a regular file named `submission.csv`, with `python -I`, from a working directory
   outside the uploaded paths. The harness already drops a symbolic link that points out of the
-  artifact when it copies the artifact over (read in Harbor 0.25.0's artifact handler by the
-  reviewer); Task 7 holds that with a submission that is a link to the answers' path.
+  artifact when it copies the artifact over (read in Harbor 0.25.0's artifact handler during this
+  plan's review); Task 7 holds that with a submission that is a link to the answers' path.
 - **The verifier image** pins the benchmark at commit `507f92e` and the dependency versions of the
   benchmark's own image (scout report A: unpinned, today's versions do not install together, and a
   newer pandas could change what the preparation writes). It sets the grader's data directory and
@@ -616,7 +616,7 @@ changes, so the ladder's configuration and manifest do not move.**
   which processes do; the readout flags every attempt during which a process outside its own
   container did. A flag excludes nothing by itself; the coordinator rules on it before the class is
   read.
-- **Cost if wrong.** If direct sessions use most of 24 hours, the GPU tranche takes weeks and the
+- **Cost if wrong.** If direct sessions use most of 24 hours, a GPU tranche takes weeks and the
   eight-hour read stops it after at most two sessions. If CPU-class competitions needed a GPU for a
   medal after all, they land at the floor for a reason of ours; the report's class is an estimate.
 
@@ -672,7 +672,7 @@ changes, so the ladder's configuration and manifest do not move.**
   `chaii` need those, as the planner believes of their public solutions (not verified), these two
   will screen low for a reason of ours. The owner may add to the set under clause 5 before the
   freeze; after it, a change is a new label and a new screen of the GPU class.
-- **The committed list.** Before the GPU tranche's freeze, `experiments/mle_bench_tasks/weights.json`
+- **The committed list.** Before the GPU class's first freeze, `experiments/mle_bench_tasks/weights.json`
   holds for each checkpoint its name, its source and revision, the SHA-256 of every file, its size,
   its licence and the modality it serves. The manifest covers the file, so the set is part of the
   label; the instruction names the set to the agent; Task 11 shows that every checkpoint loads in
@@ -909,7 +909,8 @@ that stops by itself: USD 1 to 8, central about USD 3) and are not measured.
 ## Owner actions and questions
 
 The list is written to be put to the owner as it stands. Each item says why it is needed, what to
-do, and what it blocks. Nothing here blocks Tasks 1 to 9.
+do, and what it blocks. Nothing here blocks Tasks 1 to 9 or Task 10a. The tranche ledgers and the
+locks of M4 and M5 ask nothing of the owner.
 
 1. **A Kaggle account and an API credential.** *Why:* the benchmark downloads each competition's data
    through Kaggle's API under the user's own account (report §4). *What to do:*
@@ -950,26 +951,44 @@ do, and what it blocks. Nothing here blocks Tasks 1 to 9.
    and that nothing is redistributed (the plan keeps all data, answers and images out of the
    repository). *Blocks:* the preparation of any competition whose rules the owner has not cleared.
 4. **Run the download, or allow the coordinator to start it.** *Why:* it is the one command that
-   reads the Kaggle token (M10). *What to do,* once Task 10's script exists, in the same kind of
-   terminal: `KAGGLE_CONFIG_DIR="$HOME/.local/state/mle-secret" experiments/mle_bench_tasks/fetch.sh
+   reads the Kaggle token (M10). *What to do,* once the script has passed its review (Task 10a), in
+   the same kind of terminal: `KAGGLE_CONFIG_DIR="$HOME/.local/state/mle-secret" experiments/mle_bench_tasks/fetch.sh
    <slugs>`. It prints one line per competition. *Blocks:* Tasks 10 and 12.
-5. **Disk.** *Why:* everything Podman owns (images and whatever an attempt writes in its container)
-   is on `/home`, which has 61 GB free and is 97 percent full; `/` has 48 GB free (scout report G).
-   Nothing limits what an attempt writes, so each tranche starts only above a free-disk threshold
-   (M9). *What is needed on `/home`,* all estimates until measured:
-   - *For the CPU tranche:* about 55 GB free (images about 3 GB, data about 2 GB, the 50 GB
-     threshold). That fits today, narrowly, and no longer fits once the ladder's 23.86 GB of pinned
-     images are in the store.
-   - *For the GPU tranche:* about 75 GB free (a GPU image of 8 to 12 GB, at least 13 GB of data in
-     the images, the 50 GB threshold), and about 100 GB with the ladder's images.
+5. **Disk, on `/home` and on `/`.** *Why:* nothing limits what an attempt writes in its container.
+   The launcher has one guard: while it runs it reads the free space of `/` and of `/home` about
+   once a second, and when the lower of the two is under 20 GB it stops every attempt in flight
+   (M9). So a tranche launches only with room above that floor on both, and other work must not
+   take either below it while a tranche runs. *Today (2026-11-15):* `/home` has 61 GB free and is
+   97 percent full; `/` has 48 to 50 GB free and was seen at 31 GB during the ladder's oracle pass,
+   when other sessions wrote to it. *What is needed,* all estimates until the smoke has measured
+   an attempt:
 
-   *What to do:* free that space on `/home`, or name another disk for Podman's image store. The
-   scout's listing shows where the space on `/` went; it is the owner's to judge. *Blocks:* the GPU
-   tranche and Tasks 11 and 12; the CPU tranche once the ladder's images are pulled.
-6. **Decide the pretrained-weights policy** (M6). *Why:* it changes what is measured and cannot be
-   changed after a tranche's first attempt. *Recommendation:* a fixed set of weights in the agent
-   image, and no model hub on the allowlist. *Blocks:* Task 11 and the GPU tranche; not the CPU
-   tranche.
+   | | CPU tranches | GPU tranches |
+   | --- | --- | --- |
+   | On `/home`, free at launch, with the images already built | 50 GB | 50 GB |
+   | This family's images on `/home` | About 5 GB (images 3, data 2) | About 34 GB more (the shared GPU base 8 to 12, the weights 7, at least 13 of data, the verifier images 2) |
+   | So free on `/home` before anything is built | About 55 GB | About 90 GB |
+   | The same once the ladder's 23.86 GB of pinned images are in the store (they are not today) | About 80 GB | About 115 GB |
+   | To free on `/home` from today's 61 GB | Nothing if the ladder's images are not yet pulled; about 20 GB if they are | About 30 GB; about 55 GB with the ladder's images |
+   | On `/`, free at launch | 40 GB | 40 GB; the plan asks for 60 GB, because these tranches run for days and one low reading stops a 24-hour attempt |
+   | To free on `/` from today's 48 to 50 GB | Nothing today; whatever brings it back to 40 GB if it has fallen | About 10 to 12 GB |
+
+   *What to do:* free that space, or name another disk for Podman's image store, which would take
+   the images and the scratch off `/home`. The scout's listing shows where the space on `/` went
+   (319 GB under `/var/tmp`, most of it another project's); it is the owner's to judge. *Blocks:*
+   the GPU tranches and Tasks 11 and 12; the CPU tranches once the ladder's images are pulled.
+6. **Decide the pretrained-weights policy and the set** (M6). *Why:* the set decides which
+   competitions can earn a medal, so it is part of what is measured, and it cannot change after the
+   GPU class's first attempt. *What to decide:*
+   - The policy. *Recommendation:* a fixed set of weights in the agent image, and no model hub on
+     the allowlist.
+   - The set. *Recommendation:* M6's rule and the eleven checkpoints proposed under it. The set as
+     proposed holds no generative language model and no checkpoint fine-tuned for question
+     answering, so `lmsys` and `chaii` may screen low for that reason alone; say whether to add
+     any, and whether the owner would accept a model's terms where a checkpoint needs that.
+
+   The exact list, with sizes, licences and digests, is committed in Task 11 and shown to the owner
+   before the GPU class's freeze. *Blocks:* Task 11 and the GPU tranches; not the CPU tranches.
 7. **The allowance for this line.** *Why:* it draws on the same subscription as the owner's sessions,
    the coordinating session and the ladder (M8). *What to answer:*
    - How is the weekly allowance split between the ladder and this line? The plan assumes the ladder
@@ -980,22 +999,29 @@ do, and what it blocks. Nothing here blocks Tasks 1 to 9.
      two numbers, or others for this line)?
    - Will the owner read the meters before each window and before and after each tranche's pilot, as
      for the ladder? With no reading nothing starts.
-   - May the GPU be reserved for the GPU tranche: three to four days if sessions stop by themselves,
-     up to thirty if they use the limit (report §10; estimates; the eight-hour read of M5 stops the
-     tranche for a report long before thirty)? The owner's own GPU work would have
-     to wait.
+   - May the GPU be reserved for the GPU tranches? Stage one is three to four days if sessions stop
+     by themselves and up to thirty if they use the limit (report §10; estimates; the eight-hour
+     read of M5 stops the tranche for a report long before thirty); stage two is at most as much
+     again. The owner's own GPU work would have to wait: the wrapper does not launch while another
+     process holds memory on the card, and other use during an attempt is flagged in the readout
+     (M5).
 
    *Blocks:* each tranche's smoke.
 8. **The two standing confirmations, dated again for this line.** *Why:* the ladder plan requires
    them before any use of the subscription, and this line adds sessions of up to 24 hours. *What to
    confirm:* that paid extra usage is off for the account, and that the subscription's terms allow
    unattended runs of this size. *Blocks:* each tranche's freeze.
-9. **Approve the line and its ceilings.** *Why:* the GPU tranche and the placement are above the
+9. **Approve the line and its ceilings.** *Why:* the GPU tranches and the placement are above the
    USD 100 the coordinator may approve alone, and the line passes USD 300 in all (`AGENTS.md`,
    "Budget delegation"). *What is asked:* the [rule proposed below](#proposed-wording-for-the-agentsmd-rule):
-   the screen at 39 slots, at most 45 starts and USD 200; the placement at up to six competitions,
-   90 slots, 100 starts and USD 400, starting only after the screen is reported; USD 8 an attempt;
-   success as any medal (M1). *Blocks:* every paid attempt.
+   the screen at 39 to 78 slots, at most 90 starts and USD 200; the placement at up to six
+   competitions, 90 slots, 100 starts and USD 400, starting only after the screen is reported; USD
+   8 an attempt; success as any medal (M1). *One choice inside it:* at the estimate of USD 3 an
+   attempt, USD 200 pays for the second three attempts of about six competitions, and the others
+   with no medal in three end "not screened"; USD 250 pays for all thirteen (M9). The plan proposes
+   USD 200. *What the owner should know before approving:* the screen loses about half of the
+   competitions whose true rate is near 10 percent, and a placed competition is "observed in the
+   band" with an interval 28 to 44 points wide (M1). *Blocks:* every paid attempt.
 10. **Later, only if too few competitions are placed:** whether to end the line, or to request
     another definition of success (M1). Nothing is asked now.
 
@@ -1027,169 +1053,261 @@ without Kaggle.
 
 ### Can start now (no owner action)
 
-**Task 1: the fixture and the task wrapper** (impl_code; 8 h; report §13 gives 6 to 8 for the
+**Task 1: the fixture and the task wrapper** (impl_code; 9 h; report §13 gives 6 to 8 for the
 wrapping).
-*Files:* create `family.json` (the thirteen candidates: slug, class, resources, the benchmark's
-commit, each size with its source), `wrap.py`, the fixture and its generator,
+*Files:* create `family.json` (the thirteen candidates: short name, Kaggle slug, class, resources,
+the benchmark's commit, each size with its source), `wrap.py`, the fixture and its generator,
 `tests/experiments/test_mle_bench_wrap.py`. *Produces:* from a prepared competition directory, the
 agent image's build context, the verifier image's build context, the attempt package (its instruction
 assembled as the older dataset of M4 does, less the paragraph on the format server), and the two
-packages for the answers and sample-submission legs. *Tests first:* the agent context holds no file
+packages for the answers and sample-submission legs. *Tests first:* every short name is the one in
+the Candidates table, at most 12 characters, and maps to one slug; the agent context holds no file
 of the private directory, of the grader or of the leaderboard snapshot, by SHA-256; the attempt
 package holds `task.toml` and the instruction only; `task.toml` carries the class's limits, the time
-limit, the artifact, both images, the canary line and no network key; the answers package differs
-from the attempt package only by its `solution/` directory; the same input gives the same digests.
+limit, the artifact, the canary line and no network key; both images are named by digest, and an
+image reference without one is refused; the answers package differs from the attempt package only
+by its `solution/` directory; the same input gives the same digests.
 *Verify:* `pytest -q -n 4 tests/experiments/test_mle_bench_wrap.py`, and `--collect-only` on it.
 
-**Task 2: the verifier path and the format check** (impl_code; 5 h; report §13 gives 2 for the
+**Task 2: the verifier path and the format check** (impl_code; 6 h; report §13 gives 2 for the
 format check and 1 for host grading).
 *Files:* create `verifier/test.sh`, `verifier/grade_submission.py`, `agent/validate_submission.py`,
 `tests/experiments/test_mle_bench_verifier.py`. *Produces:* the reward file (1 or 0 and the four
-graded outcomes), the five-line test report, and the agent-side format check of M3. The call into the
-benchmark's grader is one function, so the suite tests everything around it with the fixture's
-grader. *Tests first:* the answers give reward 1 and five tests passed; the sample submission gives
-reward 0 and a valid submission; a missing, empty or malformed submission gives reward 0, not valid,
-and still a written reward; a score the grader does not give is left out, never written as zero; the
-percentile follows the metric's direction; the format check accepts the sample and refuses a missing
-column, a missing id and an empty value, without reading any answer. *Verify:* the module, and
-`--collect-only`.
+graded outcomes), the test report `verifier/ctrf.json` in the form the launcher reads (M4), and the
+agent-side format check of M3. The call into the benchmark's grader is one function, so the suite
+tests everything around it with the fixture's grader. *Tests first:* the answers give reward 1 and
+five tests passed of five; the sample submission gives reward 0 and a valid submission; a missing,
+empty or malformed submission gives reward 0, not valid, and still a written reward; a submission
+that is a symbolic link, a directory or another file name is not read; a score the grader does not
+give is left out, never written as zero; the percentile follows the metric's direction and counts a
+tie as beaten; the format check accepts the sample and refuses a missing column, a missing id and
+an empty value, without reading any answer. *Verify:* the module, and `--collect-only`.
 
 **Task 3: the withholding check on a built image** (impl_code; 4 h).
 *Files:* create `withhold_check.py`, `tests/experiments/test_mle_bench_withhold.py`. *Produces:* for
-an exported file system, a result per image: private files, grader files and the leaderboard snapshot
-by SHA-256, private-only lines by count, and the benchmark's package. *Tests first,* on directory
-trees standing in for an export: a planted answers file is found by hash under another name; a file
-holding a share of the answers' lines is found; a public file that shares lines with the training
-data is not a hit; an unreadable path fails the check. *Verify:* the module, and `--collect-only`.
+an exported file system, a result per image, recorded against the image's digest: private files,
+grader files and the leaderboard snapshot by SHA-256, private-only lines by count, and the
+benchmark's package. *Tests first,* on directory trees standing in for an export: a planted answers
+file is found by hash under another name; a file holding a share of the answers' lines is found; a
+public file that shares lines with the training data is not a hit; an unreadable path fails the
+check; a result names the digest it was run on. *Verify:* the module, and `--collect-only`.
 
-**Task 4: the configuration as data** (impl_code; 5 h).
+**Task 4: the configuration as data** (impl_code; 7 h).
 *Files:* create `make_criterion.py`, `tranches/screen-cpu/` and `tranches/screen-gpu/` (each a
-`ladder.json`, a `tasks.json` and a `manifest.json`, generated, plus the four links of M4),
-`tests/experiments/test_mle_bench_criterion.py`. *Produces:* each tranche's criterion from the
-ladder's `ladder.json` and a short file of this family's fields. *Tests first:* every group the
-generator does not replace equals the ladder's, byte for byte as JSON; the model is `claude-haiku-5-5`
-and the efforts are within the ladder's three; the caps, ceilings, starts and concurrency are M9's;
-the screen's two ceilings sum to USD 200 and no ceiling is above USD 200; the GPU tranche's limits
-file names the device and its concurrency is 1; every null has a pending entry; the manifest covers
-the reviewed files by hash. *Waits on nothing;* the fields the ladder's live probe fills stay pending
-here until it has run. *Verify:* the module, `--collect-only`, and
-`git diff --stat main -- experiments/long_horizon_tasks` prints nothing.
+`ladder.json` and a `tasks.json`, generated, plus the four links of M4), `manifests/` with one
+manifest per tranche, a placeholder `weights.json`, `tests/experiments/test_mle_bench_criterion.py`.
+*Produces:* each stage-one tranche's criterion from the ladder's `ladder.json` and a short file of
+this family's fields, and each stage-two criterion from a stage-one export by M9's rule. *Tests
+first:* every group the generator does not replace equals the ladder's, byte for byte as JSON; the
+model is `claude-haiku-5-5` and the efforts are within the ladder's three; the caps, ceilings,
+starts and concurrency are M9's; the screen's two class ceilings sum to USD 200 and no ceiling is
+above USD 200; the free-disk floor is the ladder's 20 GB; each competition is mapped to `"ctrf"`
+in the graded-outcome field; a GPU tranche's limits file names the device and its concurrency is
+1; every null has a pending entry; the launcher's own socket check passes for every tranche name
+and every task name under this machine's state root. For stage two, on constructed exports: the
+list is the competitions with no medal in rank order, the ceiling is the class's less what stage
+one committed, k follows M9's formula, a stage of one competition schedules three slots, an export
+with a medal for every competition gives no stage, and the criterion differs from stage one's in
+those fields only. For the manifest: it lists by hash every file of the family kit outside
+`manifests/`, `tranches/` and the prose, this tranche's directory with links hashed through, and
+every path the ladder's own manifest lists; two tranches' manifests differ. *Waits on nothing;* the
+fields the ladder's live probe fills stay pending here until it has run. *Verify:* the module,
+`--collect-only`, and `git diff --stat main -- experiments/long_horizon_tasks` prints nothing.
 
-**Task 5: the wrapper around the launcher, and its guard tests** (impl_code; 9 h).
+**Task 5: the wrapper around the launcher, and its guard tests** (impl_code; 14 h).
 *Files:* create `screen.py`, `tests/experiments/test_mle_bench_screen.py`. *Produces:* `screen.py
-<tranche> plan | launch | status | ruling | resume | allowance`, the launcher's commands under M4's
-replaced names. *Tests first,* against the ladder's stand-in harness and stand-in Podman on a closed
-`PATH`, with the fixture as the only competition: a launch through the wrapper reads this tranche's
-criterion, this plan's ledger and this tranche's state root, and never the ladder's (each shown by a
-value that differs between the two); no use of a replaced name is bound when the launcher is loaded;
-the refusals of the ladder plan's Task 5 hold through the wrapper (no authorization, a label that is
-not this ledger's, a dirty or changed kit, another model, a package whose digest or image differs, a
-credential variable in the environment, a rehearsal with a spend variable, no allowance inputs); the
-ceiling and the starts cap of the tranche hold under sixty concurrent launches; a usage limit cuts,
-pauses and reruns; the schedule is one effort, three rounds, the smoke and the pilot first; a
-tranche name outside the kit's list is refused. *Not verified while planning:* whether the ladder's
-own launcher tests can run against the wrapped module without edits; if they can, they are run as
-they are and the list above shrinks to what is new. *Verify:* the module, `--collect-only`, then the
-ladder's five test modules unchanged, then the sampled broad check.
+<tranche> plan | launch | status | ruling | resume | allowance | manifest`, the launcher's and the
+manifest module's commands under M4's replaced names, behind the wrapper's own refusals. *Tests
+first,* against the ladder's stand-in harness and stand-in Podman on a closed `PATH`, with the
+fixture as the only competition:
+- *The replaced names.* A launch through the wrapper reads this tranche's criterion, this tranche's
+  ledger file, this tranche's state root and this line's cache, and never the ladder's or another
+  tranche's (each shown by a value that differs between the two); it reads nothing under
+  `~/lh-cache/logs`; no use of a replaced name is bound when either module is loaded.
+- *The ledger per tranche.* A tranche whose own ledger holds no read is held at its pilot although
+  another tranche's ledger holds `Smoke read`, `Pilot read` and `Round 1 read` rows that pass; a
+  `Ruling` row in another tranche's ledger lifts no stop here.
+- *The launcher's refusals through the wrapper* (the ladder plan's Task 5): no authorization, a
+  label that is not this tranche ledger's, a dirty or changed reviewed kit, another model, a package
+  whose digest or image differs, a credential variable in the environment, a rehearsal with a spend
+  variable, no allowance inputs.
+- *The manifest over this kit.* An uncommitted edit to `screen.py`, a new file in the kit and a
+  removed one each stop the tranche before its next start.
+- *The wrapper's own refusals,* each shown to run before the launcher is entered: a tranche name
+  outside the kit's list; a cache that resolves to the ladder's; an image reference with a tag or
+  with no digest; a withholding result for another digest; an uncommitted change under
+  `experiments/mle_bench_tasks`; the ladder's launcher lock held; the line's lock held by another
+  tranche; the ladder's passthrough socket answering; free disk under the launch condition on
+  either file system; a process holding GPU memory, for a GPU tranche. While this line's launcher
+  runs, the ladder's unmodified launcher is refused on the ladder's state root.
+- *The money and the schedule.* The ceiling and the starts cap of the tranche hold under sixty
+  concurrent launches; a usage limit cuts, pauses and reruns; the schedule is one effort, three
+  rounds, the smoke and the pilot first; a stage-two tranche starts with its own smoke and pilot.
 
-**Task 6: the readout** (impl_code; 5 h).
+*Not verified while planning:* whether the ladder's own launcher tests can run against the wrapped
+module without edits; if they can, they are run as they are and the list above shrinks to what is
+new. *Verify:* the module, `--collect-only`, then the ladder's five test modules unchanged, then
+the sampled broad check.
+
+**Task 6: the readout** (impl_code; 7 h).
 *Files:* create `screen_readout.py`, `tests/experiments/test_mle_bench_readout.py`. *Produces:* from
-the launcher's export (read through the reviewed `slot_record.py`) and each attempt's kept result
-file, per competition: observations, medals, the three scores against the thresholds, percentile,
-valid and above-median counts, the screen class of M1, cost and minutes, cuts, flags, refused
-connections; and at the placement, the ladder's pooled label. *Tests first:* each row of M1's table;
-a competition with two observations is "not screened"; an excluded attempt is listed and never
-scored zero; the screen's attempts are never pooled into a placement count; a stop readout places
-nothing. *Verify:* the module, and `--collect-only`.
+the launcher's exports of a class's two stages (read through the reviewed `slot_record.py`) and
+each attempt's result file, per competition: observations, medals, the scores against the
+thresholds, percentile, valid and above-median counts, the screen class of M1, cost and minutes,
+cuts, flags, refused connections, the packages the transcript shows installed, and the attempts
+during which another process held the GPU; per calendar day, the line's priced usage; and at the
+placement, the ladder's pooled label with the count and the exact 90 and 95 percent intervals.
+*Tests first:* each row of M1's table, over one export and over two; a competition with no medal
+in five observations is "not screened", and one the second stage did not fund says so; the score
+and the percentile come from the regrade's result when the reward did; an excluded attempt is
+listed and never scored zero; the screen's attempts are never pooled into a placement count; the
+intervals for 1 to 5 of fifteen are M1's; a request priced after midnight is counted on the later
+day; a stop readout places nothing. *Verify:* the module, and `--collect-only`.
 
-**Task 7: the fixture on containers** (impl_code; 4 h and under an hour of machine time; report §13
+**Task 7: the fixture on containers** (impl_code; 6 h and under an hour of machine time; report §13
 gives 3 to 4; no spend, no model call).
 *Files:* create `qualify.sh`; `README.md` of the kit begins here. *Produces:* the fixture's two images
-built with rootless Podman, and the three legs of M2 run twice through Harbor 0.25.0 under the
-allowlist. This is where the benchmark's grader first runs inside a verifier's container, with the
-pinned dependency set of M3 (so far it has run on the host only). *Checks:* the six outcomes of M2;
-the untouched leg gets a written reward of 0; a local image name is accepted without a pull; the
-withholding check of Task 3 passes on the real agent image and finds a planted answers file; the
-verifier's container has no relay. The keys of the reward file are then held to what this run
-recorded. *Verify:* `qualify.sh` prints six lines, all as listed; the results go in the ledger.
+built with rootless Podman, and the three legs of M2 run twice and the four controls once through
+Harbor 0.25.0 under the allowlist. This is where the benchmark's grader first runs inside a
+verifier's container, with the pinned dependency set of M3 (so far it has run on the host only).
+*Checks:*
+- the six outcomes of M2, and the untouched leg's written reward of 0;
+- the four controls of M2, built for the fixture, each in its expected class;
+- **a local image named by digest is started without a pull,** and the same package with a tag in
+  place of the digest is refused by the wrapper. If the harness cannot start a local image by
+  digest, the registry on the loopback address of M4 is built and the check is repeated through it;
+  the result and the form chosen go in the ledger, and no paid start is made on the other form;
+- an agent image rebuilt under the same name with a planted answers file is not what the package
+  starts;
+- the withholding check of Task 3 passes on the real agent image, names its digest, and finds a
+  planted answers file;
+- a submission that is a symbolic link to the answers' path earns reward 0;
+- the verifier's container has no relay.
 
-**Task 8: the independent review** (review_code; 6 h, and 5 h of fixes and re-review).
-By a reviewer who wrote none of Tasks 1 to 7. *In scope:* M4's list of replaced names and whether
-any guard of the launcher reads the ladder's data through the wrapper; the criterion generator and
-each replaced field; withholding, by construction and on the image; the verifier; the readout's
-classes. *The brief lists the holes to look for:* an answers file, a grader or a threshold in reach
-of the agent; a ceiling or a cap read from the ladder's criterion; two tranches sharing a state root
-or a money lock; a tranche whose efforts or model differ from its ledger row; a missing submission
-scored as an infrastructure failure, or an infrastructure failure scored as zero; the Kaggle key or
-the account name in a file the kit writes. Each guard is mutated.
+The keys of the reward file are then held to what this run recorded. *Verify:* `qualify.sh` prints
+ten lines, all as listed; the results go in the ledger.
+
+**Task 8: the independent review** (review_code; 8 h, and 6 h of fixes and re-review).
+By a reviewer who wrote none of Tasks 1 to 7. *In scope:* everything M4 lists under "What must be
+reviewed again", the functions of `ladder.py` named there included: the replaced names in both
+modules and whether any guard of the launcher reads the ladder's data, or another tranche's,
+through the wrapper; each refusal the wrapper adds and that it runs before the launcher is entered;
+the criterion generator and each replaced field, the stage-two rule included; withholding, by
+construction and on the image, and the image's identity by digest; the verifier and the controls;
+the readout's classes and intervals. *The brief lists the holes to look for:* an answers file, a
+grader or a threshold in reach of the agent; a ceiling or a cap read from the ladder's criterion; a
+read or a ruling of one tranche accepted by another; two tranches sharing a state root, a money
+lock or a host-side file; a file of this kit that can change without the label changing; an image
+that can change without the package changing; this line and the ladder, or two tranches, in flight
+together; a tranche whose efforts or model differ from its ledger row; a missing submission scored
+as an infrastructure failure, or an infrastructure failure scored as zero; the Kaggle key or the
+account name in a file the kit writes. Each guard is mutated.
 
 **Task 9: the zero-spend rehearsal** (impl_code; 6 h; no spend, no request to the vendor).
 On containers, with the fixture, the real pinned CLI, the relay, and the passthrough in its rehearsal
 mode against the ladder's stand-in API, as the ladder's Task 7: a session that ends normally with a
 submission and is graded; one that ends at the dollar cap; one past a shortened time limit; one cut
 by the stand-in's usage limit, with its slot run again; one killed and reconciled; the token
-scanner's canary test. It also measures how long the launcher's export of the agent's file system
-takes, which the launcher bounds at 300 seconds for the smoke and the pilot (scout report I5).
-*Verify:* the ladder's smoke checks on the rehearsal's records; results in the ledger.
+scanner's canary test; a stage-two tranche generated from the rehearsal's own export and run. It
+also measures how long the export of the agent's file system into the token scan takes, against the
+scan's three hours (scout report I5). *Verify:* the ladder's smoke checks on the rehearsal's records;
+results in the ledger.
 
 ### Waits for the Kaggle token and the rules (owner actions 1 to 4)
 
-**Task 10: the three CPU-only competitions** (impl_code; 6 h; report §13 gives 2 to 3 for the first
+**Task 10a: the download script and its review** (impl_code 3 h; review_code 2 h). It needs no
+owner action and can be written with Tasks 1 to 9; it is listed here because only Task 10 uses it.
+*Files:* create `fetch.sh`, `tests/experiments/test_mle_bench_fetch.py`. *Tests first,* without
+Kaggle, with a stand-in download tool on a closed `PATH`: `fetch.sh` refuses without the directory
+variable, refuses a directory or file of another mode, gives the download no terminal input, prints
+only its fixed lines when the tool fails noisily or asks a question, and writes the tool's raw
+output only inside the token's directory. *Then an independent review, before the script first
+runs,* by a reviewer who did not write it: every path by which the key or the account name could
+reach a pane, a log, a file outside the token's directory, a process list or an environment that a
+child inherits. The script does not run on the real credential before the review's verdict is in
+the ledger.
+
+**Task 10: the three CPU-only competitions** (impl_code; 8 h; report §13 gives 2 to 3 for the first
 installation and preparation and 1 to 2 for each further competition).
-*Files:* create `fetch.sh`; fill `tranches/screen-cpu/tasks.json`. *Does:* the download and the
-benchmark's preparation on the host, `leaf-classification` first; the secret scan of M10; the two
-images per competition; the withholding check; the six runs of M2 per competition; a dry run of the
-contamination terms over those jobs, after which the terms are frozen. *Tests first,* without Kaggle:
-`fetch.sh` refuses without the directory variable, refuses a directory or file of another mode, gives
-the download no terminal input, and prints only its fixed lines when the download tool fails noisily
-or asks a question (a stand-in tool on a closed `PATH`). The Russian text-normalization competition
-is prepared last of the three: its preparation loads about ten million rows and needs a few GB of
-memory (scout report C, an estimate). *Verify:* `qualify.sh` on each; `tasks.json` holds digests,
-image ids, sizes on disk, the withholding result and the six outcomes; the ledger gets the surviving
-list and the measured sizes.
+*Files:* fill `tranches/screen-cpu/tasks.json`. *Does:* the download and the benchmark's preparation
+on the host, `leaf` first; the secret scan of M10; the two images per competition; the withholding
+check, recorded against each image's digest; the six runs and the four controls of M2 per
+competition; a dry run of the contamination terms over those jobs, after which the terms are
+frozen. `textnorm-ru` is prepared last of the three: its preparation loads about ten million rows
+and needs a few GB of memory (scout report C, an estimate). *Verify:* `qualify.sh` on each;
+`tasks.json` holds package digests, image digests, sizes on disk, the withholding result and the
+ten outcomes; the ledger gets the surviving list and the measured sizes.
+
+**Task 10b: the review of the real CPU packages** (review_code; 3 h). By a reviewer who wrote none
+of Task 10. *Reads:* the three attempt packages as they will run (the instruction, `task.toml`, the
+images by digest); the two build contexts of each; each withholding result and the digest it names,
+against the digest in the package; the outcomes of the legs and the controls, and how each
+control's expected class was written down; the frozen contamination terms and their dry run; the
+filled `tasks.json` against the criterion. A finding stops the CPU tranches until it is fixed and
+read again.
+
+**Task 10c: a zero-spend rehearsal on one real package** (impl_code; 4 h; no spend, no request to
+the vendor). On `leaf`'s real package and images, under the conditions of the ladder's rehearsals:
+the container holds no credential, the session's token is a fake one, the base URL points at the
+local stand-in, and the vendor is shown to be unreachable from the container before the session
+starts. The real pinned CLI runs one session to its end through the wrapper in rehearsal mode; the
+verifier grades whatever it left; the export, the token scan and the runtime check run as in a
+smoke. *Verify:* the ladder's smoke checks on the rehearsal's records; the result in the ledger.
 
 ### Waits for disk and the weights decision (owner actions 5 and 6); the GPU itself is ready
 
-**Task 11: the GPU path** (impl_code; 8 h; report §13 gives 6 to 10; no spend).
+**Task 11: the GPU path** (impl_code; 11 h; report §13 gives 6 to 10; no spend).
 *Does, in this order:* the one-line container check of the operating note above; the GPU base image,
 with the benchmark's own pinned deep-learning stack (PyTorch 2.2.0 with its CUDA 12.1 libraries,
 which this driver covers; scout report F; PyTorch itself has not been run here); the fixture run
-with the GPU tranche's limits file under the allowlist, the agent's
+with a GPU tranche's limits file under the allowlist, the agent's
 container seeing the card (shown on a scratch task without the allowlist: scout report D5); the
-weights of M6 fetched on the host, recorded by SHA-256 and placed in the image; the rehearsal of
-Task 9 once more on the GPU image, with the export time measured on a container that has written several GB. *Verify:* the fixture's six outcomes on the GPU
-image; the agent's container lists the GPU; the ledger gets the image's size and the weights list.
+weights of M6 fetched on the host under its rule, `weights.json` filled (name, source and revision,
+the SHA-256 of every file, size, licence, modality) and committed, and the set placed in one image
+layer that every GPU agent image shares; each checkpoint loaded in the image, on the card, with the
+offline switches set; the rehearsal of Task 9 once more on the GPU image, with the export time
+measured on a container that has written several GB. *Verify:* the fixture's ten outcomes on the
+GPU image; the agent's container lists the GPU; every checkpoint of `weights.json` loads; the ledger
+gets the image's size and the list, which is shown to the owner before the GPU class's freeze.
 
-**Task 12: the ten GPU competitions** (impl_code; 12 h; report §13 gives 1 to 2 each).
+**Task 12: the ten GPU competitions** (impl_code; 14 h; report §13 gives 1 to 2 each).
 As Task 10, in the table's order, into `tranches/screen-gpu/tasks.json`. *Waits also on* owner
 actions 1 to 4 for these ten.
 
+**Task 12b: the review and the rehearsal of the real GPU packages** (review_code 3 h; impl_code
+2 h). As Task 10b for the ten packages, and for `weights.json` against M6's rule. Then Task 10c's
+rehearsal once on `patent`'s real package and image, with a GPU tranche's limits file.
+
 ### Waits for the live probe of the subscription route, and for the approval (owner actions 7 to 9)
 
-**Task 13: the CPU tranche** (about 4 h of attention; machine time not known before the pilot).
-Before the first attempt the ledger holds: the Terminal-Bench live probe's result; the approval of
-this line with its `AGENTS.md` rule; the qualified competitions with package digests, image ids and
-withholding results; the tranche's manifest hash and runtime commit; the review verdict and the
-rehearsal result; the owner's two confirmations, shares, days and first reading; the row that the
-ladder has nothing in flight. Then the freeze, the smoke and its read, the pilot and its read, the
-rounds, and the export.
+**Task 13: the CPU tranches** (about 5 h of attention; machine time not known before the pilot).
+Before the first attempt the tranche ledger of `screen-cpu` holds everything M4 lists: the
+Terminal-Bench live probe's result and the approval of this line with its `AGENTS.md` rule; the
+qualified competitions with package digests, image digests, withholding results and outcomes; the
+verdicts of Tasks 8, 10a and 10b and the results of Tasks 9 and 10c; the owner's two confirmations,
+shares, days and first reading; the hand-over row; the disk row; and the label row. Then the
+freeze, the smoke and its read, the pilot and its read, the rounds, and the export. Then stage two
+by M9's rule: its criterion from the export, its own ledger, label, smoke, pilot and reads.
 
-**Task 14: the GPU tranche** (about 6 h of attention; three to four days of the GPU by report §10's
-estimate). The same list, on a later calendar day than the one on which Task 13's last attempt
-settled.
+**Task 14: the GPU tranches** (about 7 h of attention; three to four days of the GPU for stage one
+by report §10's estimate). The same list, with the verdicts of Tasks 11 and 12b, each tranche on a
+later calendar day than the previous tranche's last settlement.
 
 **Task 15: the screen's report** (5 h). The readout, a report under `docs/reports/`, the priced usage
 and the allowance used in the ledger, the roadmap's step table, and the placement request with
 measured cost per attempt in place of this plan's estimates.
 
 **Task 16: the placement** (about 8 h of attention and 5 h for the readout; machine time from the
-screen's measurements). Its tranches are generated as in Task 4, each with its own label, smoke and
-reads; then `family.json`, frozen with roadmap step 7's set.
+screen's measurements). Its tranches are generated as in Task 4, each with its own ledger file,
+label, smoke and reads; then `family.json`, frozen with roadmap step 7's set.
 
-**Hours in all:** about 57 before any owner action (Tasks 1 to 9), about 26 for the real competitions
-(Tasks 10 to 12) and about 28 for the tranches and their reports: about 111. The roadmap's figure for
-step 10 (about 16 hours for the first CPU-only competition, 6 to 10 for the first on the GPU, 1 to 2
-for each further one) assumed the launcher would be reused as it is; the wrapper, its review and its
+**Hours in all:** about 73 before any owner action (Tasks 1 to 9), about 50 for the real
+competitions (Tasks 10a to 12b) and about 30 for the tranches and their reports: about 153. About
+42 of them come from the review's findings: the wrapper's own refusals and their tests, the
+manifest and the ledger per tranche, the second screen stage, the controls, the weights list, and
+the three reviews and two rehearsals of the real packages. The roadmap's figure for step 10 (about
+16 hours for the first CPU-only competition, 6 to 10 for the first on the GPU, 1 to 2 for each
+further one) assumed the launcher would be reused as it is; the wrapper, its review and its
 rehearsal are the difference.
 
 ## What this makes harder
@@ -1202,35 +1320,56 @@ rehearsal are the difference.
   slot, which is a change to reviewed code.
 - **The two lines share one account, one CPU set and one passthrough at a time.** Each
   hand-over between the ladder and this line is a person's step, and the calendar time of both grows.
+  While this line's launcher runs, a GPU tranche's for days, the ladder cannot launch, and the other
+  way round.
+- **More tranches, each with its own ledger file.** The screen is two to four tranches and the
+  placement up to two, each with a ledger file on `main`, a label, a smoke, a pilot and three reads
+  by a person. A stage-two tranche repeats all of that for as few as three attempts.
+- **The screen's second stage may not be funded for every competition.** At the estimated cost,
+  some competitions with no medal in three attempts end "not screened", and they are the
+  lower-ranked ones.
 - **The family is tied to its configuration:** the CLI version and its three tools, the allowlist,
   the weights list, the resource classes, the 24-hour limit and the USD 8 cap. A later comparison
   reuses all of them or qualifies again.
 - **The owner is in the loop,** as for the ladder: a reading before every window, and here on whole
   days.
-- **The disk is the tightest resource.** An attempt can write tens of GB with no limit but the
-  threshold checked before it starts; a full `/home` would stop every session on this machine.
-- **Images are built here,** not pulled by a publisher's digest. A rebuilt image is a new image id and
-  so a new label; the prepared data and the answers must be kept, or prepared again, to rebuild one.
+- **The disk is the tightest resource.** An attempt can write tens of GB, and the only guard is a
+  floor that stops every attempt in flight. Another session that fills `/` ends a 24-hour attempt
+  of this line; a full `/home` would stop every session on this machine.
+- **Images are built here,** not pulled by a publisher's digest. A rebuilt image has another digest,
+  so the package that names it changes, and with it the label; the prepared data and the answers
+  must be kept, or prepared again, to rebuild one. If the harness cannot start a local image by
+  digest, a registry on the loopback address becomes one more piece to keep running.
+- **The weights set is frozen with the family.** A competition that needs a model outside it cannot
+  be told from one the model fails at, and adding a checkpoint later is a new label and a new
+  screen of the GPU class.
 
 ## Not verified while planning
 
 **Settled by the fixture on containers (Task 7):** that Harbor 0.25.0 with podman-compose 1.6.0 runs
-a locally built agent image and a locally built verifier image by name without a pull (the scratch
-task of scout report D5 built its verifier image at each trial); that the benchmark's grader runs in
+a locally built agent image and a locally built verifier image, each named by digest, without a
+pull (the scratch task of scout report D5 built its verifier image at each trial), and which of the
+store's digests such a reference must carry; if it cannot, that a registry on the loopback address
+serves them by digest; that the benchmark's grader runs in
 a verifier's container with the pinned dependency set; that the reference agent can write the answers
 as the submission; the reward file's keys; whether a competition can be added to the benchmark's
 registry for the fixture, or the fixture needs its own grader call.
 
-**Settled by the rehearsal (Tasks 9 and 11):** that the launcher's 300-second export fits an agent
-container with a deep-learning stack and several GB written (if not, the smoke stops as an incomplete
-scan; lengthening that one timing through the wrapper is then a reviewed change, and it weakens no
-guard); that the process limit of 4,096 is enough for data loaders; how the CLI's Bash tool, which
+**Settled by the rehearsal (Tasks 9 and 11):** that the export of an agent container with a
+deep-learning stack, the weights and several GB written, image layers included, fits the token
+scan's three hours (if not, the smoke stops as an incomplete scan; the 300-second limit in the
+launcher is on reading a container's configuration and logs, not on the export); that a stage-two
+tranche generated from an export launches and runs as M9 describes, a tranche of one competition
+included; that the process limit of 4,096 is enough for data loaders; how the CLI's Bash tool, which
 refuses a standalone `sleep` (ladder D2), lets a session wait on training that runs for hours.
 
 **Settled by the GPU path (Task 11):** that the device entry, the allowlist network mode and the
 CLI's install work together in one attempt (each was run without the others: scout report D5); that
 PyTorch runs on this card in a container (the driver library was exercised, PyTorch was not
-installed: scout report F); the size of the GPU image and of the weights.
+installed: scout report F); the size of the GPU image and of the weights; the names, sizes and
+licences of the proposed checkpoints, which are from the planner's knowledge, and whether medals on
+`lmsys` and `chaii` need a model outside the set; how the wrapper tells an attempt's own processes
+on the card from others.
 
 **Settled by the owner's actions or by Kaggle:** whether Kaggle's site still issues the older
 credential the pinned client needs; whether each of the thirteen competitions' rules can still be
@@ -1240,8 +1379,16 @@ whether the download and the preparation can be run as two steps, so that only t
 the credential; whether the preparation's checksums match under the pinned dependency set; each
 competition's real size on disk and the memory its preparation needs.
 
+**Read in source for this revision, and not run:** how the launcher reads its ledger, its
+manifest, its host-side files, the free disk, the socket path and its lock, and that its export
+refuses a start outside the current schedule. Tasks 5 and 9 hold each with a test. **Corrected from
+the scout report:** its section G says the free-disk stop is checked before a start and not during
+one; the launcher checks it about once a second and stops attempts in flight, and M9 follows the
+launcher. **Not searched:** whether a package on the allowed indexes carries a candidate's labels.
+
 **Settled only by the screen:** the cost, length and medal rate of a direct session on any
-competition; whether sessions end by themselves; whether the thresholds are fair on each rebuilt test
+competition; how often an attempt without a medal is above the median; whether sessions end by
+themselves; whether the thresholds are fair on each rebuilt test
 set (report §14); what an attempt costs against the allowance when most of its hours are waiting.
 
 **The scout report was complete when this plan was finished,** and the plan reads all of it. Its own
@@ -1252,13 +1399,32 @@ and its scratch tasks are scratch files outside the repository; Task 7 builds th
 
 ## Rulings
 
-None yet. Each ruling is recorded in this form: **what is ruled, why, and what it costs if wrong.**
-The rows that the launcher reads to lift a stop (`| <date> | Ruling | resume: … |`) go in the
-[ledger](#ledger), not here; this table's second column is deliberately not named "Ruling", because
-the launcher reads any table row of this file whose second cell is exactly that word.
+Each ruling is recorded in this form: **what is ruled, why, and what it costs if wrong.** Where a
+row goes: a ruling on this plan's decisions goes in this table; a row that the launcher reads
+(`Configuration label`, `Smoke read`, `Pilot read`, `Round 1 read`, and
+`| <date> | Ruling | resume: … |` to lift a stop) goes in the tranche's own ledger file (M4); the
+line's approvals, reviews and results go in this plan's [ledger](#ledger). The second column here
+names the review finding a ruling answers and is never the word "Ruling", which is the launcher's
+key in a tranche ledger.
 
-| Date | What is ruled | Why | What it costs if wrong |
-| --- | --- | --- | --- |
+The rows of 2026-11-15 are the coordinator's rulings on the independent review of this plan. All
+its blockers and majors were accepted. The wrapper is kept, and nothing under
+`experiments/long_horizon_tasks/` changes.
+
+| Date | On | What is ruled | Why | What it costs if wrong |
+| --- | --- | --- | --- | --- |
+| 2026-11-15 | B1 | Each tranche has its own ledger file, `docs/plans/2026-11-15-mle-bench-ledger-<tranche>.md`, created with its first row before the tranche's first call, and the wrapper points the launcher at it. This plan's ledger keeps the line's decisions and links each file (M4) | The launcher accepts a read that names any label of the ledger it is given and matches a ruling by date and attempt id. With one ledger, an earlier tranche's reads and rulings would release a later tranche with no person reading it | A file must be on `main` before each tranche. A row put in the wrong file leaves a tranche waiting, which is safe. If the scoping failed, up to thirty attempts of 24 hours could start unread |
+| 2026-11-15 | B2 | `task.toml` and `tasks.json` name each image by digest, never by tag, and the wrapper refuses an unpinned reference. Task 7 shows on the fixture that the harness starts a local image by digest without a pull; if it cannot, a registry on the loopback address serves the images by digest. No paid start is made before one of the two is shown. A withholding result is recorded against the digest the task names (M3, M4) | The launcher compares image references as strings. A tag can be rebuilt after its withholding check; a digest cannot | If neither form works, every tranche waits on an addition at function level and its review. If a reference were not content, a paid attempt could run on an image that holds the answers, and the scores would not show it |
+| 2026-11-15 | M-a | A tranche's manifest covers this family's kit, the wrapper included, the tranche's directory and everything the ladder's manifest covers. The wrapper adds a clean-tree check over `experiments/mle_bench_tasks` before the launcher is entered. No function of the launcher is replaced: the wrapper sets six names in `ladder.py`, four in a private load of `manifest.py` and one environment variable, and adds seven refusals of its own. Task 8 reads the wrapper whole and the launcher's functions that read the replaced names (M4) | Pointed at a tranche's directory, the manifest covered six files and none of this family's code, and the launcher's clean check names only its own kit | A prose file of the kit changed after a launch is seen only at the next launch. Any change to the reviewed kit now moves this family's labels too |
+| 2026-11-15 | M-b | This line's cache is `~/mle-cache`, with its own host-side files, packages and prepared data. The benchmark's sources stay under `~/lh-cache/mle` and are only read (M4) | In one cache each line's limits file overwrites the other's, and each launcher then stops on a changed configuration | One more directory to keep. The harness environment is a link to the ladder's, so an upgrade there reaches this line; the launcher's version check refuses it |
+| 2026-11-15 | M-c | The free-disk floor is the ladder's 20 GB, as the launcher applies it: all the time, on the lower of `/` and `/home`, stopping every attempt in flight. Room above it (50 GB on `/home` with the images built, 40 GB on `/`) is a launch condition of the wrapper. Owner action 5 names both file systems. The scout report's sentence is corrected by a dated note (M9) | The first version took the floor to be checked only before a start and put the attempts' scratch inside it, which would have stopped the smoke it was meant to protect | Every figure is an estimate until the smoke. Too little room stops attempts in flight, each a start with no observation. Too much asks the owner to free space for nothing |
+| 2026-11-15 | M-d | Task names of at most 12 characters, with the Kaggle slug kept as a field: `leaf`, `textnorm-ru`, `birds`, `essay2`, `patent`, `tweet`, `chaii`, `jigsaw`, `lmsys`, `whale`, `petfinder`, `kuzushiji`, `cassava` (Candidates, Task 1) | The launcher refuses a state root whose socket path passes 107 bytes; the slugs give 123 to 133 | Two names per competition to keep in step. A mix-up would grade a submission against another competition's answers, which the qualification legs would show |
+| 2026-11-15 | M-e | Exclusivity is in code: for a live launch the wrapper takes the ladder's launcher lock and a lock for this whole line, and refuses while either is held or another passthrough answers. USD 200 per calendar day holds by the tranche ceilings and by a person's row that a tranche starts on a later day than the last settlement. A request is counted on the day it was priced (M5, M9) | The launcher's lock is per state root, so nothing stopped two tranches, or a tranche and the ladder, at once; and nothing in code counts a day | A paused tranche's passthrough left running when the ladder starts would put the token in two processes. A tranche started on the day another settled could put two ceilings, up to USD 400, on one day |
+| 2026-11-15 | M-f | The weights set is data, fixed before any attempt is seen: chosen by M6's rule, committed as `weights.json` with sizes, licences and digests before the GPU class's freeze, and stated to be part of the task definition. It stays the owner's decision, with the recommendation. The package indexes can serve copies of the labels; the readout lists installed packages and refused connections, and the rest is an accepted limit shared with the ladder (M6, M7) | The set decides which competitions can earn a medal, and a set described in a sentence cannot be frozen or reviewed | A competition the set cannot serve screens low for a reason of ours and is dropped. A package that carries labels would make medals on that competition worthless and would not show |
+| 2026-11-15 | M-g | The screen is sequential: three attempts; three medals of three is above the band; a medal otherwise survives; none of three brings three more; none of six is excluded low. The above-median clause is dropped. The placement uses the ladder's rule and count (ladder D6) and reports each placed competition as "observed in the band" with its count and exact 90 percent interval. The second three run as a stage-two tranche, because the launcher cannot add slots by outcome, funded from what stage one left of the class's ceiling. The screen stays at USD 200 (M1, M9) | Three attempts with a score clause dropped in-band competitions at a rate nobody could state. M1's table now states what the screen does at each true rate | About half of the competitions near 10 percent are still lost, and each survivor above the band costs fifteen attempts. At USD 3 an attempt USD 200 funds the second stage of about six competitions; the rest end "not screened" |
+| 2026-11-15 | M-h | The evaluator check gains four synthetic controls per qualified competition, just either side of the bronze line and of the median, each graded to its expected class, with zero errors allowed. They validate the evaluator only (M2) | The three legs sit at the ends of the scale and pass under any threshold; the measure decides at the bronze line | The controls take the benchmark's lines as given. A line that is unfair on the rebuilt test set is not caught by them |
+| 2026-11-15 | M-i | Before the first paid start: an independent review of `fetch.sh` before it first runs (Task 10a); a review of the real packages and their withholding results (Tasks 10b and 12b); and a zero-spend rehearsal with the real CLI on one real package of each class, under the conditions of the ladder's rehearsals (Tasks 10c and 12b) | Task 8 sees only the fixture. The script that reads the Kaggle credential and the real images would otherwise first run unreviewed, in a paid smoke | About 17 hours. Without them, a hole in a real package would cost a paid start and the tranche's label, or leak the key |
+| 2026-11-15 | Minors 1 to 13 | All taken: the export is bounded by the scan's three hours, not 300 seconds; the test report's form and mapping are named; the placement's arithmetic and tail rule are stated; the guard's two-at-once limit and the load gate's effect are stated; the GPU is checked for other use; the verifier reads one regular file and a link is tested; this note on where rows go; the readout takes score and percentile from the result that gave the reward; the readout counts invalid submissions only; the proposed `AGENTS.md` wording names `screen.py` and the later-day rule; the preparation is taken to read the credential until shown otherwise; decision 16 names 16 tasks | Each corrects a fact or adds a test the review showed missing | Small: a few hours of tests, inside the tasks' estimates |
 
 ## Proposed wording for the `AGENTS.md` rule
 
@@ -1271,30 +1437,38 @@ ladder when the owner approves the line (owner action 9).
 >   MLE-bench competitions,
 >   each wrapped so that the held-out answers, the grader and the medal thresholds stay out of the
 >   agent's container, run by a direct `claude-haiku-5-5` Claude Code session of at most 24 hours.
->   The screen is three attempts each at effort `medium`, in two tranches (the three CPU-only
->   competitions, then the ten on the GPU, one at a time): at most 39 scheduled attempts and 45
->   starts, ceiling USD 200. The placement, which starts only after the screen is reported to the
->   owner, is fifteen fresh attempts (five each at `low`, `medium` and `high`) for at most six
->   surviving competitions: at most 90 scheduled attempts and 100 starts, ceiling USD 400, in tranches
->   of at most USD 200. At most USD 8 per attempt; no tranche starts on the calendar day another
->   ended, so no day passes USD 200 (priced-token figures; an attempt is one whole agent session, not
->   one API call). A tranche may start only after the Terminal-Bench live probe has shown the
->   subscription route, each of its competitions has passed the qualification check on this machine
->   (the answers file earns a gold medal through the verifier an attempt uses; the sample submission
->   and an untouched environment earn none), the launcher wrapper has passed an independent review
->   and a zero-spend rehearsal, and the plan's ledger holds the tranche's label and limits; and never
->   while the effort ladder has an attempt in flight. Success is any medal; the score and the
->   leaderboard percentile are recorded for every attempt; a competition enters the family only at 1
->   to 5 medals of fifteen. It measures per-competition success and makes no claim about any workflow.
->   No other model, no top-up after a null, and another definition of success or a workflow
->   comparison needs its own approval.
+>   The screen is three attempts each at effort `medium`, and three more for a competition with no
+>   medal in the first three as far as its class's ceiling pays for them, by resource class (the
+>   three CPU-only competitions, then the ten on the GPU, one at a time): at most 78 scheduled
+>   attempts and 90 starts, ceiling USD 200. The placement, which starts only after the screen is
+>   reported to the owner, is fifteen fresh attempts (five each at `low`, `medium` and `high`) for at
+>   most six surviving competitions: at most 90 scheduled attempts and 100 starts, ceiling USD 400,
+>   in tranches of at most USD 200. At most USD 8 per attempt; one tranche runs at a time, and each
+>   starts on a later calendar day than the previous tranche's last settlement, so no day passes
+>   USD 200 (priced-token figures; an attempt is one whole agent session, not one API call). It is
+>   spent only through `experiments/mle_bench_tasks/screen.py`, with each tranche's manifest hash,
+>   runtime commit and limits recorded in that tranche's ledger file, which the plan links, before
+>   its first start. A tranche may start only after the Terminal-Bench live probe has shown the
+>   subscription route, each of its competitions has passed the qualification check and the
+>   evaluator's controls on this machine (the answers file earns a gold medal through the verifier
+>   an attempt uses; the sample submission and an untouched environment earn none; constructed
+>   submissions just either side of the bronze line and of the median are graded as expected), the
+>   launcher wrapper has passed an independent review and a zero-spend rehearsal, and the real
+>   packages have been reviewed; and never while the effort ladder's launcher is running. Success
+>   is any medal; the score and the leaderboard percentile are recorded for every attempt; a
+>   competition enters the family only at 1 to 5 medals of fifteen, reported as an observed count
+>   with its exact interval. It measures per-competition success and makes no claim about any
+>   workflow. No other model, no top-up after a null, and another definition of success or a
+>   workflow comparison needs its own approval.
 
 ## Ledger
 
-The launcher reads this table as committed on `main`: the second cell names the kind of row, the
-third holds its content.
+This table keeps the line's decisions: approvals, reviews, owner actions, and each tranche's
+opening and result, with a link to that tranche's ledger file. The launcher does not read it; it
+reads the tranche's own file as committed on `main` (M4). No tranche ledger exists yet.
 
 | Date | Entry | Detail |
 | --- | --- | --- |
 | 2026-11-15 | Plan written | Against `3ac3a2e4` (`integ/20261115b`: `main` with the day's documentation pass and the ladder's 15-task configuration); `main` at `c49d43b7` merged before the final checks. Not reviewed. No spend authorized: this line has no rule in `AGENTS.md` and no approval row. Spend to date: 0. Evidence used: the feasibility report (a desk study) and the scout's fact-finding of the same day (read in source or run on this machine with no model call; not committed) |
 | 2026-11-15 | Owner action done: GPU toolkit | NVIDIA Container Toolkit 1.20.2 installed by the owner; rootless Podman 4.9.3 passes the RTX 3090 to a container (coordinator's check). `/etc/cdi/nvidia.yaml` is a stripped copy at `cdiVersion: 0.6.0`, to be rebuilt after a driver update (the operating note under "Owner actions and questions") |
+| 2026-11-15 | Independent review, and the revision after it | Review of the plan at `cf07b110` by a reviewer who wrote none of it (read-only; no provider call, no Kaggle access, no container run): accept after fixes, 2 blockers, 9 majors, 13 minors; no return to design. The coordinator accepted every blocker and major and ruled on each ([Rulings](#rulings)); the wrapper is kept and nothing under `experiments/long_horizon_tasks/` changes. This revision applies the rulings and all 13 minors. Changed figures: the screen is 39 to 78 slots and at most 90 starts at USD 200 (was 39 and 45); the line at most 168 slots and 190 starts at USD 600 (was 129 and 145); the work about 153 hours (was 111). One ruling was applied in another form than written: the screen's second three attempts cannot run inside the first tranche, because the launcher's schedule is fixed by the criterion and its export refuses a start outside it, so they run as a stage-two tranche funded from what stage one left of the class's ceiling (M9). The roadmap's step 11 still names 39 attempts and is updated with this plan. The coordinator accepted the plan for Tasks 1 to 9. Nothing paid is approved. Spend to date: 0 |
