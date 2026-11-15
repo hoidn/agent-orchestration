@@ -1,4 +1,4 @@
-"""Target 2.35 registration and public entry behavior during rollout."""
+"""Public entry behavior of the evaluated route at the current target: dispatch, authority publication and source roots."""
 
 from __future__ import annotations
 
