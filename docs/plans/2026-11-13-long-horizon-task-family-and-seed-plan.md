@@ -1269,10 +1269,22 @@ Tests, against a stand-in harness that replays the recorded fixtures on a closed
 - [ ] Connections: the passthrough's cap of 16 connections is shared by every slot (a
       connection counts before its token is read); before four sessions run at once, the
       launcher decides whether each attempt gets its own passthrough socket (and relay) or the
-      cap is raised per slot.
+      cap is raised per slot. **Decided (Task 5): each attempt gets its own socket.** The
+      launcher marks every slot `"own_socket": true` in the slots file; the passthrough serves
+      such a slot on `<its socket's directory>/<slot>/passthrough.sock` with a cap of 16
+      connections of its own, refuses that slot's token on any other socket and any other token
+      on it (`unknown token`), and removes the socket when the slot is retired; the attempt's
+      relay mounts that directory (`LH_RELAY_SOCKET_DIR`). Reason: the agent controls its
+      container and reaches the relay, so it can hold connections open; under one shared cap
+      they would turn another attempt's requests into load refusals (row 15, an infrastructure
+      failure, never rerun; three of them pause the tranche), and a cap raised per slot cannot
+      be applied before the token is read. With a socket per attempt a connection is counted
+      against its own attempt before any byte is read. The main socket stays for the live probe.
 
-**Verify:** `pytest -q tests/experiments/test_long_horizon_ladder.py`, `--collect-only` on it,
-then the sampled broad check.
+**Verify:** `pytest -q tests/experiments/test_long_horizon_launcher.py
+tests/experiments/test_long_horizon_passthrough.py tests/experiments/test_long_horizon_ladder.py`
+(the launcher's tests are in their own module: `test_long_horizon_ladder.py` holds the criterion's),
+`--collect-only` on the launcher's module, then the sampled broad check.
 
 ### Task 6: the readout (impl_code; 9 h)
 
