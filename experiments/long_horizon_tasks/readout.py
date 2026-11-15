@@ -456,16 +456,20 @@ def _mean(values):
     return sum(values) / len(values) if values else None
 
 
+def _means(observations):
+    return {"mean_usd": _mean([s["usd"] for s in observations]),
+            "mean_minutes": _mean([s["minutes"] for s in observations]),
+            "mean_tokens": {kind: _mean([s["tokens"][kind] for s in observations]) for kind in TOKEN_KINDS}}
+
+
 def _level_cost(starts, effort, classes):
     """D6's cost of one effort level: means per observation; every start's cost over the level's successes."""
     observations = [s for s in starts if s["effort"] == effort and s["counted"]]
     started = [s for s in starts if s["effort"] == effort and classes[s["class"]]["starts"]]
     successes, usd = sum(s["success"] for s in observations), sum(s["usd"] for s in started)
-    return {"observations": len(observations), "mean_usd": _mean([s["usd"] for s in observations]),
-            "mean_minutes": _mean([s["minutes"] for s in observations]),
-            "mean_tokens": {kind: _mean([s["tokens"][kind] for s in observations]) for kind in TOKEN_KINDS},
-            "starts": len(started), "usd_all_starts": usd, "successes": successes,
-            "usd_per_success": usd / successes if successes else None}
+    return {"observations": len(observations)} | _means(observations) | {
+        "starts": len(started), "usd_all_starts": usd, "successes": successes,
+        "usd_per_success": usd / successes if successes else None}
 
 
 def _beats(other, effort, per_effort, triples, rule):
