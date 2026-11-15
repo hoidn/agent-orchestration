@@ -2172,23 +2172,29 @@ class Tranche:
             return None, None
         return (left[0], None) if why is None else (None, why)
 
-    def try_start(self, head, gate, now):
+    def passthrough_ok(self):
+        """The passthrough answers (else a pause) in this launch's mode (else a stop; Task 8 M3)."""
         if not passthrough_up(self.ctx):
             tranche_event(self.root, "pause", reason="the passthrough down")
-            return None
+            return False
         reason = passthrough_mode_refusal(self.ctx)
         if reason:
             self.stop(reason)
-            return None
-        if not self.load_ok(now):
-            return None
-        ok, _, most = guard(self.root, self.ladder, head, now)
-        limits = [self.ladder["host"]["concurrency"][CONCURRENCY[head["kind"]]], gate["most"], most]
-        if not ok or len(self.workers) >= min(n for n in limits if n is not None):
-            return None
+        return reason is None
+
+    def config_ok(self):
+        """The launch's checks again (Task 8 part A M6); a change stops the tranche."""
         reason = config_refusal(self.ctx, self.label)
         if reason:
             self.stop(f"the configuration changed under the launcher: {reason}")
+        return reason is None
+
+    def try_start(self, head, gate, now):
+        if not self.passthrough_ok() or not self.load_ok(now):
+            return None
+        ok, _, most = guard(self.root, self.ladder, head, now)
+        limits = [self.ladder["host"]["concurrency"][CONCURRENCY[head["kind"]]], gate["most"], most]
+        if not ok or len(self.workers) >= min(n for n in limits if n is not None) or not self.config_ok():
             return None
         action, got = next_start(self.root, queue(self.root, self.plan), self.ladder, self.prior, self.label)
         if action == "start":
