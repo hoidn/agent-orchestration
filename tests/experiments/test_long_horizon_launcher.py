@@ -174,8 +174,9 @@ def containers(trial, behaviour):
     """The trial's stand-in containers (agent and egress sidecar) and network, named as Harbor's compose names them."""
     project, folder = trial.name.lower() + "__env", HERE / "podman"
     sidecar = behaviour.get("egress", '{"sid": "a", "msg": "bypass"}\n{"sid": "a", "dst": "203.0.113.9:443"}')
-    for name, extra in ((f"{project}_main_1", {"env": behaviour.get("container_env", ["PATH=/usr/bin"]),
-                                               "fs": behaviour.get("container_fs", "a file\n")}),
+    main = {"env": behaviour.get("container_env", ["PATH=/usr/bin"]), "fs": behaviour.get("container_fs", "a file\n")}
+    main.update({"proc_env": behaviour["process_env"]} if "process_env" in behaviour else {})
+    for name, extra in ((f"{project}_main_1", main),
                         (f"{project}_harbor-docker-egress-control-sidecar_1", {"log": sidecar})):
         (folder / "containers" / f"{name}.json").write_text(json.dumps({"running": True, "stubborn":
                                                                        behaviour.get("stubborn", 0), **extra}))
@@ -215,6 +216,8 @@ def run(args):
         (trial / name).parent.mkdir(parents=True, exist_ok=True)
         (trial / name).write_text("x")
         (trial / name).chmod(0)
+    if behaviour.get("stop_containers"):  # the agent container has stopped by the teardown, as a real one has
+        container.write_text(json.dumps({**json.loads(container.read_text()), "running": False}))
     if behaviour.get("after_requests"):
         subprocess.Popen([sys.executable, "-I", __file__, "--outlive", str(container), sock,
                           os.environ["CLAUDE_CODE_OAUTH_TOKEN"], str(behaviour["after_requests"])],
@@ -1944,6 +1947,37 @@ def test_a_teardown_scan_that_matches_or_cannot_finish_stops_the_tranche_and_exp
     start = _export(r)["starts"][0]
     assert ([e["reason"] for e in r.events() if e["event"] == "stop"],
             [start[k] for k in ("row", "class", "stop_cause", "reward")]) == ([cause], [5, "stop", cause, None])
+
+
+def test_the_process_environments_sampled_while_the_harness_runs_are_scanned_after_the_container_stopped(rig):
+    """Task 8 m9: the token is in a process environment only (not the configuration), and the container has
+    stopped by the teardown, so only the 2 s samples taken while the harness ran can show it."""
+    r = rig()
+    (r.lh / "standin" / "plan.json").write_text(json.dumps([{"process_env": ["PATH=/usr/bin", f"X={r.canary}"],
+                                                             "sleep": 3, "stop_containers": True}]))
+    r.launch()
+    assert [e["reason"] for e in r.events() if e["event"] == "stop"] == [
+        "a match of the runtime check in the attempt's containers"]
+
+
+def test_a_launch_whose_slot_socket_never_opens_is_refused_before_the_harness_runs(rig):
+    """Task 8 m9: the passthrough cannot open the slot's socket (a file is in its place), so the launcher's wait
+    for it ends in a refused launch: no harness, no start."""
+    r = rig()
+    first = ladder.schedule(ladder.criterion(ladder.Ctx(r.kit.env())))[0]
+    relay = r.root / "relay" / f"001-{ladder.slot_id(first)}"
+    relay.mkdir(mode=0o700, parents=True)
+    (relay / "passthrough.sock").write_text("not a socket")
+    r.launch()
+    assert ([e["reason"] for e in r.events() if e["event"] == "stop"], r.calls(), r.attempts()) == (
+        ["refused at launch"], [], [])
+
+
+@pytest.mark.parametrize("token", ["", None, "lh-fake-slot-xyz", "lh-fake-slot-" + "0" * 31])
+def test_the_harness_never_starts_with_a_token_not_in_the_launcher_s_fake_form(short, token):
+    """Task 8 m9: an empty token would end before the session, and any other is not the slot's."""
+    with pytest.raises(ladder.Refused, match="fake token"):
+        ladder.harness_env(_ctx(short), {"id": "001", "token": token})
 
 
 def test_the_smoke_s_runtime_check_also_scans_the_agent_container_s_exported_file_system(rig):
