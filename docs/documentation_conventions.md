@@ -86,6 +86,12 @@ resolve relative links from the new location. Keep frozen fixtures, hash-pinned
 inputs and generated evidence intact; annotate their discovery route instead.
 Do not duplicate an entire document merely to shorten its introduction.
 
+## Checking Links
+
+`python scripts/check_doc_links.py FILE.md...` checks the relative links and
+`#anchor` fragments of the files it is given, and only those: name every file
+you touched. With no file it prints its usage and exits 2.
+
 ## Durable References
 
 Reference mutable source and documentation by path, symbol, or section. Use

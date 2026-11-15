@@ -8,7 +8,8 @@
 - `usage_limit`: the vendor's usage-limit answer in a unit's calls, or any other shape that may be one (fail closed,
   review3 X2: flagged `UNRECOGNISED`, for the operator to read the raw result). A unit cut by a usage limit is
   neither an incident nor an observation (coordinator ruling R1, 2026-11-14): starts close, and its slot runs
-  again once. Paid extra usage (`PAID`) cuts and pauses the same way, even on a call that ended normally.
+  again once. Paid extra usage (`PAID`) pauses the same way; a call that ended normally stays an observation, and
+  one that did not cuts its unit (coordinator ruling on fix round 4).
 - `audit_sessions`: every Claude session file anywhere in the unit's private home (each unit has its own home,
   so all of them belong to the unit). A session outside the unit tree's project store, more top-level sessions
   than physical calls, or an answer by another model fails the unit. Not seen: sessions written into the unit

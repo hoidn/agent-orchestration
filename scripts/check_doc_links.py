@@ -1,6 +1,6 @@
 """Usage: python scripts/check_doc_links.py FILE.md... -- check relative links and GitHub `#anchor` slugs.
 
-Prints each problem and exits 1 if any. Links with a URL scheme are skipped; anchors are checked in .md targets."""
+Prints each problem and exits 1 if any; with no FILE it prints this usage and exits 2. Links with a URL scheme are skipped; anchors are checked in .md targets."""
 from functools import cache
 from pathlib import Path
 import re
@@ -45,6 +45,9 @@ def problems(source: Path) -> list[str]:
 
 
 if __name__ == "__main__":
+    if not sys.argv[1:]:
+        print(__doc__.splitlines()[0], file=sys.stderr)
+        sys.exit(2)
     report = [line for name in sys.argv[1:] for line in problems(Path(name))]
     print("\n".join(report) or "ok")
     sys.exit(1 if report else 0)
