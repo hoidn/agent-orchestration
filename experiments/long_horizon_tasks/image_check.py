@@ -328,13 +328,27 @@ def _open_archive(found, entry, index, depth):
         judge(found, member, index, depth + 1)
 
 
-def judge(found, entry, index, depth=0):
-    """Apply every check to one member of an image (or of an archive inside it)."""
+def _judge_member(found, entry, index):
+    """The checks every member gets, whatever its kind: by path, and a .git directory outside system paths."""
     found["members"] += 1
     found["path_hits"] += [{"path": entry.path, "kind": entry.kind, "matches": rel}
                            for rel in answer_paths(entry.path, index) + answer_paths(entry.link or "", index)]
     if entry.kind == "dir" and entry.path.rstrip("/").endswith(".git") and not is_system(entry.path, index.get("venvs", ())):
         found["git_dirs"].append(entry.path)
+
+
+def _judge_text(found, entry, index):
+    """Near copies in a file read whole; a text file over MAX_READ, never read by the line check, is listed (N3)."""
+    if entry.raw is not None and entry.sha not in index["env_sha"]:
+        near = near_copy(entry.path, entry.raw, index)
+        found["near_copies"] += [near] if near else []
+    if entry.text:
+        found["large_text"].append({"path": entry.path, "size": entry.size, "env_copy": entry.sha in index["env_sha"]})
+
+
+def judge(found, entry, index, depth=0):
+    """Apply every check to one member of an image (or of an archive inside it)."""
+    _judge_member(found, entry, index)
     if entry.kind != "file":
         return
     found["files"] += 1
@@ -344,11 +358,7 @@ def judge(found, entry, index, depth=0):
     if entry.canary:
         bucket, item = canary_bucket(entry.path, entry.sha, index)
         found[bucket].append(item)
-    if entry.raw is not None and entry.sha not in index["env_sha"]:
-        near = near_copy(entry.path, entry.raw, index)
-        found["near_copies"] += [near] if near else []
-    if entry.text:  # over MAX_READ: the line check never reads it, so it is listed (ledger N3)
-        found["large_text"].append({"path": entry.path, "size": entry.size, "env_copy": entry.sha in index["env_sha"]})
+    _judge_text(found, entry, index)
     _open_archive(found, entry, index, depth)
 
 
@@ -693,21 +703,23 @@ def task_record(task, lines, rulings):
     if set(mine) != {"agent", "verifier"}:
         raise Stop(f"{task}: measured roles {sorted(mine)}, need agent and verifier", 2)
     wh = mine["agent"]["withholding"]
-    items = _look_items(wh)
-    ruled = [{"item": i, "ruling": rulings[(task, i)]} for i in items if (task, i) in rulings]
-    unruled = [i for i in items if (task, i) not in rulings]
-    if not wh["withheld"] or not wh["layers"]["withheld"] or wh["canary"] == "found outside environment files":
-        verdict = "hit"
-    elif unruled or wh["canary"] == "no identifier in package":
-        verdict = "needs a look"
-    else:
-        verdict = "withheld"
+    ruled = [{"item": i, "ruling": rulings[(task, i)]} for i in _look_items(wh) if (task, i) in rulings]
+    unruled = [i for i in _look_items(wh) if (task, i) not in rulings]
     keep = ("withheld", "canary", "canary_counts", "near_copy", "near_copy_look", "git_dirs", "not_opened",
             "pass", "package_digest")
     return {"images": {role: _image(mine[role]) for role in ("agent", "verifier")},
             "withholding": {k: wh[k] for k in keep} | {
                 "layers_withheld": wh["layers"]["withheld"], "large_text": wh.get("large_text"),
-                "rulings": ruled, "unruled": unruled, "verdict": verdict}}
+                "rulings": ruled, "unruled": unruled, "verdict": _withholding_verdict(wh, unruled)}}
+
+
+def _withholding_verdict(wh, unruled):
+    """hit: a path, digest or canary hit; needs a look: an item without a ruling, or no canary to search for."""
+    if not wh["withheld"] or not wh["layers"]["withheld"] or wh["canary"] == "found outside environment files":
+        return "hit"
+    if unruled or wh["canary"] == "no identifier in package":
+        return "needs a look"
+    return "withheld"
 
 
 def fill_tasks():
