@@ -1,7 +1,8 @@
 """The agent-side format check (family plan, decision M3): it replaces the benchmark's format server, which grades a
 submission against the answers. This one compares a submission with the public sample submission only, so it can
 sit in the agent's image, where no answer is. It refuses only what no grader accepts: a file that cannot be read as
-a table, a missing or an extra column (by name; the order does not matter), and missing, extra or duplicated ids
+a table, a missing, an extra or a duplicated column (by name; the order does not matter), and missing, extra or
+duplicated ids
 (the sample's first column, counted as often as the sample has it). Empty values are a note, not a problem: some
 graders take an empty cell as "no prediction", and one competition's own sample is all empty. A leading byte-order
 mark and blank lines are accepted, as pandas reads them. A submission it accepts can still be refused by the grader.
@@ -9,8 +10,8 @@ mark and blank lines are accepted, as pandas reads them. A submission it accepts
 Usage: python /home/validate_submission.py <submission.csv> [<sample submission>]
   The sample defaults to /home/data/sample_submission.csv, the public copy in the agent's image.
 Output: one line per problem, "<code>: <detail>" (no-file, unreadable, empty-file, missing-column, extra-column,
-ragged-row: more fields than the header, missing-id, extra-id, duplicate-id); one line per note, "note: <code>:
-<detail>" (empty-value); and "ok: ..." when there is no problem. Exit 0 when there is no problem (notes or not), 1
+duplicate-column, ragged-row: more fields than the header, missing-id, extra-id, duplicate-id); one line per
+note, "note: <code>: <detail>" (empty-value); and "ok: ..." when there is no problem. Exit 0 when there is no problem (notes or not), 1
 when there is one, 2 on a usage error or an unreadable sample (on standard error).
 Standard library only; it opens the two files it is given and nothing else.
 """
@@ -41,10 +42,11 @@ def _some(items):
 
 
 def column_problems(expected, header):
-    missing = [c for c in expected if c not in header]
-    extra = [c for c in header if c not in expected]
-    lines = [f"missing-column: {_some(missing)}"] if missing else []
-    return lines + ([f"extra-column: {_some(extra)}"] if extra else [])
+    """Columns compared by name as counted multisets: a name missing, one not in the sample, one repeated."""
+    want, got = Counter(expected), Counter(header)
+    found = (("missing-column", [c for c in want if c not in got]), ("extra-column", [c for c in got if c not in want]),
+             ("duplicate-column", [c for c in got if c in want and got[c] > want[c]]))
+    return [f"{code}: {_some(names)}" for code, names in found if names]
 
 
 def id_problems(expected, got):
