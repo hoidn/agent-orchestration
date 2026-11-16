@@ -347,10 +347,10 @@ as the verifier runs it, tells a perfect submission from a useless one.
   the sample submission only: the same columns, the same ids, the same number of rows, no empty
   value. The instruction names it. It is weaker than upstream's: a submission it accepts can still
   be invalid for the grader. The readout counts the invalid submissions; it cannot tell whether an
-  agent ran the check. **The sample it reads is always a public copy.** For the Russian text-normalization competition the benchmark's configuration names
-  a sample submission in the private directory and the public copy is inside an archive (scout report
-  B); the wrapper takes the public one, and a test holds that it copies nothing from a private
-  directory into an agent image.
+  agent ran the check. **The sample it reads is always a public copy.** For `textnorm-ru` the
+  benchmark's configuration names a sample submission in the private directory and the public copy
+  is inside an archive (scout report B); the wrapper takes the public one, and a test holds that it
+  copies nothing from a private directory into an agent image.
 - **Two checks, as in ladder D1.** By construction: the build context of the agent image is
   assembled from the public directory alone, and a test holds that with the fixture. On the built
   image: its file system is exported from a container that was never started and searched, on the
@@ -790,14 +790,15 @@ that stops by itself: USD 1 to 8, central about USD 3) and are not measured.
 - **What USD 200 pays for.** The launcher reserves the cap and USD 1 before each start. Stage one
   completes only if its attempts average under about USD 5.05 (CPU) or USD 4.85 (GPU). The second
   stage of every competition, 78 attempts, fits only if attempts average under about USD 2.35. At
-  the central estimate of USD 3, the rule funds the second stage of one CPU competition and five
-  GPU competitions. Competitions at the floor nearly always need it (M1), and the report expects 8
-  to 11 of the 13 outside the band (2 to 5 in it), so at USD 3 some competitions will end "not screened". **The
-  estimates therefore do not allow USD 200 to cover the whole sequential screen at their centre.**
-  The plan keeps USD 200 as its proposed total and funds the second stage in rank order; the alternative, USD 250 (CPU 61, GPU 189), funds it for all thirteen at USD 3 and is
-  put to the owner in action 9. **If the smoke and the pilot of a stage-one tranche average above
-  its figure, the coordinator reports before round 1;** no cap or ceiling changes without a new
-  label and a ledger row.
+  the central estimate of USD 3, the rule funds the second stage of one CPU competition and five GPU
+  competitions. Competitions at the floor nearly always need it (M1), and the report expects 8 to 11
+  of the 13 outside the band (2 to 5 in it), so at USD 3 some competitions will end "not screened".
+  **The estimates therefore do not allow USD 200 to cover the whole sequential screen at their
+  centre.** The plan keeps USD 200 as its proposed total and funds the second stage in rank order;
+  the alternative, USD 250 (CPU 61, GPU 189), funds it for all thirteen at USD 3 and is put to the
+  owner in action 9. **If the smoke and the pilot of a stage-one tranche average above its figure,
+  the coordinator reports before round 1;** no cap or ceiling changes without a new label and a
+  ledger row.
 - **The placement: at most six competitions, 90 slots, 100 starts and USD 400,** in at most two
   tranches. A tranche of 45 slots completes only if its attempts average under about USD 4.30, at
   three efforts of which `high` is the dearest. If the ceiling ends it early, the last round is
