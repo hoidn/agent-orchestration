@@ -12,6 +12,7 @@ this change.
 
 from __future__ import annotations
 
+from dataclasses import is_dataclass
 import json
 from pathlib import Path
 import re
@@ -21,6 +22,7 @@ import pytest
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.prompt_values import binder_field_kind, binder_names
 from tests.workflow_lisp_closed_program_helpers import build_outcome
 
 SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
@@ -233,9 +235,10 @@ def _with_binder_named_like_a_provider(source: str) -> str:
 
 
 @pytest.mark.parametrize("row", ["D7", "D7-hoisted"])
-def test_a_compiler_defect_on_a_binder_named_like_a_provider_stays_a_compiler_defect(tmp_path, row):
+def test_a_defect_on_a_binder_named_like_a_provider_is_not_refused_as_a_provider(tmp_path, row):
     """The defect record's row (a loop binder out of scope) with that binder spelled `providers.a`, the extern
-    declared: no provider is used as a value, so the base's crash stands (recorded by the base build)."""
+    declared: no provider is used as a value. On the base it is D7's `compiler_defect`; whatever D7 becomes,
+    it is not refused as a provider (it builds, or stops with one diagnostic of another code)."""
     from tests.test_workflow_lisp_defect_backlog import ROWS, _install
 
     path = _install(tmp_path, {"m.orc": _with_binder_named_like_a_provider(ROWS[row].source)})
@@ -244,7 +247,80 @@ def test_a_compiler_defect_on_a_binder_named_like_a_provider_stays_a_compiler_de
         source_path=path, source_roots=(tmp_path,), entry_workflow="m::run", workspace_root=tmp_path,
         command_boundaries_path=tmp_path / "commands.json", provider_externs_path=tmp_path / "providers.json")))
 
-    assert seen == ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type")
+    codes = {"builds": (), "crash": ("compiler_defect",), "refused": seen[1:]}.get(seen[0], seen)
+
+    assert len(codes) <= 1 and "prompt_value_escape" not in codes
+
+
+# Each kind of binder the language has, written `held` (no other declaration of that name): the scan behind
+# `refuse_provider_value` must hold the name lowering would look it up by.
+BINDER_KINDS = {
+    "a let* binding": ("(let* ((held 1)) held)", (), "held"),
+    "a defproc parameter": ("(f n)", ("(defproc f ((held Int)) -> Int held)",), "held"),
+    "a workflow input": ("n", ("(defworkflow w ((held Int)) -> Int held)",), "held"),
+    "a loop binder": ("(loop/recur :max 1 :state n :on-exhausted 0 (fn (held) (done held)))", (), "held"),
+    "a loop state binder": ("(loop/recur ((held 0)) :max 1 :on-exhausted n (done held))", (), "held"),
+    "a map binder": ("(list/length (list/map ((held (list 1 2))) held))", (), "held"),
+    "a match arm binder": ("(match (variant V A :k 1) ((A held) held.k) ((B b) b.j))",
+                           ("(defunion V (A (k Int)) (B (j Int)))",), "held"),
+    "a let-proc local": ("(let-proc ((held ((k Int)) -> Int k)) (held n))", (), "held"),
+    "a let-proc parameter": ("(let-proc ((h ((held Int)) -> Int held)) (h n))", (), "held"),
+    # A macro's binder is hygienic and a defun's parameter is renamed when the call is expanded at typecheck:
+    # lowering can look either up only by the generated name, which the scan holds.
+    "a macro-introduced binder": ("(mk n)", ("(defmacro mk (x) (let* ((held x)) held))",), r"%macro__mk__\w+__held"),
+    "a defun parameter": ("(g n)", ("(defun g ((held Int)) -> Int held)",), r"__pure_function_param_\w+"),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(BINDER_KINDS))
+def test_the_binder_scan_holds_each_kind_of_binder(tmp_path, kind):
+    body, definitions, held = BINDER_KINDS[kind]
+
+    assert any(re.fullmatch(held, name) for name in binder_names(build(tmp_path, body, *definitions).typed_program))
+
+
+def test_the_binder_scan_does_not_hold_a_field_or_a_string(tmp_path):
+    """The control: `held` as a record field, a field name given a value and a string is no binder."""
+    typed = build(tmp_path, '(let* ((r (record R :held "held"))) n)', "(defrecord R (held String))").typed_program
+
+    assert "held" not in binder_names(typed)
+
+
+def _expression_classes() -> set[type]:
+    from orchestrator.workflow_lisp import expressions
+
+    return {each for each in vars(expressions).values()
+            if isinstance(each, type) and is_dataclass(each) and each.__module__ == expressions.__name__}
+
+
+# Every dataclass of the expression module, by the field in which it declares a lexical name, or None.
+DECLARES = {
+    "LetStarExpr": "bindings", "ListMapExpr": "binder_name", "ListMapEffectExpr": "binder_name",
+    "LoopRecurExpr": "binding_name", "LoopBodyFnExpr": "binding_name", "MatchArm": "binding_name",
+    "LetProcBinding": "local_name", "LiveProviderBinding": "name", "LiveProviderPeerBinding": "name",
+    **dict.fromkeys((
+        "AgentExpr", "BindProcBinding", "BindProcExpr", "CallExpr", "CommandResultExpr", "CompilerListNonemptyHeadExpr",
+        "CondClause", "CondExpr", "ContinueExpr", "DoneExpr", "EnumMemberExpr", "FieldAccessExpr", "FunctionCallExpr",
+        "GeneratedRelpathSeedExpr", "IfExpr", "LetProcExpr", "ListExpr", "LiteralExpr", "LoopStateField",
+        "LoopStateSeedExpr", "LoopStateUpdateExpr", "MatchExpr", "NameExpr", "PathJoinUnderExpr", "PhaseTargetExpr",
+        "ProcRefLiteralExpr", "ProcedureCallExpr", "PromptDependencySpec", "ProviderBundlePathExpr",
+        "ProviderResultExpr", "PureOpExpr", "RecordExpr", "RecordUpdateExpr", "RequestInputExpr", "RunRefBundleProgram",
+        "RunRefConfinedPolicy", "RunRefExpr", "RunRefPathProgram", "RunRefRevisionSource", "RunRefSource",
+        "RunRefWorkflowProgram", "SessionArtifactSpec", "UnionVariantExpr", "UnionVariantTagExpr",
+        "WithLiveProviderPeersExpr", "WithLiveProvidersExpr", "WithPhaseExpr", "WorkflowRefLiteralExpr")),
+}
+
+
+def test_every_expression_class_is_classified_for_the_binder_scan():
+    """A new expression class fails here until it is entered in `DECLARES`, with the field that declares a name."""
+    assert {each.__name__ for each in _expression_classes()} == set(DECLARES)
+
+
+@pytest.mark.parametrize("name", sorted(name for name, field_name in DECLARES.items() if field_name))
+def test_the_binder_scan_reads_each_declaring_field(name):
+    (cls,) = [each for each in _expression_classes() if each.__name__ == name]
+
+    assert binder_field_kind(cls, DECLARES[name]) is not None
 
 
 SHADOWS_PROVIDER = {
