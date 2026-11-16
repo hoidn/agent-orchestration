@@ -1573,12 +1573,13 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   `List`, `Optional`, `Map` or `ProcRef`, in a `defworkflow`, `defun` or `let-proc` signature or as a
   result type it is `prompt_value_escape` (before `generic_union_not_generic`). A `:prompt` that names
   such a parameter stays `frontend_parse_error`, which the change that consumes prompt values
-  replaces. A user's own type named `Prompt` or `Provider` keeps its meaning. A provider extern
-  used as a value in code the entry reaches (a `let*` binding, a record or variant field, an `if`,
-  `cond` or `match` value, a result, a procedure or `defun` argument) is `prompt_value_escape`; it
-  was `compiler_defect`. A provider as a list element or a workflow `call` input keeps its typecheck
-  refusal, and one passed to `bind-proc` keeps its outcome (a reference that is not called builds as
-  before). An unreached definition that names a provider or the type `Provider` keeps compiling. Every
+  replaces. A user's own type named `Prompt` or `Provider`, and a type parameter named `Prompt`, keeps
+  its meaning. A provider extern that the closed build's lowering reads as a value, which ended in
+  `compiler_defect` (a `let*` binding, a record or variant field, an `if`, `cond` or `match` value, a
+  result, a procedure or `defun` argument, a call through a `bind-proc` reference over it), is
+  `prompt_value_escape`. The refusal is raised where that lowering failed, so a provider it never reads
+  (an uncalled `bind-proc` over one, an unreached definition) builds as before; a provider as a list
+  element or a workflow `call` input keeps its typecheck refusal. Every
   program that compiled before keeps its closed program, digest and identities.
 
 ### Run-time corrections without a new target
