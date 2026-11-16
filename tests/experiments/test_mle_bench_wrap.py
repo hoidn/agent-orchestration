@@ -513,3 +513,13 @@ def test_the_real_agent_and_verifier_files_wrap_the_fixture_at_the_paths_task_2_
                               in_image["MLE_BENCHMARK_DIR"] + "/mlebench/competitions", in_image["MLE_GRADER_WORK"],
                               sample),
                     "attempt": ["instruction.md", "task.toml"]}
+
+
+def test_family_json_matches_the_plans_candidates_table_name_slug_and_class():
+    """The revised plan's 'Candidates' table: | order | `name` | `slug` | GB | class | rank |."""
+    text = (ROOT / FAMILY["plan"]).read_text()
+    table = text[text.index("\n## Candidates"):text.index("\n## Decisions")]
+    rows = [[c.strip().strip("`") for c in ln.strip("|").split("|")] for ln in table.splitlines()
+            if re.match(r"\| \d+ \|", ln)]
+    plan = [(int(r[0]), r[1], r[2], r[4].lower()) for r in rows]
+    assert plan == [(c["order"], c["name"], c["slug"], c["class"]) for c in FAMILY["candidates"]]
