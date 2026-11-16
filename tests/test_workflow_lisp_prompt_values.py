@@ -234,6 +234,15 @@ UNCALLED_BIND_PROC = {
     "a macro expansion": ("(mk n)", (TAKE_PROVIDER, f"(defmacro mk (x) (let* ((f {BIND})) x))"), None, "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
     "over an imported procedure": ("(let* ((f (bind-proc (proc-ref lib.take) :w providers.a))) n)", (), TAKE_PROVIDER,
                                    "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+    "a provider chosen by if inside the argument": (
+        "(let* ((f (bind-proc (proc-ref take) :w (if (> n 0) providers.a providers.b)))) n)", (TAKE_PROVIDER,), None,
+        "sha256:b1a55001d85fe2f7b0dcba0c7d39f45302f98a712836589209bfab32c7764b31"),
+    "a provider in a record inside the argument": (
+        "(let* ((f (bind-proc (proc-ref tk) :h (record H :p providers.a)))) n)",
+        ("(defrecord H (p Provider))", "(defproc tk ((h H) (k Int)) -> Int k)"), None, "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
+    "a procedure returning a provider as the argument": (
+        "(let* ((f (bind-proc (proc-ref take) :w (pick)))) n)",
+        (TAKE_PROVIDER, "(defproc pick () -> Provider providers.a)"), None, "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
 }
 
 
@@ -259,6 +268,13 @@ DECLARED_PROMPT = {
                                       (USER_PROMPT, f"(defproc f ((p Prompt[Int])) -> Int {OPEN})"), "sha256:a6aad26bc7d7a421f7ad3b38bc444531102839b5872e6fd393e3b2225662334b"),
     "a list item": ("n", (USER_PROMPT, "(defrecord H (ps List[Prompt[Int]]))"), "sha256:4c5fbebc34adead3e9e5abdfc4ff7f0b6e4700aba45a5604fecae6c4e235e738"),
 }
+
+
+def test_a_type_parameter_named_prompt_keeps_the_base_refusal(tmp_path):
+    """Under `:forall (Prompt)` the name is the type parameter, which takes no argument, as on the base."""
+    definition = "(defproc f :forall (Prompt) ((x Prompt) (p Prompt[Pair])) -> Int 1)"
+
+    assert outcome(tmp_path, "n", definition) == ("refused", "generic_union_not_generic")
 
 
 @pytest.mark.parametrize("position", sorted(DECLARED_PROMPT))
