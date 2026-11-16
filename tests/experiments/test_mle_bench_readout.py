@@ -47,16 +47,16 @@ NO_REWARD = {"class": "infrastructure_failure", "excluded": "no reward after reg
 NOT_COUNTED = {"infrastructure failure": INFRA, "cut": CUT, "no reward after regrades": NO_REWARD}
 
 
-def _report(medal, score):
+def _report(medal, score, valid=None):
     """A grader report as the benchmark's grade_csv gives it, for a medal level (0 none to 3 gold)."""
-    return {"score": score, "valid_submission": score is not None, "above_median": medal > 0,
+    return {"score": score, "valid_submission": score is not None if valid is None else valid, "above_median": medal > 0,
             "gold_medal": medal == 3, "silver_medal": medal == 2, "bronze_medal": medal == 1,
             "is_lower_better": False}
 
 
-def _rewards(medal, score=0.8):
+def _rewards(medal, score=0.8, valid=None):
     """The reward file the verifier writes for that report (Task 2's own function)."""
-    return verifier.outcome(_report(medal, score), LEADERBOARD)
+    return verifier.outcome(_report(medal, score, valid), LEADERBOARD)
 
 
 def _write(path, rewards):
@@ -68,7 +68,7 @@ def _attempt(state, start):
     return state / "slots" / f"{start['start']:03d}-{start['slot']}"
 
 
-def _results(state, doc, regrades=None, scores=None):
+def _results(state, doc, regrades=None, scores=None, files=None):
     """Each observation's trial result, from its exported reward; regrades: {start: (trial rewards, regrade
     rewards)} for a start whose reward came from a regrade."""
     for start in doc["starts"]:
@@ -78,6 +78,8 @@ def _results(state, doc, regrades=None, scores=None):
             trial, regrade = regrades[start["start"]]
             _write(attempt / "jobs" / "job" / "trial" / "result.json", trial)
             _write(attempt / "regrade" / f"{attempt.name}-regrade-1" / "result.json", regrade)
+        elif start["start"] in (files or {}):
+            _write(attempt / "jobs" / "job" / "trial" / "result.json", files[start["start"]])
         elif start["class"] == "observation" and start["reward"] is not None:
             score = (scores or {}).get(start["start"], 0.8)
             _write(attempt / "jobs" / "job" / "trial" / "result.json", _rewards(int(start["reward"]), score))
@@ -87,14 +89,14 @@ def _results(state, doc, regrades=None, scores=None):
     (state / "passthrough" / "requests.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
 
 
-def _stage(tmp_path, name, table, *, end=ENDED, criterion=SCREEN, regrades=None, scores=None):
+def _stage(tmp_path, name, table, *, end=ENDED, criterion=SCREEN, regrades=None, scores=None, files=None):
     """A stage's (criterion, export, state root): table maps a competition to its slots' outcomes at the one effort."""
     efforts = criterion["attempt"]["efforts"]
     shaped = {task: ({efforts[0]: outcomes} if isinstance(outcomes, list) else outcomes)
               for task, outcomes in table.items()}
     doc = lh_export(shaped, end=end)
     state = tmp_path / name
-    _results(state, doc, regrades, scores)
+    _results(state, doc, regrades, scores, files)
     return criterion, doc, state
 
 
@@ -216,6 +218,36 @@ def test_a_submission_with_no_score_has_no_score_or_percentile_and_counts_as_inv
     first = stage["attempts"][0]
     assert ((first["score"], first["percentile"], first["valid"]), stage["valid"], stage["invalid"]) == (
         (None, None, 0), 2, 1)
+
+
+def _one(tmp_path, files):
+    stage_one = _stage(tmp_path, "one", {A: [1, 0, 0]}, files=files)
+    return readout.compute(stage_one, time_zone=ZoneInfo(ZONE))
+
+
+def test_an_attempt_whose_grader_caught_an_error_is_listed_for_a_ruling_and_still_counted(tmp_path):
+    result = _one(tmp_path, {1: _rewards(1) | {"grader_exception": 1}})
+    stage = result["competitions"][A]["stage_one"]
+    assert ([a["start"] for a in stage["grader_exceptions"]], stage["grader_exception"], stage["medals"],
+            result["competitions"][A]["screen"]["class"]) == ([1], 1, 1, readout.SURVIVES)
+
+
+def test_a_reward_file_without_the_grader_exception_field_reads_as_no_exception(tmp_path):
+    stage = _one(tmp_path, None)["competitions"][A]["stage_one"]
+    assert (stage["grader_exceptions"], stage["grader_exception"]) == ([], 0)
+
+
+def test_the_table_shows_how_many_observations_carry_a_grader_exception(tmp_path):
+    line = next(line for line in readout.table(_one(tmp_path, {1: _rewards(1) | {"grader_exception": 1}}))
+                .splitlines() if line.startswith(A))
+    assert "1 grader exception" in line
+
+
+def test_a_valid_submission_with_no_score_is_counted_as_valid_not_scored(tmp_path):
+    stage = _one(tmp_path, {2: _rewards(0, None, valid=True)})["competitions"][A]["stage_one"]
+    second = stage["attempts"][1]
+    assert ((second["valid"], second["score"], second["percentile"]), stage["valid"], stage["valid_not_scored"]) == (
+        (1, None, None), 3, 1)
 
 
 def test_the_above_median_count_is_read_from_the_result_files(tmp_path):
