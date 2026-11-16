@@ -20,6 +20,7 @@ from orchestrator.workflow_lisp.diagnostics import (
     records_defect_provenance,
 )
 from orchestrator.workflow_lisp.procedures import _procedure_signature_local_type_bindings
+from orchestrator.workflow_lisp.prompt_values import refuse_provider_lookup
 from orchestrator.workflow_lisp.type_env import (
     PrimitiveTypeRef,
     ProcRefTypeRef,
@@ -532,12 +533,9 @@ class Builder:
         from ..procedures import ProcedureCatalog
         from .command_templates import elaborate_command_scopes
         from .frontend import workflow_catalog_for
-        from ..prompt_values import refuse_provider_values
 
         owner = callable_def.definition.name
         procedures = source_program.procedures
-        refuse_provider_values(callable_def.typed_body.expr, provider_names=_provider_extern_names(source_program),
-                               bound={*value_env, *(name for name, _ in callable_def.signature.params)})
         facts = ControlFacts(signature=callable_def.signature, type_env=type_env,
             local_type_bindings=value_env, typed_procedures=procedures,
             workflow_catalog=workflow_catalog_for(source_program, owner),
@@ -4549,6 +4547,9 @@ def build_closed_program(typed: Any, *, builder: Builder | None = None) -> Close
             return _build_with_builder(typed, builder)
         except ClosedProgramGap as gap:
             raise LispFrontendCompileError((gap_diagnostic(gap),)) from gap
+        except KeyError as missing:
+            refuse_provider_lookup(missing, provider_names=_provider_extern_names(typed))
+            raise
 
 
 def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:

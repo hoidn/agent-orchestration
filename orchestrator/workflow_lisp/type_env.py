@@ -1249,7 +1249,8 @@ def _resolve_applied_type_expr(
         "local_type_params": local_type_params,
     }
     resolve_arg = lambda arg: _resolve_parsed_type_expr(arg, authored_name=_render_type_expr(arg), **scope)  # noqa: E731
-    if names_builtin_prompt(parsed.head, type_refs=type_refs, import_scope=import_scope):
+    if names_builtin_prompt(parsed.head, type_refs=type_refs, import_scope=import_scope,
+                            local_type_params=local_type_params):
         return resolve_prompt_type(parsed, admitted=prompt_parameter, resolve_arg=resolve_arg, span=span,
                                    form_path=form_path, expansion_stack=expansion_stack)
     return resolve_generic_union_application(

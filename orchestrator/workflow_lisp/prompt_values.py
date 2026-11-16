@@ -4,14 +4,14 @@ A `defprompt` declared `-> T` applied to every slot, `(name :slot value …)`, i
 wherever it is written. Outside the `:prompt` of `provider-result` and a `request-input` question nothing
 consumes such a value yet, so every position refuses with `prompt_value_escape`, the argument of a call
 included. `Prompt[...]`, where no declared or imported type is named `Prompt`, is the type of a `defproc`
-parameter and of nothing else. A provider extern is a value only as the provider operand of a call or of
-`agent`, or as a `bind-proc` argument: in the other positions whose lowering reads it, in code the entry
-reaches, it refuses with the same code (`refuse_provider_values`); a definition the entry does not reach
-keeps compiling.
+parameter and of nothing else. A provider extern is not a value: where the closed build's lowering looks one up
+as a value, which on the base was a `compiler_defect`, it refuses with the same code
+(`refuse_provider_lookup`); a program that builds, and a definition the entry does not reach, are never
+refused.
 
 Dependencies: the prompt catalog and syntax of the elaborator (`is_prompt_application`), the fill typecheck of
 `prompts.py` (`refuse_prompt_application`), and the provider externs of the typed program
-(`refuse_provider_values`, called by the closed build for each owner it lowers). Every function here either
+(`refuse_provider_lookup`, called by the closed build on a missing key). Every function here either
 returns a fact or raises one `LispFrontendCompileError`.
 """
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, NoReturn
 
-from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, defect_location, defect_site
 from .syntax import SyntaxKeyword
 from .type_env import PrimitiveTypeRef, PromptTypeRef, render_type_ref
 
@@ -65,13 +65,15 @@ def prompt_type(item_type_ref: TypeRef) -> PromptTypeRef:
     return PromptTypeRef(name=f"Prompt[{render_type_ref(item_type_ref)}]", item_type_ref=item_type_ref)
 
 
-def names_builtin_prompt(head: str, *, type_refs: Mapping[str, TypeRef],
-                         import_scope: ModuleImportScope | None) -> bool:
-    """`head` names the built-in `Prompt`: no type of the module, and no unqualified import, has that name."""
+def names_builtin_prompt(head: str, *, type_refs: Mapping[str, TypeRef], import_scope: ModuleImportScope | None,
+                         local_type_params: frozenset[str]) -> bool:
+    """`head` names the built-in `Prompt`: no type of the module, no unqualified import and no type parameter in
+    scope has that name."""
 
     local = type_refs.get(head)
     imported = import_scope is not None and head in import_scope.unqualified_type_bindings
-    return head == "Prompt" and local == PrimitiveTypeRef(name="Prompt") and not imported
+    shadowed = imported or head in local_type_params
+    return head == "Prompt" and local == PrimitiveTypeRef(name="Prompt") and not shadowed
 
 
 def resolve_prompt_type(parsed: AppliedTypeExpr, *, admitted: bool, resolve_arg: Callable[[object], TypeRef],
@@ -111,40 +113,25 @@ def refuse_prompt_name(expr: NameExpr, type_ref: TypeRef) -> None:
                 expansion_stack=expr.expansion_stack)
 
 
-def refuse_provider_values(body: ExprNode, *, provider_names: Iterable[str], bound: Iterable[str]) -> None:
-    """A provider extern named in a value position of a body the entry reaches (defect D7).
+# The lowering lookup that a provider extern used as a value reaches: its scope holds the bindings of the
+# program, never an extern, so the name is not found there (defect D7, `KeyError` in this function).
+_PROVIDER_VALUE_LOOKUP = "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
 
-    The positions are those whose lowering reads the name as a value and that typecheck admits: a `let*`
-    binding, a record or variant field, an `if`, `cond` or `match` value, a procedure or `defun` argument,
-    and the body's own result. A list element and a workflow `call` input are refused by typecheck first. A
-    `bind-proc` argument is not refused (design §4.4); an uncalled one is never read. Only a free name is the
-    extern: a parameter of the owner (`bound`) or a local binder of the same name is not.
+
+def refuse_provider_lookup(missing: KeyError, *, provider_names: Iterable[str]) -> None:
+    """Refuse a provider extern that lowering looked up as a value; return for any other missing key.
+
+    The closed build calls this for a `KeyError` it does not otherwise handle, then re-raises the error, which
+    the defect boundary reports as `compiler_defect`. The refusal is raised only where lowering failed on the
+    name, so a program that builds is never refused, and a definition the entry does not reach is never
+    lowered. The location is the innermost authored form the lowering recorded on the error.
     """
 
-    from .expression_traversal import iter_child_exprs, walk_expr
-    from .expressions import (CondExpr, FunctionCallExpr, IfExpr, LetStarExpr, MatchExpr, ProcedureCallExpr,
-                              RecordExpr, UnionVariantExpr)
-
-    extern_ids = _free_provider_ids(body, frozenset(provider_names), frozenset(bound))
-    value_parents = (LetStarExpr, RecordExpr, UnionVariantExpr, IfExpr, CondExpr, MatchExpr, ProcedureCallExpr,
-                     FunctionCallExpr)
-    candidates = [body] + [child for node in walk_expr(body) if isinstance(node, value_parents)
-                           for child in iter_child_exprs(node)]
-    for expr in candidates:
-        if id(expr) in extern_ids:
-            _refuse(f"provider `{expr.name}` (type `Provider`) is a value only as the provider of `provider-result` "
-                    "or `agent`, or as a `bind-proc` argument",
-                    span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
-
-
-def _free_provider_ids(body: ExprNode, names: frozenset[str], bound: frozenset[str]) -> set[int]:
-    """The ids of the free names in `body` that are provider externs and are not a `bind-proc` argument."""
-
-    from .expression_traversal import map_expr, walk_expr
-    from .expressions import BindProcExpr
-
-    free: list[NameExpr] = []
-    map_expr(body, lambda name: free.append(name) or name, bound=bound)
-    arguments = {id(binding.value_expr) for node in walk_expr(body) if isinstance(node, BindProcExpr)
-                 for binding in node.bindings}
-    return {id(name) for name in free if name.name in names} - arguments
+    if len(missing.args) != 1 or missing.args[0] not in frozenset(provider_names):
+        return
+    location = defect_location(missing)
+    if location is None or defect_site(missing) != _PROVIDER_VALUE_LOOKUP:
+        return
+    span, form_path = location
+    _refuse(f"provider `{missing.args[0]}` (type `Provider`) is not a value: it is written only as the provider "
+            "of `provider-result` or `agent`", span=span, form_path=form_path)
