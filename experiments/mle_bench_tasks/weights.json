@@ -1,0 +1,13 @@
+{
+ "about": "The fixed set of pretrained weights in every GPU agent image (family plan docs/plans/2026-11-15-mle-bench-family-plan.md, M6, option B, and ruling M-f). A placeholder: the owner has not decided M6 (owner action 6), and Task 11 fixes the checkpoints by the rule below. No checkpoint is listed, and a GPU tranche cannot freeze while its criterion's tasks.weights is pending. The manifest covers this file, so the set is part of every tranche's label.",
+ "decided": false,
+ "rule": [
+  "Publisher's originals only: a checkpoint as its authors, or the library that ships it, released it, fetched at a named revision.",
+  "General-purpose only: pretrained on general data; none fine-tuned for a downstream task, and none trained or fine-tuned on a Kaggle competition's data or on a dataset one of the thirteen competitions was built from.",
+  "By modality, not by competition: for each kind of input the ten GPU candidates have, the standard base architectures that the benchmark's pinned libraries load by name, in at most two sizes.",
+  "Bounded: at most twelve checkpoints and 8 GB in all, one set, the same in every GPU agent image, in one shared image layer.",
+  "Usable: a licence that allows research use and a local copy; a checkpoint that needs an account to accept terms only if the owner accepts them."
+ ],
+ "entry": "Each checkpoint, once listed: its name, its source and revision, the SHA-256 of every file, its size, its licence and the modality it serves.",
+ "checkpoints": null
+}
