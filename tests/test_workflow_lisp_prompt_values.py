@@ -202,6 +202,51 @@ def test_provider_used_as_a_value_refuses_with_one_diagnostic(tmp_path, position
     assert outcome(tmp_path, body, *definitions) == ("refused", "prompt_value_escape")
 
 
+# The provider stands alone on its line; the refusal is located at that line, in the file that holds it.
+PROVIDER_PLACES = {
+    "directly in the workflow": ("m.orc", "(let* ((p\n      providers.a)) n)", (), None),
+    "in a procedure the workflow calls": ("m.orc", "(f n)", ("(defproc f ((k Int)) -> Int\n    (let* ((p\n      providers.b)) k))",), None),
+    "in a procedure of an imported module": ("lib.orc", "(g n)", (), "(defproc g ((k Int)) -> Int\n    (let* ((p\n      providers.a)) k))"),
+}
+
+
+def _provider_line(path: Path) -> int:
+    (line,) = [number for number, text in enumerate(path.read_text().splitlines(), 1) if text.strip().startswith("providers.")]
+    return line
+
+
+@pytest.mark.parametrize("place", sorted(PROVIDER_PLACES))
+def test_provider_used_as_a_value_is_refused_at_its_own_line(tmp_path, place):
+    file_name, body, definitions, lib = PROVIDER_PLACES[place]
+    with pytest.raises(LispFrontendCompileError) as stopped:
+        build(tmp_path, body, *definitions, lib=lib)
+    (diagnostic,) = stopped.value.diagnostics
+
+    assert (Path(diagnostic.span.start.path).name, diagnostic.span.start.line) == (file_name, _provider_line(tmp_path / file_name))
+
+
+def _with_binder_named_like_a_provider(source: str) -> str:
+    renamed = re.sub(r"(?<![\w.\-])u(?![\w\-])", "providers.a", source)
+    if renamed == source:
+        raise ValueError("the defect record's row no longer binds `u`")
+    return renamed
+
+
+@pytest.mark.parametrize("row", ["D7", "D7-hoisted"])
+def test_a_compiler_defect_on_a_binder_named_like_a_provider_stays_a_compiler_defect(tmp_path, row):
+    """The defect record's row (a loop binder out of scope) with that binder spelled `providers.a`, the extern
+    declared: no provider is used as a value, so the base's crash stands (recorded by the base build)."""
+    from tests.test_workflow_lisp_defect_backlog import ROWS, _install
+
+    path = _install(tmp_path, {"m.orc": _with_binder_named_like_a_provider(ROWS[row].source)})
+    (tmp_path / "providers.json").write_text(json.dumps({"providers.a": "codex"}))
+    seen = build_outcome(lambda: build_closed_program_bundle(FrontendBuildRequest(
+        source_path=path, source_roots=(tmp_path,), entry_workflow="m::run", workspace_root=tmp_path,
+        command_boundaries_path=tmp_path / "commands.json", provider_externs_path=tmp_path / "providers.json")))
+
+    assert seen == ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type")
+
+
 SHADOWS_PROVIDER = {
     "a let* binding": ("(let* ((providers.a 1)) providers.a)", (), "sha256:061d33e31ce4586cc32b2f5d22001309f8e77417707c859cf897c374a091e54f"),
     "a let* binding in a procedure": ("(f 1)", ("(defproc f ((k Int)) -> Int (let* ((providers.a k)) providers.a))",),
