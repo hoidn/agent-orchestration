@@ -555,6 +555,11 @@ or in Podman's store: together they hold about 3 GB. The disk is full for other 
   - **No storage limit applies to a container.** Harbor's local environment never reads the task's
     `storage_mb` (ran: grep of `environments/docker/`), and the overlay on ext4 has no quota. Only the launcher's
     free-space stop (20 GB) protects the disk, and it is checked before a start, not during one.
+    *Correction, 2026-11-15, after the independent review of the family plan: the last clause is
+    wrong. The launcher checks the stop on every pass of its loop, about once a second, attempts in
+    flight or not, on the least free space of `/`, the state root, the cache and the home directory,
+    and under it stops every running attempt and the tranche (source: `ladder.py`, `Tranche.step()`,
+    `host_stops()`, `free_gb()`, `disk_paths()`). The plan's M9 follows the launcher.*
 - **Where the data could live.** Under `~/lh-cache/mle/data` (`/home`) or under a directory on `/`; the mount
   is a plain bind, so either works. `/` has less contention with Podman's store, as the feasibility report says.
 - **Needs** (README figures where marked "table"; the rest are estimates, nothing was downloaded):
