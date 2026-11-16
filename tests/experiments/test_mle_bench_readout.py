@@ -398,7 +398,7 @@ def test_the_thresholds_are_read_from_the_reward_file_and_absent_ones_are_not_re
         {"bronze": None, "silver": None, "gold": None, "median": None})
 
 
-@pytest.mark.parametrize("change, code", [({"reward": 0}, "reward-mismatch"), ({"medal": 0}, "reward-medal"),
+@pytest.mark.parametrize("change, code", [({"reward": 0, "medal": 0}, "reward-mismatch"), ({"medal": 0}, "reward-medal"),
                                           ({"medal": None}, "reward-field")])
 def test_a_reward_file_that_does_not_hold_together_is_refused(tmp_path, change, code):
     rewards = {k: v for k, v in (_rewards(1) | change).items() if v is not None}
