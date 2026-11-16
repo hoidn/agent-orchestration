@@ -13,8 +13,8 @@ Reads (in-image paths; each can be moved by the environment variable of the same
   MLE_GRADER_WORK      the working directory: the benchmark opens a cache in the current directory when it is imported
 Writes, in MLE_LOGS_DIR, each by a temporary file and a rename, reward.json first:
   reward.json          reward is 1 for any medal, else 0. Beside it: valid_submission, above_median (0 or 1), medal
-                       (0 none, 1 bronze, 2 silver, 3 gold) and grader_exception (1 when the benchmark logged an
-                       unexpected error of the grade function in this run, else 0); score and percentile only when the
+                       (0 none, 1 bronze, 2 silver, 3 gold) and grader_exception (see below); score and percentile
+                       only when the
                        grader gives a finite score; gold_, silver_, bronze_ and median_threshold as the grader reports
                        them, each left out when not finite. Never a null: Harbor accepts finite numbers only
   ctrf.json            five tests (valid, above_median, bronze, silver, gold), each passed or failed; the launcher
@@ -27,8 +27,11 @@ Outcomes, all with a written reward of 0 unless a medal is earned:
   - a score that is not finite (NaN, as pearsonr gives for a constant column, or infinite) counts as no score;
     valid_submission stays what the grader reports;
   - the benchmark catches every exception of a competition's grade function and reports no score, so a fault on the
-    grader's side there cannot be told from a bad submission: reward 0, with grader_exception 1 when the benchmark
-    logged the error as unexpected (anything but its InvalidSubmissionError), for a person to rule on.
+    grader's side there cannot be told from a bad submission: reward 0. grader_exception is 1 when the benchmark
+    logged an unexpected exception (anything but its InvalidSubmissionError) inside the competition's grade
+    function in this run, else 0. For several competitions a faulty submission causes exactly that (a grade
+    function that checks with assert, or the fixture's plain ValueError), so the flag marks an attempt for a person
+    to look at; it is not evidence of a grader fault.
 A failure outside the grade function (the registry cannot find the competition, the answers are missing or
 unreadable, the leaderboard is missing, an import fails) escapes: exit non-zero, the error on standard error, and
 neither file written, which the launcher classifies as an infrastructure failure, never as a failed attempt.
@@ -53,7 +56,7 @@ IN_IMAGE = {
 TESTS = ("valid", "above_median", "bronze", "silver", "gold")
 THRESHOLDS = ("gold_threshold", "silver_threshold", "bronze_threshold", "median_threshold")
 GRADER_LOGGER = "mlebench.grade_helpers"  # Grader.__call__ logs an ERROR for an unexpected error of the grade function
-CAP_FLOOR, CAP_MULTIPLE = 64 * 2**20, 50  # the size cap: the larger of 64 MiB and 50 times the largest private file
+CAP_FLOOR, CAP_MULTIPLE = 64 * 2**20, 5  # the size cap: the larger of 64 MiB and 5 times the largest private file
 ABSENT = "refused-submission.csv"  # what the grader is given, in the work directory, for a refused submission
 
 

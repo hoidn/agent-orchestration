@@ -298,12 +298,37 @@ def test_a_submission_that_is_a_symbolic_link_is_not_followed(tmp_path):
     assert done.stderr.startswith("symlink")
 
 
+def _mlebench_state():
+    """The loaded mlebench modules and the sys.path entries that hold an mlebench package."""
+    return (sorted(m for m in sys.modules if m.split(".")[0] == "mlebench"),
+            [p for p in sys.path if (Path(p) / "mlebench").is_dir()])
+
+
+@pytest.fixture(scope="module", autouse=True)
+def no_stand_in_left_loaded():
+    """After this module's tests in a worker, in whatever order they ran: no mlebench module loaded and no path to
+    one added, so no stand-in shadows the benchmark's package for a later test."""
+    before = _mlebench_state()
+    yield
+    assert _mlebench_state() == before
+
+
+@pytest.fixture
+def in_process(monkeypatch):
+    """For a test that runs main() in this process: its cwd and sys.path are put back, and the mlebench it imported
+    (the stand-in) is unloaded."""
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    yield
+    for name in [m for m in sys.modules if m.split(".")[0] == "mlebench"]:
+        del sys.modules[name]
+
+
 @pytest.fixture(scope="module")
 def grading():
     return _load(KIT / "verifier" / "grade_submission.py", "mle_grade_submission")
 
 
-def test_an_oversized_submission_gets_reward_0_and_is_not_valid(grading, tmp_path, monkeypatch, capsys):
+def test_an_oversized_submission_gets_reward_0_and_is_not_valid(grading, in_process, tmp_path, monkeypatch, capsys):
     """Above the size cap (passed lowered here), the attempt's fault: the answers themselves get reward 0, not valid,
     with the thresholds, and the reason on stderr."""
     tree, env = _tree(tmp_path, ANSWERS.read_bytes())
@@ -314,9 +339,9 @@ def test_an_oversized_submission_gets_reward_0_and_is_not_valid(grading, tmp_pat
     assert capsys.readouterr().err.startswith("oversized")
 
 
-def test_the_size_cap_is_the_larger_of_64_mib_and_fifty_times_the_largest_private_file(grading):
+def test_the_size_cap_is_the_larger_of_64_mib_and_five_times_the_largest_private_file(grading):
     private = TINY / "prepared" / "private"
-    assert (grading.size_cap(private), grading.size_cap(private, floor=0)) == (64 * 2**20, 50 * ANSWERS.stat().st_size)
+    assert (grading.size_cap(private), grading.size_cap(private, floor=0)) == (64 * 2**20, 5 * ANSWERS.stat().st_size)
 
 
 @pytest.mark.parametrize("value", ['float("nan")', 'float("inf")', '-float("inf")'])
@@ -569,6 +594,8 @@ REFUSED = {
     "missing-column": (b"id\n" + b"".join(r.split(b",")[0] + b"\n" for r in SAMPLE.read_bytes().splitlines()[1:]),
                        (["missing-column"], [])),
     "renamed-column": (_edit(header="id,prob"), (["extra-column", "missing-column"], [])),
+    "duplicated-column": (("\n".join(f"{line},{line.split(',')[1]}" for line in SAMPLE.read_text().splitlines())
+                           + "\n").encode(), (["duplicate-column"], [])),
     "missing-id": (_edit(drop_rows=[0]), (["missing-id"], [])),
     "extra-id": (_edit(add=["99999999,0.5"]), (["extra-id"], [])),
     "duplicated-id": (_edit(drop_rows=[0], add=[f"{SECOND_ID},0.5"]), (["duplicate-id", "missing-id"], [])),
