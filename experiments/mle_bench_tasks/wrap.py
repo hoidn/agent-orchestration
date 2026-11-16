@@ -36,9 +36,11 @@ Output, written under <out dir>; each directory below must not exist yet (LAYOUT
                      the gold submission) and the public sample submission, for the qualification legs (plan M2).
 
 Withholding holds by construction and by itself (plan M3): public/ and agent_files may neither equal, contain nor
-lie inside private/ or the competition directory; no input root and no file under one may be a symbolic link;
-every name and every input is checked before anything is written. A hard link cannot be told from a copy here;
-the check on the built image (plan Task 3) is the second guard.
+lie inside private/ or the competition directory; no input root and no file under one may be a symbolic link; no
+file given to the agent (public/, agent_files, task.toml, the instruction) may equal by SHA-256 a withheld file
+(withheld(): every file of private/ and of the competition directory, less PUBLIC_BY_DESIGN), which catches a hard
+link or a copy under another name; every name and every input is checked before anything is written. The check
+on the built image (plan Task 3) is the second guard.
 
 It builds no image, runs no container and downloads nothing. Every digest is Harbor's package content hash over
 the bytes of the files (digest()); bytecode caches are never copied, and no path outside an output directory and
@@ -68,6 +70,12 @@ VALIDATOR = "/home/validate_submission.py"  # the agent-side format check (plan 
 VERIFIER_DATA = "/private/data"  # in the verifier image: the grader's data directory, <id>/prepared/private/
 COMPETITIONS = "/opt/mle-bench/mlebench/competitions"  # where the benchmark's registry finds a competition (Task 2)
 GRADER_WORK = "/grader-work"  # the grader's working directory: it writes a cache where it runs (scout report B)
+COMPETITION_ID_VAR = "MLE_COMPETITION_ID"  # the variable Task 2's grade_submission.py reads the id from
+# The withheld files that are public by design and so may also be given to the agent (plan M3); the one place.
+PUBLIC_BY_DESIGN = {
+    "description": "the competition directory's description.md, which the benchmark's preparation copies to public/",
+    "private_sample": "a sample submission config.yaml places in private/; the agent gets its public copy",
+}
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,11}")  # a task name: the launcher's socket paths are at most 107 bytes
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]*")  # a competition id as config.yaml gives it (a Kaggle slug)
 PINNED = re.compile(r"(?:[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/)?[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}")
@@ -204,6 +212,41 @@ def competition_files(competition, data_dir, public_sample=None):
     return cid, public, private, gold, _inside(sample, public, "sample_not_public")
 
 
+def public_by_design(competition, data_dir):
+    """(competition dir, data dir) -> {resolved Path: PUBLIC_BY_DESIGN key}: the withheld files that may also be
+    given to the agent. Reads config.yaml."""
+    cid, _, _, sample = _config(competition)
+    private = (Path(data_dir) / cid / "prepared" / "private").resolve()
+    exempt = {(Path(competition) / "description.md").resolve(): "description"}
+    if private in (Path(data_dir) / sample).resolve().parents:
+        exempt[(Path(data_dir) / sample).resolve()] = "private_sample"
+    return exempt
+
+
+def withheld(competition, data_dir):
+    """(competition dir, data dir) -> {sha256 hex: (kind, resolved Path)} for every file of private/ and of the
+    competition directory, less public_by_design(); kind is "private", "leaderboard" or "grading code"."""
+    cid, _, _, _ = _config(competition)
+    exempt = public_by_design(competition, data_dir)
+    roots = ((Path(data_dir) / cid / "prepared" / "private", "private"), (Path(competition), "grading code"))
+    out = {}
+    for root, kind in roots:
+        for path in _files(root):
+            if path.resolve() not in exempt:
+                kind_here = "leaderboard" if kind != "private" and path.name == "leaderboard.csv" else kind
+                out[hashlib.sha256(path.read_bytes()).hexdigest()] = (kind_here, path.resolve())
+    return out
+
+
+def _not_withheld(given, held):
+    """Refused (withheld_content) when a given (name, bytes) equals a withheld file by SHA-256."""
+    for name, data in given:
+        found = held.get(hashlib.sha256(data).hexdigest())
+        if found:
+            raise Refused("withheld_content", f"{_shown(name)}: equals a withheld file ({found[0]}: "
+                                              f"{_shown(found[1])})")
+
+
 def agent_dockerfile(base):
     """str image -> the agent image's Dockerfile: public data in AGENT_DATA, the tools in /home/."""
     return (f"FROM {base}\nRUN bash -c true\nCOPY data/ {AGENT_DATA}/\nCOPY tools/ /home/\n"
@@ -215,7 +258,7 @@ def verifier_dockerfile(cid, base):
     the competition in COMPETITIONS/<id>/, the variables Task 2's grade_submission.py reads."""
     return (f"FROM {base}\nRUN bash -c true\nCOPY tests/ /tests/\nCOPY data/ {VERIFIER_DATA}/\n"
             f"COPY competition/ {COMPETITIONS}/{cid}/\n"
-            f"ENV MLE_COMPETITION_ID={cid} MLE_DATA_DIR={VERIFIER_DATA}\nWORKDIR {GRADER_WORK}\n")
+            f"ENV {COMPETITION_ID_VAR}={cid} MLE_DATA_DIR={VERIFIER_DATA}\nWORKDIR {GRADER_WORK}\n")
 
 
 def task_toml(family, name, cls, images):
@@ -254,6 +297,19 @@ def package(out, toml, text, submission=None):
     _normalise_dirs(out)
 
 
+def _listed(pairs):
+    """[(source dir, destination dir)] -> [(source, destination, _files(source))]: lists, and so checks, every
+    input tree before anything is written."""
+    return [(src, dst, _files(src)) for src, dst in pairs]
+
+
+def _copy_listed(listed):
+    """Copy every listed file to its destination, keeping its path relative to its source directory."""
+    for src, dst, files in listed:
+        for path in files:
+            _copy(path, dst / path.relative_to(src))
+
+
 def _fresh(out, keys):
     """{LAYOUT key: Path under out}; Refused (output_exists) when one exists."""
     paths = {k: Path(out) / LAYOUT[k] for k in keys}
@@ -276,12 +332,12 @@ def contexts(competition, data_dir, out, *, agent_base, verifier_base, public_sa
             raise Refused("not_a_directory", f"{_shown(files)}: not a directory")
     paths = _fresh(out, ("agent_context", "verifier_context"))
     agent, verifier = paths["agent_context"], paths["verifier_context"]
-    trees = [(public, agent / "data"), (agent_files, agent / "tools"), (verifier_files, verifier / "tests"),
-             (private, verifier / "data" / cid / "prepared" / "private"), (competition, verifier / "competition")]
-    listed = [(src, dst, _files(src)) for src, dst in trees]
-    for src, dst, files in listed:
-        for path in files:
-            _copy(path, dst / path.relative_to(src))
+    given = _listed(((public, agent / "data"), (agent_files, agent / "tools")))
+    kept = _listed(((verifier_files, verifier / "tests"), (private, verifier / "data" / cid / "prepared" / "private"),
+                    (competition, verifier / "competition")))
+    _not_withheld(((path, path.read_bytes()) for _, _, files in given for path in files),
+                  withheld(competition, data_dir))
+    _copy_listed(given + kept)
     _write(agent / "Dockerfile", agent_dockerfile(agent_base))
     _write(verifier / "Dockerfile", verifier_dockerfile(cid, verifier_base))
     for path in paths.values():
@@ -306,6 +362,8 @@ def packages(competition, data_dir, out, *, name, cls, agent_image, verifier_ima
             raise Refused("unpinned_image", f"{ref!r}: the {which} image reference is not <name>@sha256:<64 hex>")
     cid, _, _, gold, sample = competition_files(competition, data_dir, public_sample)
     toml, text = task_toml(family, name, cls, images), instruction(family, cls, competition)
+    _not_withheld([("task.toml", toml.encode("utf-8")), ("instruction.md", text.encode("utf-8"))],
+                  withheld(competition, data_dir))
     paths = _fresh(out, ("attempt", "answers", "sample"))
     for key, submission in (("attempt", None), ("answers", gold), ("sample", sample)):
         package(paths[key], toml, text, submission)

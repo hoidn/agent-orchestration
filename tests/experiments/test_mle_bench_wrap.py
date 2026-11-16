@@ -523,3 +523,76 @@ def test_family_json_matches_the_plans_candidates_table_name_slug_and_class():
             if re.match(r"\| \d+ \|", ln)]
     plan = [(int(r[0]), r[1], r[2], r[4].lower()) for r in rows]
     assert plan == [(c["order"], c["name"], c["slug"], c["class"]) for c in FAMILY["candidates"]]
+
+
+def _env_reads(path):
+    """The names a Python file reads as env["NAME"]: the variables without a default (ast, no import)."""
+    import ast
+    return {n.slice.value for n in ast.walk(ast.parse(path.read_text()))
+            if isinstance(n, ast.Subscript) and getattr(n.value, "id", None) == "env"
+            and isinstance(n.slice, ast.Constant)}
+
+
+def test_every_variable_the_verifier_dockerfile_sets_is_one_task_2_reads(wrap, tools, tmp_path):
+    """The competition id's variable is tied to grade_submission.py's env[...] read, MLE_DATA_DIR to its IN_IMAGE."""
+    _run(wrap, tools, tmp_path / "out")
+    source = KIT / "verifier" / "grade_submission.py"
+    env = [ln for ln in (tmp_path / "out" / "verifier-context" / "Dockerfile").read_text().splitlines()
+           if ln.startswith("ENV ")]
+    assigned = dict(item.split("=", 1) for item in env[0].split()[1:])
+    assert (len(env), _env_reads(source), assigned) == (
+        1, {wrap.COMPETITION_ID_VAR},
+        {wrap.COMPETITION_ID_VAR: "tiny-tabular",
+         next(k for k, v in _assigned(source, "IN_IMAGE").items() if v == wrap.VERIFIER_DATA): wrap.VERIFIER_DATA})
+
+
+@pytest.mark.parametrize("planted, source", [
+    ("public/held.csv", "private/answers.csv"),
+    ("public/ranks.csv", "competition/leaderboard.csv"),
+    ("public/helper.py", "competition/grade.py"),
+    ("agent/notes.csv", "private/answers.csv"),
+])
+@pytest.mark.parametrize("how", ["hard link", "copy"])
+def test_a_withheld_file_under_another_name_in_what_the_agent_is_given_is_refused(
+        wrap, tools, tmp_path, planted, source, how):
+    data, competition, copy = _copy(tmp_path)
+    shutil.copytree(tools, copy / "tools")
+    roots = {"public": copy / "prepared" / "public", "private": copy / "prepared" / "private",
+             "competition": competition, "agent": copy / "tools" / "agent"}
+    (top, rel), (src_top, src_rel) = planted.split("/", 1), source.split("/", 1)
+    (os.link if how == "hard link" else shutil.copyfile)(roots[src_top] / src_rel, roots[top] / rel)
+    with pytest.raises(wrap.Refused) as caught:
+        _contexts(wrap, None, tmp_path / "out", competition=competition, data=data,
+                  agent_files=roots["agent"], verifier_files=copy / "tools" / "verifier")
+    assert (caught.value.code, rel in str(caught.value), (tmp_path / "out").exists()) == (
+        "withheld_content", True, False)
+
+
+def test_only_the_description_is_public_by_design_when_the_sample_is_public(wrap):
+    exempt = wrap.public_by_design(TINY / "competition", FIXTURES)
+    assert (exempt, sorted(wrap.PUBLIC_BY_DESIGN)) == (
+        {(TINY / "competition" / "description.md").resolve(): "description"}, ["description", "private_sample"])
+
+
+def test_a_sample_placed_in_private_is_public_by_design_and_nothing_else_is(wrap, tools, tmp_path):
+    data, competition, copy = _copy(tmp_path)
+    config = competition / "config.yaml"
+    config.write_text(config.read_text().replace("prepared/public/sample_submission.csv",
+                                                 "prepared/private/sample_submission.csv"))
+    shutil.copy(copy / "prepared" / "public" / "sample_submission.csv", copy / "prepared" / "private")
+    exempt = wrap.public_by_design(competition, data)
+    withheld = {p for _, p in wrap.withheld(competition, data).values()}
+    every = {p.resolve() for root in (copy / "prepared" / "private", competition) for p in _files(root)}
+    record = _run(wrap, tools, tmp_path / "out", competition=competition, data=data,
+                  public_sample="sample_submission.csv")
+    assert (sorted(exempt.values()), withheld == every - set(exempt), record["competition"]) == (
+        ["description", "private_sample"], True, "tiny-tabular")
+
+
+def test_an_attempt_package_file_equal_to_a_withheld_file_is_refused(wrap, tmp_path):
+    """The check also covers task.toml and the instruction: here a private file holding the instruction's bytes."""
+    data, competition, copy = _copy(tmp_path)
+    _packages(wrap, tmp_path / "first", competition=competition, data=data)
+    shutil.copyfile(tmp_path / "first" / "attempt" / "instruction.md", copy / "prepared" / "private" / "notes.md")
+    code = _code(wrap, lambda: _packages(wrap, tmp_path / "out", competition=competition, data=data))
+    assert (code, (tmp_path / "out").exists()) == ("withheld_content", False)
