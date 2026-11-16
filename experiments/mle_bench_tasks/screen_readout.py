@@ -42,7 +42,9 @@ STAGE_SLOTS = 3  # attempts per competition in each stage of the screen (M1)
 ABOVE, SURVIVES, UNDECIDED, LOW = "above the band", "survives", "undecided: awaits stage two", "excluded low"
 NOT_SCREENED, NOT_FUNDED = "not screened", "not screened: the second stage was not funded"
 IN_PROGRESS, WITHHELD = "in progress", "withheld: the stage ended in a stop"
-OUTCOMES = ("medal", "valid", "above_median", "score", "percentile")
+OUTCOMES = ("medal", "valid", "above_median", "score", "percentile", "grader_exception")
+GRADER_EXCEPTION_NOTE = ("the benchmark's grader caught an error inside the competition's grade function: the "
+                         "verifier's reward stands and is counted as written; a person rules on it")
 # What Task 6 names and the inputs do not carry (coordinator's note 8): where each would have to come from.
 NOT_IN_THE_INPUTS = {
     "medal thresholds": "the reward file gives the medal level and above_median, not the bronze, silver, gold and "
@@ -75,10 +77,12 @@ class ReadoutError(ValueError):
 # ---- the result file that gave an attempt's reward ----------------------------------------------------------------
 
 def outcomes(rewards):
-    """The graded outcomes of the reward file the verifier writes (Task 2): the one place that knows its fields."""
+    """The graded outcomes of the reward file the verifier writes (Task 2): the one place that knows its fields.
+    score and percentile are absent when the grader gave no finite score, a valid submission included;
+    grader_exception, absent from files written before it was added, reads as 0."""
     return {"medal": int(rewards["medal"]), "valid": int(rewards["valid_submission"]),
             "above_median": int(rewards["above_median"]), "score": rewards.get("score"),
-            "percentile": rewards.get("percentile")}
+            "percentile": rewards.get("percentile"), "grader_exception": int(rewards.get("grader_exception", 0))}
 
 
 def _rewards(path):
@@ -128,8 +132,11 @@ def _refused(starts):
 def _graded(attempts):
     """The counts of the graded outcomes over a stage's observations; an outcome not recorded counts in none."""
     return {"valid": sum(a["valid"] == 1 for a in attempts), "invalid": sum(a["valid"] == 0 for a in attempts),
+            "valid_not_scored": sum(a["valid"] == 1 and a["score"] is None for a in attempts),
             "above_median": sum(a["above_median"] == 1 for a in attempts),
-            "outcomes_not_recorded": sum(a["source"] is None for a in attempts)}
+            "outcomes_not_recorded": sum(a["source"] is None for a in attempts),
+            "grader_exception": sum(a["grader_exception"] == 1 for a in attempts),
+            "grader_exceptions": [a | {"note": GRADER_EXCEPTION_NOTE} for a in attempts if a["grader_exception"] == 1]}
 
 
 def _spent(own, observed, classes):
@@ -318,8 +325,10 @@ def _row(name, c):
     valid, above = sum(s["valid"] for s in stages), sum(s["above_median"] for s in stages)
     usd, cuts = sum(s["usd"] for s in stages), sum(s["cuts"] for s in stages)
     missing = f" ({c['screen']['missing']} missing)" if c["screen"]["missing"] else ""
+    caught = sum(s["grader_exception"] for s in stages)
+    flag = f"; {caught} grader exception(s), for a ruling" if caught else ""
     return (f"{name:<12}  {_cell(c['stage_one']):<9}  {_cell(c['stage_two']):<9}  {valid:>5}  {above:>7}  "
-            f"{usd:>8.2f}  {cuts:>4}  {c['screen']['class']}{missing}")
+            f"{usd:>8.2f}  {cuts:>4}  {c['screen']['class']}{missing}{flag}")
 
 
 def _placed(name, p):
