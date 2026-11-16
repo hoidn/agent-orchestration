@@ -506,10 +506,15 @@ def test_the_command_writes_the_same_json_and_table_twice(tmp_path):
             A in runs[0][1]) == (True, 0, [readout.SURVIVES, readout.SURVIVES, readout.ABOVE], True)
 
 
-def test_the_command_refuses_a_final_readout_whose_manifest_is_not_the_labels(tmp_path):
+def test_the_command_binds_a_final_readout_to_its_label_and_a_rehearsal_not(tmp_path):
+    """The stage's manifest is not frozen and its criterion lies outside the repository: a final readout is refused
+    before anything is written; the same inputs as a rehearsal are read."""
     args = _cli_args(tmp_path, (("--stage-one", _stage(tmp_path, "one", {A: [1, 0, 0]})),))
-    done = _run([*args, "--time-zone", ZONE, "--json", str(tmp_path / "out.json")])
-    assert (done.returncode, "not frozen" in done.stderr, (tmp_path / "out.json").exists()) == (2, True, False)
+    (tmp_path / "stand-ins.json").write_text("{}")
+    final = _run([*args, "--time-zone", ZONE, "--json", str(tmp_path / "final.json")])
+    rehearsal = _run([*args, "--time-zone", ZONE, "--rehearsal", str(tmp_path / "stand-ins.json")])
+    assert (final.returncode, final.stderr.startswith("screen_readout.py: "), (tmp_path / "final.json").exists(),
+            rehearsal.returncode) == (2, True, False, 0)
 
 
 def test_the_document_names_the_inputs_the_exports_do_not_carry(tmp_path):

@@ -22,11 +22,16 @@ with the trial's `jobs/<job>/<trial>/result.json` and each regrade's `regrade/<a
 and `passthrough/requests.jsonl`, the passthrough's request log. Only the export's current label enters a count, as
 in the ladder (D7.6); starts under an earlier label are counted apart.
 
-Classes are computed from observations only. A stage holds three slots per competition; a stage with fewer
-observations than that gives no class: "not screened" once its tranche has ended, with the number missing, and "in
-progress" while it runs (coordinator's note 3 on Task 6, which applies this also where M1's table reads "at least
-one medal among its observations"). A stop withholds every class the stopped stage would decide, and a stopped
-placement places nothing. Standard library only, so it runs under `python -I` like the ladder's kit.
+Classes are computed from observations only (stage_class; coordinator's ruling on fix round 1). A competition has
+a class as soon as no outcome of its missing observations could change it, and is "incomplete", with the number
+missing, until then; one with no observation at all is "not screened", and one stage two did not fund "not funded".
+The readout never reclassifies what the launcher exported: an observation whose reward no result file gives stays
+an observation, is listed, and a class that would differ without such observations is marked. A stop withholds every
+class the stopped stage would decide, and a stopped placement places nothing.
+
+The day (M9): a request counts on the calendar day, in the zone given, on which the passthrough received it (its
+request-log row's time). A final readout reads the criterion its label names (bound). Standard library only, so it
+runs under `python -I` like the ladder's kit.
 """
 
 import argparse
@@ -37,24 +42,27 @@ import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-LADDER_KIT = Path(__file__).resolve().parents[1] / "long_horizon_tasks"
+EXPERIMENTS = Path(__file__).resolve().parents[1]
+LADDER_KIT = EXPERIMENTS / "long_horizon_tasks"
 STAGE_SLOTS = 3  # attempts per competition in each stage of the screen (M1)
 ABOVE, SURVIVES, UNDECIDED, LOW = "above the band", "survives", "undecided: awaits stage two", "excluded low"
-NOT_SCREENED, NOT_FUNDED = "not screened", "not screened: the second stage was not funded"
-IN_PROGRESS, WITHHELD = "in progress", "withheld: the stage ended in a stop"
+NOT_SCREENED, NOT_FUNDED, INCOMPLETE = "not screened", "not funded", "incomplete"
+WITHHELD = "withheld: the stage ended in a stop"
 OUTCOMES = ("medal", "valid", "above_median", "score", "percentile", "grader_exception")
+THRESHOLDS = ("bronze", "silver", "gold", "median")  # the reward file's <name>_threshold fields
+DAY_RULE = ("a request counts on the calendar day, in the given time zone, on which the passthrough received it: "
+            "its request-log row's time")
+NO_RESULT_REASON = {0: "no result file gives this reward: the launcher records 0 for an observation whose two "
+                       "regrades both ended in a verifier timeout (ladder.py `regraded`, regrade case 1)"}
+NO_RULE = "no result file gives this reward, and the launcher has no rule that records it without one"
 GRADER_EXCEPTION_NOTE = ("the benchmark's grader caught an error inside the competition's grade function: the "
                          "verifier's reward stands and is counted as written; a person rules on it")
 # What Task 6 names and the inputs do not carry (coordinator's note 8): where each would have to come from.
 NOT_IN_THE_INPUTS = {
-    "medal thresholds": "the reward file gives the medal level and above_median, not the bronze, silver, gold and "
-                        "median lines; the verifier would have to write the grader report's thresholds beside them",
-    "installed packages": "neither the export nor the result file lists them; they would be parsed from each "
-                          "attempt's transcript (the trial's agent/claude-code.txt), by a parser of its own",
-    "processes holding the GPU": "the wrapper's once-a-minute record (plan M4, item 7) is not yet written; its file "
-                                 "and form are Task 5's",
-    "time of pricing": "a request row carries the time the passthrough received the request, not the time it priced "
-                       "the answer; the day is that row's time",
+    "installed packages": "dropped from Task 6 (coordinator's ruling on fix round 1): neither the export nor the "
+                          "result file lists them; they would be parsed from each attempt's transcript",
+    "processes holding the GPU": "the wrapper's once-a-minute record (plan M4, item 7) is Task 5's; its file and form "
+                                 "are not yet written",
 }
 
 
@@ -66,6 +74,9 @@ def _ladder(name):
 
 
 ladder = _ladder("readout")
+# The ladder's bound() keys each file it checks as f"{KIT_PATH}/{name}"; on this private load the prefix is the
+# experiments directory, so that one manifest can bind this family's files and the ladder's (bound, below).
+ladder.KIT_PATH = "experiments"
 slot_record = ladder.slot_record  # the one loaded by the ladder's readout, so that its RecordError is one class
 interval = ladder.interval
 
@@ -79,10 +90,18 @@ class ReadoutError(ValueError):
 def outcomes(rewards):
     """The graded outcomes of the reward file the verifier writes (Task 2): the one place that knows its fields.
     score and percentile are absent when the grader gave no finite score, a valid submission included;
-    grader_exception, absent from files written before it was added, reads as 0."""
+    grader_exception, absent from files written before it was added, reads as 0; a threshold the grader gave none
+    for is absent and is not recorded (None)."""
     return {"medal": int(rewards["medal"]), "valid": int(rewards["valid_submission"]),
             "above_median": int(rewards["above_median"]), "score": rewards.get("score"),
-            "percentile": rewards.get("percentile"), "grader_exception": int(rewards.get("grader_exception", 0))}
+            "percentile": rewards.get("percentile"), "grader_exception": int(rewards.get("grader_exception", 0)),
+            "thresholds": {name: rewards.get(f"{name}_threshold") for name in THRESHOLDS}}
+
+
+def _no_outcomes(start):
+    """An observation that no result file backs: nothing graded, and the reason the reward stands as exported."""
+    return dict.fromkeys(OUTCOMES) | {"thresholds": dict.fromkeys(THRESHOLDS),
+                                      "reason": NO_RESULT_REASON.get(start["reward"], NO_RULE)}
 
 
 def _rewards(path):
@@ -113,7 +132,7 @@ def _attempt(start, state):
     if rewards is not None and rewards["reward"] != start["reward"]:
         raise ReadoutError(f"start {start['start']}: the {source}'s result gives reward {rewards['reward']}, the "
                            f"export {start['reward']}")
-    graded = outcomes(rewards) if rewards else dict.fromkeys(OUTCOMES)
+    graded = outcomes(rewards) if rewards else _no_outcomes(start)
     return {"start": start["start"], "slot": start["slot"], "reward": start["reward"], "source": source,
             "ending": start["ending"], "flagged": start["flagged"], "usd": start["usd"],
             "minutes": start["minutes"]} | graded
@@ -139,6 +158,13 @@ def _graded(attempts):
             "grader_exceptions": [a | {"note": GRADER_EXCEPTION_NOTE} for a in attempts if a["grader_exception"] == 1]}
 
 
+def _unbacked(attempts):
+    """The observations whose reward no result file gives: listed, with the launcher's reason, for a ruling."""
+    listed = [a for a in attempts if a["source"] is None]
+    return {"reward_without_result": len(listed), "rewards_without_result": listed,
+            "medals_without_result": sum(a["reward"] == 1 for a in listed)}
+
+
 def _spent(own, observed, classes):
     """Cost of every start that counts as one (cuts and failures included), minutes over observations, cuts."""
     minutes, left = ladder._recorded([s["minutes"] for s in observed])
@@ -157,7 +183,7 @@ def _competition(name, current, listed, state, classes):
     return {"observations": len(observed), "medals": sum(s["success"] for s in observed), "attempts": attempts,
             "flagged": sum(s["flagged"] for s in observed), "egress_refused": _refused(own),
             "not_counted": [e for e in listed["exclusions"] if e["task"] == name]} | _graded(attempts) | _spent(
-                own, observed, classes)
+                own, observed, classes) | _unbacked(attempts)
 
 
 def stage(criterion, export, state, standins=None):
@@ -183,36 +209,48 @@ def _stopped(result):
 
 # ---- the screen's classes (M1) ------------------------------------------------------------------------------------
 
-def _short(ended):
-    """The class of a stage with fewer observations than its slots: none, said one of two ways."""
-    return NOT_SCREENED if ended else IN_PROGRESS
+def stage_class(stage, medals, observations, slots=STAGE_SLOTS):
+    """(class, missing) of one stage of M1, from its medals among its observations of its slots: a class as soon as
+    no outcome of the missing observations could change it, else "incomplete" with the number missing. Stage one:
+    any medal beside a non-medal survives; every slot a medal is above the band; no medal in all its slots goes to
+    stage two. Stage two (after no medal in stage one): any medal survives at once; no medal in all its slots, six
+    observations over both stages, is excluded low."""
+    missing = slots - observations
+    if stage == "two" and medals >= 1 or stage == "one" and 1 <= medals < observations:
+        return SURVIVES, 0
+    if missing:
+        return INCOMPLETE, missing
+    if stage == "two":
+        return LOW, 0
+    return (ABOVE if medals == slots else UNDECIDED), 0
 
 
 def screen_class(one, two, funded):
-    """(class, missing) of M1. one and two are a stage's {"observations", "medals", "ended", "stopped"}; two is None
-    when stage two did not run for the competition; funded is False when stage two did not fund it, None while that
-    is not yet known. missing counts the observations the deciding stage still lacks."""
+    """(class, missing) of M1 over both stages. one and two are a stage's {"observations", "medals", "stopped"}; two
+    is None when stage two did not run for the competition; funded is False when stage two did not fund it, None
+    while that is not yet known."""
     if one["stopped"]:
         return WITHHELD, None
-    if one["observations"] < STAGE_SLOTS:
-        return _short(one["ended"]), STAGE_SLOTS - one["observations"]
-    if one["medals"] == STAGE_SLOTS:
-        return ABOVE, 0
-    if one["medals"] >= 1:
-        return SURVIVES, 0
+    if one["observations"] == 0:
+        return NOT_SCREENED, STAGE_SLOTS
+    cls, missing = stage_class("one", one["medals"], one["observations"])
+    if cls != UNDECIDED:
+        return cls, missing
+    if funded is False:
+        return NOT_FUNDED, STAGE_SLOTS
     if two is None:
-        return (NOT_FUNDED if funded is False else UNDECIDED), (STAGE_SLOTS if funded is False else None)
+        return UNDECIDED, STAGE_SLOTS
     if two["stopped"]:
         return WITHHELD, None
-    if two["observations"] < STAGE_SLOTS:
-        return _short(two["ended"]), STAGE_SLOTS - two["observations"]
-    return (SURVIVES if two["medals"] >= 1 else LOW), 0
+    return stage_class("two", two["medals"], two["observations"])
 
 
-def _state(stage_result, name):
+def _state(stage_result, name, backed=False):
+    """A stage's counts for screen_class; backed leaves out the observations no result file backs."""
     figures = stage_result["competitions"][name]
-    return {"observations": figures["observations"], "medals": figures["medals"],
-            "ended": stage_result["end"] is not None, "stopped": _stopped(stage_result)}
+    less = (figures["reward_without_result"], figures["medals_without_result"]) if backed else (0, 0)
+    return {"observations": figures["observations"] - less[0], "medals": figures["medals"] - less[1],
+            "stopped": _stopped(stage_result)}
 
 
 def _check_stage_two(one, two):
@@ -233,8 +271,9 @@ def _screen(one, two, no_stage_two):
         in_two = two is not None and name in two["competitions"]
         funded = in_two if two is not None else (False if no_stage_two else None)
         cls, missing = screen_class(_state(one, name), _state(two, name) if in_two else None, funded)
+        backed, _ = screen_class(_state(one, name, True), _state(two, name, True) if in_two else None, funded)
         stages = [one] + ([two] if in_two else [])
-        screened[name] = {"class": cls, "missing": missing,
+        screened[name] = {"class": cls, "missing": missing, "rests_on_rewards_without_result": backed != cls,
                           "observations": sum(s["competitions"][name]["observations"] for s in stages),
                           "medals": sum(s["competitions"][name]["medals"] for s in stages)}
     return screened
@@ -301,7 +340,7 @@ def compute(stage_one, stage_two=None, *, no_stage_two=False, placement=None, ti
     return {"rehearsal": one["rehearsal"] or bool(two and two["rehearsal"]), "stop": _stop(one, two, placed),
             "stages": {"one": _summary(one), "two": _summary(two)}, "no_stage_two": no_stage_two,
             "competitions": _joined(screened, one, two), "placement": placed,
-            "per_day_usd": per_day(states, time_zone), "time_zone": str(time_zone),
+            "per_day_usd": per_day(states, time_zone), "time_zone": str(time_zone), "day_rule": DAY_RULE,
             "not_in_the_inputs": NOT_IN_THE_INPUTS}
 
 
@@ -325,10 +364,31 @@ def _row(name, c):
     valid, above = sum(s["valid"] for s in stages), sum(s["above_median"] for s in stages)
     usd, cuts = sum(s["usd"] for s in stages), sum(s["cuts"] for s in stages)
     missing = f" ({c['screen']['missing']} missing)" if c["screen"]["missing"] else ""
-    caught = sum(s["grader_exception"] for s in stages)
-    flag = f"; {caught} grader exception(s), for a ruling" if caught else ""
     return (f"{name:<12}  {_cell(c['stage_one']):<9}  {_cell(c['stage_two']):<9}  {valid:>5}  {above:>7}  "
-            f"{usd:>8.2f}  {cuts:>4}  {c['screen']['class']}{missing}{flag}")
+            f"{usd:>8.2f}  {cuts:>4}  {c['screen']['class']}{missing}{_marks(c['screen'], stages)}")
+
+
+def _marks(screen, stages):
+    """The row's notes for a person's ruling: grader exceptions, rewards with no verifier result, and a class that
+    would differ without those rewards."""
+    caught, unbacked = (sum(s[key] for s in stages) for key in ("grader_exception", "reward_without_result"))
+    notes = [f"{caught} grader exception(s), for a ruling"] * bool(caught) + [
+        f"{unbacked} reward(s) without a verifier result, for a ruling"] * bool(unbacked) + [
+        "the class rests on rewards without a verifier result"] * screen["rests_on_rewards_without_result"]
+    return "".join(f"; {note}" for note in notes)
+
+
+def _figure(value):
+    return "not recorded" if value is None else f"{value:g}"
+
+
+def _scores(c):
+    """One line per observation: its score against the thresholds the reward file gives. Start numbers repeat from
+    tranche to tranche, so each line names its stage."""
+    attempts = [(stage, a) for stage in ("one", "two") if c[f"stage_{stage}"] for a in c[f"stage_{stage}"]["attempts"]]
+    return [f"  stage {stage} start {a['start']}: score {'none' if a['score'] is None else _figure(a['score'])} "
+            "against " + ", ".join(f"{name} {_figure(value)}" for name, value in a["thresholds"].items())
+            for stage, a in attempts]
 
 
 def _placed(name, p):
@@ -340,7 +400,7 @@ def table(result):
     """The short plain-text table, from compute's result alone."""
     lines = [f"{'competition':<12}  {'stage one':<9}  {'stage two':<9}  {'valid':>5}  {'>median':>7}  "
              f"{'usd':>8}  {'cuts':>4}  class"]
-    lines += [_row(name, c) for name, c in result["competitions"].items()]
+    lines += [line for name, c in result["competitions"].items() for line in [_row(name, c), *_scores(c)]]
     lines += [_placed(name, p) for name, p in ((result["placement"] or {}).get("competitions") or {}).items()]
     lines += [f"day {day}: USD {usd:.2f} ({result['time_zone']})" for day, usd in result["per_day_usd"].items()]
     stop = result["stop"]
@@ -352,29 +412,50 @@ def document(result):
     return json.dumps(result, indent=1, sort_keys=True, ensure_ascii=False) + "\n"
 
 
-def _given(paths):
+def bound(criterion_path, manifest_path, label, root=EXPERIMENTS.parent):
+    """A final readout reads the criterion its label names: the ladder's own bound() (the manifest frozen, its
+    SHA-256 the label, each file the readout reads recorded in it as it is) over the tranche's criterion, this module
+    and the two ladder modules it loads, keyed by their paths from the repository root (Task 4's manifests follow the
+    ladder's format). None, or the ladder's ReadoutError naming what does not hold."""
+    try:
+        criterion = Path(criterion_path).resolve().relative_to((Path(root) / "experiments").resolve())
+    except ValueError:
+        raise ReadoutError(f"the criterion {criterion_path} is not under {Path(root) / 'experiments'}") from None
+    files = {criterion.as_posix(): Path(criterion_path).read_bytes(),
+             "mle_bench_tasks/screen_readout.py": Path(__file__).read_bytes()} | {
+        f"long_horizon_tasks/{name}": (LADDER_KIT / name).read_bytes() for name in ("readout.py", "slot_record.py")}
+    ladder.bound(files, Path(manifest_path).read_bytes(), label)
+
+
+def _given(paths, final):
+    """A stage's (criterion, export, state root) from its four paths; in a final readout, bound to its label."""
     if paths is None:
         return None
-    export, state, criterion = (Path(p) for p in paths)
-    return slot_record.read(criterion), slot_record.read(export), state
+    export, state, criterion, manifest = (Path(p) for p in paths)
+    doc = slot_record.read(export)
+    if final:
+        bound(criterion, manifest, doc["label"])
+    return slot_record.read(criterion), doc, state
 
 
 def main(argv):
     parser = argparse.ArgumentParser(description="The MLE-bench screen readout (plan M1, Task 6): prints a short "
                                      "table; with --json, writes the readout as one JSON document.")
-    stage_args = {"nargs": 3, "metavar": ("EXPORT", "STATE", "CRITERION")}
-    parser.add_argument("--stage-one", required=True, **stage_args, help="stage one's export, state root, ladder.json")
+    stage_args = {"nargs": 4, "metavar": ("EXPORT", "STATE", "CRITERION", "MANIFEST")}
+    parser.add_argument("--stage-one", required=True, **stage_args,
+                        help="stage one's export, state root, ladder.json and manifests/<tranche>.json")
     two = parser.add_mutually_exclusive_group()
-    two.add_argument("--stage-two", **stage_args, help="stage two's export, state root and ladder.json")
+    two.add_argument("--stage-two", **stage_args, help="stage two's four paths, as for --stage-one")
     two.add_argument("--no-stage-two", action="store_true", help="stage two was not funded (M9: k is zero)")
-    parser.add_argument("--placement", **stage_args, help="the placement's export, state root and ladder.json")
+    parser.add_argument("--placement", **stage_args, help="the placement's four paths, as for --stage-one")
     parser.add_argument("--time-zone", required=True, help="this machine's IANA time zone, e.g. America/Los_Angeles")
     parser.add_argument("--rehearsal", metavar="STAND_INS", help="stand-ins for the pending readout fields")
     parser.add_argument("--json", metavar="PATH", help="where to write the JSON document")
     args = parser.parse_args(argv)
     try:
-        result = compute(_given(args.stage_one), _given(args.stage_two), no_stage_two=args.no_stage_two,
-                         placement=_given(args.placement), time_zone=ZoneInfo(args.time_zone),
+        final = args.rehearsal is None  # a rehearsal reads unfrozen criteria, as the ladder's does
+        result = compute(_given(args.stage_one, final), _given(args.stage_two, final), no_stage_two=args.no_stage_two,
+                         placement=_given(args.placement, final), time_zone=ZoneInfo(args.time_zone),
                          standins=slot_record.read(Path(args.rehearsal)) if args.rehearsal else None)
     except (ReadoutError, ladder.ReadoutError, slot_record.RecordError) as error:
         print(f"screen_readout.py: {error}", file=sys.stderr)
