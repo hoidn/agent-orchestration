@@ -75,7 +75,7 @@ def test_the_result_names_every_kind_of_finding_and_the_caps(wc, tmp_path):
         ["caps", "files_checked", "findings", "image", "verdict"],
         ["benchmark", "grader_hash", "leaderboard_hash", "links_outside", "not_inspected", "private_hash",
          "private_lines", "unreadable"],
-        ["archive_depth", "read_bytes", "text_probe_bytes"])
+        ["archive_bytes", "archive_depth", "line_bytes"])
 
 
 def test_an_export_with_no_file_fails(wc, tmp_path):
@@ -98,11 +98,6 @@ def test_a_withheld_file_is_found_by_hash_under_another_name_at_depth(wc, tmp_pa
     assert (result["verdict"], _paths(result, kind)) == ("fail", ["var/cache/a/b/c/notes.bin"])
 
 
-def test_a_file_larger_than_the_read_cap_is_still_found_by_hash(wc, tmp_path):
-    result = _run(wc, _export(tmp_path / "x", {"opt/blob.dat": ANSWERS.read_bytes()}), cap=64)
-    assert _paths(result, "private_hash") == ["opt/blob.dat"]
-
-
 # --- (b) private-only lines ----------------------------------------------------------------------------------------
 
 def test_a_file_holding_a_share_of_the_answers_lines_is_found_with_its_count(wc, tmp_path):
@@ -117,11 +112,11 @@ def test_one_answers_line_is_a_hit(wc, tmp_path):
 
 
 def test_the_answers_header_and_blank_lines_are_not_counted(wc, tmp_path):
-    """Neither the header nor a blank line occurs in a public file here, so only the rule keeps them out."""
+    """No public file is text here, so neither the header nor a blank line occurs in one: only the rule keeps them out."""
     inputs = {"private": tmp_path / "private", "public": tmp_path / "public", "grader": tmp_path / "grader",
               "leaderboard": tmp_path / "grader" / "leaderboard.csv"}
     _put(inputs["private"] / "answers.csv", b"id,secret_target\n1,a\n\n   \n2,b\n")
-    _put(inputs["public"] / "test.csv", b"id\n1\n2\n")
+    _put(inputs["public"] / "images.bin", b"\x00\x01")
     _put(inputs["leaderboard"], b"team,score\nt,1\n")
     _put(tmp_path / "x" / "tmp" / "h.csv", b"id,secret_target\n\n   \nnote\n")
     assert _run(wc, tmp_path / "x", **inputs)["verdict"] == "pass"
@@ -147,14 +142,42 @@ def test_a_public_file_sharing_most_lines_with_the_training_data_is_not_a_hit(wc
     assert result["verdict"] == "pass"
 
 
-def test_a_large_file_of_an_answers_type_is_not_inspected_and_fails(wc, tmp_path):
-    big = b"id,value\n" + b"".join(b"%d,0.5\n" % i for i in range(2000))
-    result = _run(wc, _export(tmp_path / "x", {"data/big.csv": big}), cap=SMALL)
-    assert (result["verdict"], _paths(result, "not_inspected")) == ("fail", ["data/big.csv"])
+def _filler(size):
+    """Public-looking rows (never an answers line) of about `size` bytes."""
+    row = b"%07d,0.12345,0.67890,1\n"
+    return b"".join(row % i for i in range(size // len(row % 0)))
 
 
-def test_a_large_file_of_another_type_is_hashed_only(wc, tmp_path):
-    result = _run(wc, _export(tmp_path / "x", {"usr/lib/libbig.so": b"\x00" * (SMALL * 3)}), cap=SMALL)
+def test_a_private_line_near_the_end_of_a_file_far_over_the_cap_is_found(wc, tmp_path):
+    """Read as a stream, whatever the size: the line sits across a read-chunk boundary, 3 MiB into a 4 MiB file."""
+    line, start = _rows(ANSWERS, 1, start=9), 3 * wc.CHUNK - 3
+    head = _filler(3 * wc.CHUNK)
+    head = head[:head.rindex(b"\n", 0, start - 1) + 1]
+    data = head + b"z" * (start - len(head) - 1) + b"\n" + line + _filler(wc.CHUNK)
+    assert data.index(line) == start
+    result = _run(wc, _export(tmp_path / "x", {"root/big.csv": data}), cap=wc.CHUNK // 4)
+    assert result["findings"]["private_lines"] == [{"path": "root/big.csv", "lines": {"answers.csv": 1}}]
+
+
+def test_a_large_clean_table_passes(wc, tmp_path):
+    result = _run(wc, _export(tmp_path / "x", {"root/big.csv": _filler(3 * wc.CHUNK)}), cap=wc.CHUNK // 4)
+    assert result["verdict"] == "pass"
+
+
+def test_a_line_over_the_line_cap_is_not_compared_and_the_next_line_is(wc, tmp_path):
+    first, second = _rows(ANSWERS, 1, start=2), _rows(ANSWERS, 1, start=4)
+    data = b"x" * (wc.LINE_CAP + wc.CHUNK) + first + second
+    result = _run(wc, _export(tmp_path / "x", {"root/long.txt": data}))
+    assert result["findings"]["private_lines"] == [{"path": "root/long.txt", "lines": {"answers.csv": 1}}]
+
+
+def test_a_table_that_is_not_text_is_not_inspected_and_fails(wc, tmp_path):
+    result = _run(wc, _export(tmp_path / "x", {"data/odd.csv": b"id,value\n1,\x00\n"}))
+    assert (result["verdict"], _paths(result, "not_inspected")) == ("fail", ["data/odd.csv"])
+
+
+def test_a_binary_file_of_another_type_is_hashed_only(wc, tmp_path):
+    result = _run(wc, _export(tmp_path / "x", {"usr/lib/libbig.so": b"\x00" * (SMALL * 3)}))
     assert result["verdict"] == "pass"
 
 
@@ -282,6 +305,20 @@ def test_a_link_inside_the_export_passes(wc, tmp_path):
     (export / "etc" / "rel").symlink_to("../home/data/train.csv")
     (export / "etc" / "abs").symlink_to("/usr/bin/tool")
     assert _run(wc, export)["verdict"] == "pass"
+
+
+@pytest.mark.parametrize("form", ["directory", "tar"])
+@pytest.mark.parametrize("target, leaves", [
+    ("/etc/alternatives/python3", False),  # absolute: resolved against the export's root, even if absent there
+    ("../lib/python3/dist-packages/x", False),
+    ("../../../../opt/x", True),  # climbs above the root
+    ("/usr/../../x", True),
+])
+def test_a_link_leaves_the_export_only_when_it_climbs_above_its_root(wc, tmp_path, form, target, leaves):
+    export = _export(tmp_path / "x")
+    (export / "usr" / "bin" / "python3").symlink_to(target)
+    result = _run(wc, export if form == "directory" else _as_tar(export, tmp_path / "x.tar"))
+    assert _paths(result, "links_outside") == (["usr/bin/python3"] if leaves else [])
 
 
 # --- a tar export, read as a stream --------------------------------------------------------------------------------

@@ -10,35 +10,40 @@ What is a hit (each a kind of finding in the result):
   private_hash, grader_hash, leaderboard_hash: a file whose SHA-256 equals that of a private file, a grading-code
       file or the leaderboard snapshot, under any name and at any depth. A source file byte-identical to a public
       file (the competition's description.md) is no target: the agent is given it.
-  private_lines: a file holding at least one private-only line. A private-only line is a line of a private text
-      file, other than its first line (the header) and blank lines, that occurs in no public text file. Lines are
-      compared with surrounding whitespace stripped (so CRLF and LF match); a file's count is the number of
+  private_lines: a text file holding at least one private-only line. A private-only line is a line of a private
+      text file, other than its first line (the header) and blank lines, that occurs in no public file. Lines are
+      compared as bytes with surrounding whitespace stripped (so CRLF and LF match); a file's count is the number of
       distinct such lines it holds, per private file. A line that also occurs in a public file is never a hit.
+      Every file is read line by line as a stream, whatever its size, and never loaded whole.
   benchmark: a path component named for the benchmark's package (`mlebench`, `mlebench-<...>`, `mlebench.<...>`,
       `__editable__.mlebench...`) or for the competition id (config.yaml's `id`), as a directory, a file or an
       archive (`<id>.tar.gz`). A file equal by hash to a competition-directory file is a grader_hash.
 Fail closed (each fails the check, with the path named):
   unreadable: a path that cannot be read, a special file (fifo, device, socket), a tar member that cannot be
       extracted, a corrupt archive, a hard link to a member not earlier in the tar.
-  not_inspected: an archive over the read cap or inside another archive; a file over the read cap whose suffix
-      marks a type that could hold the answers (ANSWER_TYPES).
-  links_outside: a symbolic link whose target climbs above the export's root (absolute targets are read inside
-      the image, as the container sees them). No symbolic link is followed.
+  not_inspected: an archive over the archive cap or inside another archive; a file named as a table or text
+      (TABLE_TYPES) that is not text.
+  links_outside: a symbolic link whose target climbs above the export's root. An absolute target is resolved
+      against the export's root, as the container sees it (`/usr/bin/x -> /etc/alternatives/x` stays inside); only
+      `..` components that climb above that root leave it. No symbolic link is followed.
 An export with no regular file fails too.
 
-Caps, and why (real images are several gigabytes with a deep-learning stack):
-  READ_CAP (64 MiB): a file up to this size is read whole, once, for its hash, its lines and, if an archive, its
-      members; a larger one is hashed in 1 MiB chunks. Peak memory is one such file plus the private-only lines.
-  TEXT_PROBE (8 KiB): a file is text when its first 8 KiB hold no NUL byte (git's rule); only text files enter
-      the line check, on both the input and the export side.
-  Archives (ARCHIVES suffixes) up to READ_CAP are opened one level deep, their members checked as files.
-A file byte-identical to a public file is public content and is not opened further (a public archive copied
-unchanged into the image may exceed the cap).
+Text, caps and memory (real images are several gigabytes with a deep-learning stack, and a competition's public
+training table, in the image by design, can be hundreds of megabytes):
+  A file is text when it holds no NUL byte. Lines are compared as bytes, so a file in any ASCII-compatible encoding
+      is inspected; a file with a NUL byte (binary, or UTF-16) is checked by hash only, or, if named as a table or
+      text, reported as not inspected.
+  A file byte-identical to a public file is public content: it is not reported and not opened further.
+  ARCHIVE_CAP (64 MiB, `cap`): an archive (ARCHIVES suffixes) up to this size is held in memory and opened one level
+      deep, its members checked as files; this is the only cap on a file's size.
+  LINE_CAP (1 MiB): a line longer than this is not compared (it is never kept whole); every other line is.
+  Memory: the private-only line set, one 16-byte BLAKE2b digest per line (about 100 bytes each with the set's
+      overhead, so ten million lines take about 1 GB), plus one archive of at most ARCHIVE_CAP, plus CHUNK and one
+      line of at most LINE_CAP. Time grows with the export's size and archive members' decompressed size.
 
 What this cannot see: answers re-encoded (another delimiter, number format, encoding such as UTF-16, a binary
 format such as parquet or pickle, compression other than the listed suffixes), split across files or lines
 differently, partly altered rows, values only (without their row), or anything learned into model weights.
-Memory grows with the private text files' size; time grows with the decompressed size of archive members.
 
 Usage: python -m experiments.mle_bench_tasks.withhold_check --image-ref R --export PATH --private DIR \\
            --grader DIR --leaderboard FILE --public DIR --out result.json
@@ -61,10 +66,10 @@ from pathlib import Path
 
 from experiments.mle_bench_tasks.wrap import PINNED
 
-READ_CAP = 64 << 20
-TEXT_PROBE = 8192
+ARCHIVE_CAP = 64 << 20
+LINE_CAP = 1 << 20
 CHUNK = 1 << 20
-ANSWER_TYPES = (".csv", ".tsv", ".json", ".jsonl", ".parquet", ".txt")
+TABLE_TYPES = (".csv", ".tsv", ".json", ".jsonl", ".txt")
 ARCHIVES = (".tar.gz", ".tgz", ".tar", ".zip", ".gz")
 KINDS = ("private_hash", "grader_hash", "leaderboard_hash", "private_lines", "benchmark", "not_inspected",
          "unreadable", "links_outside")
@@ -94,21 +99,44 @@ def _sha(path):
     return digest.hexdigest()
 
 
-def _is_text(head):
-    return b"\x00" not in head[:TEXT_PROBE]
+def _digest(line):
+    return hashlib.blake2b(line, digest_size=16).digest()
 
 
-def _text_lines(path, skip_header):
-    """The stripped non-blank lines of a text file (none for a binary file)."""
-    with open(path, "rb") as fh:
-        if not _is_text(fh.read(TEXT_PROBE)):
-            return
-        fh.seek(0)
-        if skip_header:
-            next(fh, None)
-        for line in fh:
-            if line := line.strip():
-                yield line
+class _Lines:
+    """The stripped non-blank lines of a stream fed in chunks (an empty chunk ends it), none after a NUL byte."""
+
+    def __init__(self):
+        self.carry, self.text, self.long = b"", True, False
+
+    def feed(self, chunk):
+        self.text = self.text and b"\x00" not in chunk
+        if not self.text:
+            return []
+        parts = (self.carry + chunk).split(b"\n")
+        self.carry = parts.pop() if chunk else b""
+        if self.long and parts:  # the end of a line over LINE_CAP: never compared
+            parts[0], self.long = b"", False
+        if len(self.carry) > LINE_CAP:
+            self.carry, self.long = b"", True
+        return [line for part in parts if (line := part.strip())]
+
+
+def _read(stream, wanted=None, digest=None, keep=-1):
+    """Read `stream` to its end in chunks: (digests of its lines, in `wanted` if given; True if no NUL byte; the whole
+    content if at most `keep` bytes, else None). `digest` is updated with every byte."""
+    lines, found, kept = _Lines(), set(), bytearray() if keep >= 0 else None
+    while True:
+        chunk = stream.read(CHUNK)
+        if digest:
+            digest.update(chunk)
+        if kept is not None:
+            kept += chunk
+            kept = kept if len(kept) <= keep else None
+        digests = (_digest(line) for line in lines.feed(chunk))
+        found.update(d for d in digests if wanted is None or d in wanted)
+        if not chunk:
+            return found, lines.text, kept
 
 
 def _competition_id(grader):
@@ -118,7 +146,8 @@ def _competition_id(grader):
 
 
 def targets(private, grader, leaderboard, public):
-    """What the export is searched for: {sha: [(kind, source)]}, public shas, {private-only line: {source}}, id."""
+    """What the export is searched for: {sha: [(kind, source)]}, public shas, {private-only line digest: bitmask
+    over names}, the private file names, the competition id."""
     public_files = list(_input_files(public))
     public_shas = {_sha(path) for _, path in public_files}
     hashes = {}
@@ -127,14 +156,20 @@ def targets(private, grader, leaderboard, public):
     sources.append(("leaderboard_hash", Path(leaderboard).name, Path(leaderboard)))
     for kind, rel, path in sources:  # a source equal to a public file is never reported: content() skips public shas
         hashes.setdefault(_sha(path), []).append((kind, rel))
-    lines = {}
+    lines, names = {}, []  # {line digest: bitmask over names}: one small int per line, not a set
     for rel, path in _input_files(private):
-        for line in _text_lines(path, skip_header=True):
-            lines.setdefault(line, set()).add(rel)
+        with open(path, "rb") as fh:
+            fh.readline()  # the header
+            found, text, _ = _read(fh)
+        names.append(rel)
+        for line in found if text else ():
+            lines[line] = lines.get(line, 0) | 1 << (len(names) - 1)
     for _, path in public_files:
-        for line in _text_lines(path, skip_header=False):
-            lines.pop(line, None)
-    return {"hashes": hashes, "public": public_shas, "lines": lines, "id": _competition_id(grader).lower()}
+        with open(path, "rb") as fh:
+            for line in _read(fh, wanted=lines)[0]:
+                del lines[line]
+    return {"hashes": hashes, "public": public_shas, "lines": lines, "names": names,
+            "id": _competition_id(grader).lower()}
 
 
 def _norm(name):
@@ -178,37 +213,34 @@ class _Scan:
             self.add("links_outside", path, target=target)
 
     def content(self, path, stream, depth=0):
-        """(a), (b) and the archive rule for one regular file's bytes."""
+        """(a), (b) and the archive rule for one regular file's bytes, read once as a stream."""
         self.checked += 1
-        head = stream.read(self.cap + 1)
-        whole = len(head) <= self.cap
-        digest = hashlib.sha256(head)
-        while not whole and (chunk := stream.read(CHUNK)):
-            digest.update(chunk)
+        base, digest = path.rsplit("/", 1)[-1].lower(), hashlib.sha256()
+        found, text, kept = _read(stream, self.t["lines"], digest, self.cap if base.endswith(ARCHIVES) else -1)
         sha = digest.hexdigest()
         if sha in self.t["public"]:
             return
         for kind, source in self.t["hashes"].get(sha, ()):
             self.add(kind, path, source=source)
-        if whole and _is_text(head):
-            self._lines(path, head)
-        base = path.rsplit("/", 1)[-1].lower()
+        if text:
+            self._lines(path, found)
+        elif base.endswith(TABLE_TYPES):
+            self.add("not_inspected", path, reason="named as a table or text, but not text")
         if base.endswith(ARCHIVES):
-            self._archive(path, head if whole else None, depth)
-        elif not whole and base.endswith(ANSWER_TYPES):
-            self.add("not_inspected", path, reason="over the read cap")
+            self._archive(path, kept, depth)
 
-    def _lines(self, path, data):
-        counts = {}
-        for line in {line.strip() for line in data.split(b"\n")} & self.t["lines"].keys():
-            for source in self.t["lines"][line]:
-                counts[source] = counts.get(source, 0) + 1
+    def _lines(self, path, found):
+        names, counts = self.t["names"], {}
+        for line in found:
+            for i, name in enumerate(names):
+                if self.t["lines"][line] >> i & 1:
+                    counts[name] = counts.get(name, 0) + 1
         if counts:
             self.add("private_lines", path, lines=dict(sorted(counts.items())))
 
     def _archive(self, path, data, depth):
         if data is None or depth:
-            self.add("not_inspected", path, reason="archive over the read cap" if data is None else "nested archive")
+            self.add("not_inspected", path, reason="archive over the cap" if data is None else "nested archive")
             return
         try:
             self._members(path, data)
@@ -286,7 +318,7 @@ class _Scan:
             self.add("unreadable", rel, reason="special file")
 
 
-def check(export, *, private, grader, leaderboard, public, image_ref, cap=READ_CAP):
+def check(export, *, private, grader, leaderboard, public, image_ref, cap=ARCHIVE_CAP):
     """The result for one image: {image, verdict, files_checked, caps, findings: {kind: [{path, ...}]}}."""
     if not PINNED.fullmatch(image_ref):
         raise Refused(f"{image_ref!r}: the image reference is not pinned by digest (<name>@sha256:<64 hex>)")
@@ -308,7 +340,7 @@ def check(export, *, private, grader, leaderboard, public, image_ref, cap=READ_C
     findings = {kind: sorted(items, key=lambda f: json.dumps(f, sort_keys=True)) for kind, items in findings.items()}
     passed = scan.checked > 0 and not any(findings.values())
     return {"image": image_ref, "verdict": "pass" if passed else "fail", "files_checked": scan.checked,
-            "caps": {"read_bytes": cap, "text_probe_bytes": TEXT_PROBE, "archive_depth": 1}, "findings": findings}
+            "caps": {"archive_bytes": cap, "line_bytes": LINE_CAP, "archive_depth": 1}, "findings": findings}
 
 
 def main(argv=None):
