@@ -285,6 +285,11 @@ def test_open_slots_make_a_competition_pending_with_its_counts_so_far(tmp_path):
     assert (screen["class"], screen["observations"], screen["open"]) == (PE, 2, 1)
 
 
+def test_a_slot_whose_last_start_was_cut_is_open_while_the_tranche_runs(tmp_path):
+    screen = _compute(tmp_path, {A: [0, 0, CUT], B: [1, 0, 0]}, end_one=None)["competitions"][A]["screen"]
+    assert (screen["class"], screen["open"]) == (PE, 1)
+
+
 def test_a_competition_with_no_observation_while_its_stage_runs_is_pending(tmp_path):
     assert _class(_compute(tmp_path, {A: ["-", "-", "-"], B: [1, 0, 0]}, end_one=None), A) == PE
 
@@ -536,6 +541,13 @@ def test_a_placement_no_open_outcome_could_change_is_labelled(tmp_path):
     assert (placed["status"], placed["label"], placed["open"]) == ("decided", "above the band", 3)
 
 
+def test_an_open_placement_slot_that_may_end_with_no_observation_keeps_it_in_progress(tmp_path):
+    """Every outcome that adds an observation keeps 1 to 5 of 15 in the band; a high slot lost leaves high at three,
+    under the ladder's four per effort, which is not screened."""
+    placed = _placed(tmp_path, {A: {"low": [0, 0, 0, 0, "-"], "medium": [0, 0, 0, 0, "-"], "high": [1, 0, 0, "-", "-"]}})
+    assert (placed["status"], placed["open"]) == (readout.IN_PROGRESS, 4)
+
+
 def test_a_competition_that_did_not_survive_the_screen_is_not_placed(tmp_path):
     assert _code(lambda: _compute(tmp_path, {A: [1, 1, 1], B: [1, 0, 0]}, placement={A: FIFTEEN_NONE})) == (
         "not-survivor")
@@ -578,9 +590,10 @@ def test_a_request_received_after_midnight_counts_on_the_later_day(tmp_path):
 
 @pytest.mark.parametrize("line", ['{"time": 1795000000, "usd": NaN}', '{"time": 1795000000, "usd": -1}',
                                   '{"time": 1795000000, "usd": "1"}', '{"usd": 1}', '{"time": true, "usd": 1}',
-                                  '{"time": 1795000000, "usd": 1', '[1]', '{"time": 1, "time": 2, "usd": 1}'],
+                                  '{"time": 1795000000, "usd": 1', '[1]', '{"time": 1, "time": 2, "usd": 1}',
+                                  '{"time": 1795000000, "usd": 1, "slot_usd": Infinity}'],
                          ids=["nan", "negative", "string", "no-time", "bool-time", "broken", "not-an-object",
-                              "repeated-key"])
+                              "repeated-key", "infinity-elsewhere"])
 def test_a_malformed_request_log_row_is_a_refusal_that_names_the_row(tmp_path, line):
     (tmp_path / "passthrough").mkdir()
     (tmp_path / "passthrough" / "requests.jsonl").write_text('{"time": 1795000000, "usd": 1}\n' + line + "\n")
@@ -725,14 +738,14 @@ def test_the_command_binds_a_final_readout_to_its_label_and_a_rehearsal_not(tmp_
     assert (final.returncode, (tmp_path / "final.json").exists(), rehearsal.returncode) == (2, False, 0)
 
 
-@pytest.mark.parametrize("case", ["empty export", "unknown zone"])
+@pytest.mark.parametrize("case", ["empty export", "unknown zone", "a path for a zone"])
 def test_the_command_refuses_with_exit_2_never_a_traceback(tmp_path, case):
     stage_one = _tranche(tmp_path / "one", SCREEN, {A: [1, 0, 0], B: [1, 0, 0]})
     if case == "empty export":
         doc = json.loads(stage_one[1].read_text())
         stage_one[1].write_text(json.dumps(doc | {"slots": [], "starts": [], "open": []}))
     (tmp_path / "stand-ins.json").write_text("{}")
-    zone = "Nowhere/Zone" if case == "unknown zone" else ZONE
+    zone = {"unknown zone": "Nowhere/Zone", "a path for a zone": "../etc/passwd"}.get(case, ZONE)
     done = _run([*_cli_args((("--stage-one", stage_one),)), "--time-zone", zone, "--rehearsal",
                  str(tmp_path / "stand-ins.json")])
     assert (done.returncode, "Traceback" in done.stderr) == (2, False)
