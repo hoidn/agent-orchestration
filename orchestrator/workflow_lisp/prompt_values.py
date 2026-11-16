@@ -11,8 +11,8 @@ refused.
 
 Dependencies: the prompt catalog and syntax of the elaborator (`is_prompt_application`), the fill typecheck of
 `prompts.py` (`refuse_prompt_application`), and the typed program the closed build is lowering, held in a
-context variable for the duration of the build (`refusing_provider_values`, `refuse_provider_value`). Every function here either
-returns a fact or raises one `LispFrontendCompileError`.
+context variable for the duration of the build (`refusing_provider_values`, `refuse_provider_value`). Every
+function here either returns a fact or raises one `LispFrontendCompileError`.
 """
 
 from __future__ import annotations
