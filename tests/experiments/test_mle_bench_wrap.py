@@ -85,7 +85,8 @@ def tools(tmp_path):
 
 
 def _contexts(wrap, tools, out, competition=TINY / "competition", data=FIXTURES, **kw):
-    kw = {"agent_files": tools / "agent", "verifier_files": tools / "verifier", **kw}
+    if tools is not None:
+        kw = {"agent_files": tools / "agent", "verifier_files": tools / "verifier", **kw}
     return wrap.contexts(competition, data, out, agent_base="localhost/stand-in/agent-base:1",
                          verifier_base="localhost/stand-in/verifier-base:1", **kw)
 
@@ -480,3 +481,35 @@ def test_every_size_figure_is_a_number_from_a_named_source_or_unknown_with_a_rea
     unknown = [c["slug"] for c in FAMILY["candidates"] if "unknown_because" in c["size_gb"]]
     assert ([c["slug"] for c in FAMILY["candidates"] if not ok(c["size_gb"])], unknown) == (
         [], ["text-normalization-challenge-russian-language"])
+
+
+def _assigned(path, name):
+    """The literal value assigned to a module-level name in a Python file, read without importing it."""
+    import ast
+    for node in ast.parse(path.read_text()).body:
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == name for t in node.targets):
+            return ast.literal_eval(node.value) if not isinstance(node.value, ast.Call) else ast.literal_eval(
+                node.value.args[0])
+    raise AssertionError(f"{name} not assigned in {path}")
+
+
+def test_the_real_agent_and_verifier_files_wrap_the_fixture_at_the_paths_task_2_reads(wrap, tmp_path):
+    """contexts() and packages() with their default agent/ and verifier/ directories (Task 2's files); the in-image
+    paths the wrapper writes equal the ones grade_submission.py and validate_submission.py read."""
+    _contexts(wrap, None, tmp_path / "out", agent_files=wrap.KIT / "agent", verifier_files=wrap.KIT / "verifier")
+    _packages(wrap, tmp_path / "out")
+    agent, verifier = tmp_path / "out" / "agent-context", tmp_path / "out" / "verifier-context"
+    in_image = _assigned(KIT / "verifier" / "grade_submission.py", "IN_IMAGE")
+    sample = _assigned(KIT / "agent" / "validate_submission.py", "SAMPLE")
+    seen = {"tools": _tree(agent / "tools") == _tree(KIT / "agent"),
+            "tests": _tree(verifier / "tests") == _tree(KIT / "verifier"),
+            "test.sh": (verifier / "tests" / "test.sh").stat().st_mode & 0o777,
+            "validator": ["/home/" + k for k in _tree(agent / "tools")],
+            "paths": (wrap.SUBMISSION_DIR + "/submission.csv", wrap.VERIFIER_DATA, wrap.COMPETITIONS,
+                      wrap.GRADER_WORK, wrap.AGENT_DATA + "/sample_submission.csv"),
+            "attempt": sorted(_tree(tmp_path / "out" / "attempt"))}
+    assert seen == {"tools": True, "tests": True, "test.sh": 0o755, "validator": [wrap.VALIDATOR],
+                    "paths": (in_image["MLE_SUBMISSION"], in_image["MLE_DATA_DIR"],
+                              in_image["MLE_BENCHMARK_DIR"] + "/mlebench/competitions", in_image["MLE_GRADER_WORK"],
+                              sample),
+                    "attempt": ["instruction.md", "task.toml"]}
