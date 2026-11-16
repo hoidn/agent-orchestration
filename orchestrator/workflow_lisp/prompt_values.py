@@ -149,8 +149,7 @@ def refuse_provider_value(expr: NameExpr) -> None:
     typed = _LOWERED_PROGRAM.get()
     if typed is None:
         return
-    programs = _programs(typed)
-    if expr.name not in _provider_names(programs) or expr.name in _binder_names(programs):
+    if expr.name not in _provider_names(_programs(typed)) or expr.name in binder_names(typed):
         return
     _refuse(f"provider `{expr.name}` (type `Provider`) is not a value: it is written only as the provider of "
             "`provider-result` or `agent`", span=expr.authored_span or expr.span, form_path=expr.form_path,
@@ -176,10 +175,11 @@ def _provider_names(programs: list[Any]) -> frozenset[str]:
     return frozenset(name for each in bindings for name, extern in each.items() if isinstance(extern, ProviderExtern))
 
 
-def _binder_names(programs: list[Any]) -> frozenset[str]:
-    """Every name a binder or parameter of the programs' workflows and procedures declares, a superset."""
+def binder_names(typed: Any) -> frozenset[str]:
+    """Every name a binder or parameter declares in the workflows and procedures of the typed program `typed` and
+    of the programs it imports: a superset, read by `binder_field_kind` from every node reachable from them."""
 
-    stack: list[Any] = [definition for program in programs
+    stack: list[Any] = [definition for program in _programs(typed)
                         for definition in (program.entry, *program.workflows.values(), *program.procedures.values())]
     names: set[str] = set()
     seen: set[int] = set()
@@ -194,15 +194,22 @@ def _binder_names(programs: list[Any]) -> frozenset[str]:
     return frozenset(names)
 
 
+def binder_field_kind(cls: type, field_name: str) -> str | None:
+    """How the scan reads field `field_name` of a node of class `cls`: `"name"` when it holds a declared name,
+    `"pairs"` when it holds `(name, value)` pairs (a `let*`'s bindings, a signature's parameters), else None."""
+
+    if field_name in _BINDER_FIELDS or (field_name == "name" and cls.__name__.endswith(("Binding", "Param"))):
+        return "name"
+    return "pairs" if field_name in _BINDER_PAIRS else None
+
+
 def _declared_names(node: Any) -> Iterator[str]:
     for item in fields(node):
-        value = getattr(node, item.name)
-        if item.name in _BINDER_FIELDS and isinstance(value, str):
+        kind, value = binder_field_kind(type(node), item.name), getattr(node, item.name)
+        if kind == "name" and isinstance(value, str):
             yield value
-        elif item.name in _BINDER_PAIRS and isinstance(value, tuple):
+        elif kind == "pairs" and isinstance(value, tuple):
             yield from _pair_names(value)
-    if type(node).__name__.endswith(("Binding", "Param")) and isinstance(getattr(node, "name", None), str):
-        yield node.name
 
 
 def _pair_names(pairs: tuple) -> Iterator[str]:
