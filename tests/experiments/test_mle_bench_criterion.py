@@ -278,6 +278,17 @@ def test_the_schedule_is_the_smoke_the_pilot_then_three_rounds_of_one_slot_per_c
         M9[tranche]["slots"], {(r, t) for r in (1, 2, 3) for t in _names(criterion)})
 
 
+@pytest.mark.parametrize("tranche, fallback", [("screen-cpu", ["textnorm-ru", "leaf"]),
+                                                ("screen-gpu", ["essay2", "chaii", "jigsaw", "lmsys", "whale",
+                                                                "petfinder", "kuzushiji", "cassava", "patent"])])
+def test_the_pilot_falls_back_to_the_class_s_other_competitions_in_order_and_to_the_smoke_last(tranche, fallback):
+    criterion = _criterion(tranche)
+    pilot = criterion["schedule"]["pilot"]
+    without = _stand_ins(criterion)
+    without["tasks"]["qualified"] = [criterion["schedule"]["smoke"]["task"]]
+    assert (pilot["fallback"], ladder.pilot_task(without)) == (fallback, criterion["schedule"]["smoke"]["task"])
+
+
 def test_the_order_hash_is_the_launcher_s():
     assert {_criterion(t)["schedule"]["order"]["hash"] for t in STAGE_ONE} == {ladder.ORDER_HASH}
 
@@ -421,6 +432,30 @@ def test_the_launcher_s_task_check_refuses_a_package_against_a_placeholder_even_
         "leaf: the package's digest is not its 4.1.0 digest")
 
 
+def _built(name):
+    return {"digest_4_1_0": "sha256:" + "ab" * 32, "environment_image": f"localhost/mle-bench/{name}@sha256:" + "cd" * 32,
+            "verifier_image": f"localhost/mle-bench/{name}-v@sha256:" + "ef" * 32}
+
+
+def _fill_packages(names):
+    fields = copy.deepcopy(mc.FIELDS)
+    fields["filled"] = {"screen-cpu": {"tasks.packages": {"value": {n: _built(n) for n in names},
+                                                          "source": "a stand-in build row"}}}
+    return fields
+
+
+def test_once_tasks_packages_is_filled_tasks_json_carries_its_strings_and_no_placeholder():
+    names = _names(_criterion("screen-cpu"))
+    doc, tasks = mc.stage_one("cpu", fields=_fill_packages(names))
+    assert ([{k: e[k] for k in _built(n)} for e, n in zip(tasks["tasks"], names)],
+            "tasks.packages" in {p["field"] for p in doc["pending"]}) == ([_built(n) for n in names], False)
+
+
+def test_a_filled_tasks_packages_that_leaves_a_competition_out_is_refused():
+    with pytest.raises(mc.Refused, match="birds"):
+        mc.stage_one("cpu", fields=_fill_packages(["leaf", "textnorm-ru"]))
+
+
 @pytest.mark.parametrize("tranche", STAGE_ONE)
 def test_the_tasks_json_entries_carry_no_withholding_result_until_the_criterion_has_one(tranche):
     assert {e["withholding"] for e in _tasks(tranche)["tasks"]} == {None}
@@ -558,10 +593,11 @@ def test_stage_two_s_ceiling_is_the_class_s_less_every_start_s_cost_cuts_include
         20.3, 29.7, 29.7)
 
 
-@pytest.mark.parametrize("usd, k", [(1.0, 2), (2.0, 2), (3.0, 1), (4.0, 0)])
+@pytest.mark.parametrize("usd, k", [(1.0, 2), (2.0, 2), (3.0, 1), (3.5, 1), (4.0, 0)])
 def test_stage_two_s_size_is_the_largest_k_with_3k_less_1_mean_costs_and_9_45_within_its_ceiling(usd, k):
     """CPU, two competitions without a medal; ceiling 50 - 9 x usd - 0.3. At usd 3: 22.7 left, k=1 needs 2 x 3 +
-    9.45 = 15.45, k=2 needs 5 x 3 + 9.45 = 24.45. At usd 4: 13.7 left, k=1 needs 17.45."""
+    9.45 = 15.45, k=2 needs 5 x 3 + 9.45 = 24.45. At usd 3.5: 18.2 left, k=1 needs 16.45 (3k x m would need 19.95).
+    At usd 4: 13.7 left, k=1 needs 17.45."""
     export = _export("screen-cpu", medals={(1, "leaf")}, usd=usd)
     derivation, criterion, _ = _derive("screen-cpu", export)
     m, ceiling = derivation["mean_usd_per_start"], derivation["ceiling_usd"]
