@@ -1577,10 +1577,12 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   its meaning. A provider extern that the closed build's lowering reads as a value, which ended in
   `compiler_defect` (a `let*` binding, a record or variant field, an `if`, `cond` or `match` value, a
   result, a procedure or `defun` argument, a call through a `bind-proc` reference over it), is
-  `prompt_value_escape`. The refusal is raised where that lowering failed, so a provider it never reads
-  (an uncalled `bind-proc` over one, an unreached definition) builds as before; a provider as a list
-  element or a workflow `call` input keeps its typecheck refusal. Every
-  program that compiled before keeps its closed program, digest and identities.
+  `prompt_value_escape`, located at the provider's name in the file that holds it, inside an inlined
+  or imported procedure too. The refusal is raised where that lowering failed, so a provider it never
+  reads (an uncalled `bind-proc` over one, an unreached definition) builds as before; where a binder
+  or parameter of the program has the extern's name, the failure stays `compiler_defect`; a provider
+  as a list element or a workflow `call` input keeps its typecheck refusal. Every program that
+  compiled before keeps its closed program, digest and identities.
 
 ### Run-time corrections without a new target
 
