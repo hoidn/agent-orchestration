@@ -323,13 +323,6 @@ def records_defect_provenance(stage: str) -> Callable[[Callable], Callable]:
     return decorate
 
 
-def defect_location(error: BaseException) -> tuple[SourceSpan, tuple[str, ...]] | None:
-    """The span and form path of the innermost authored form a stage after typecheck recorded on `error`."""
-
-    provenance = getattr(error, _DEFECT_PROVENANCE, None)
-    return None if provenance is None else (provenance[1], provenance[2])
-
-
 def _authored_location(node: object) -> tuple[SourceSpan, tuple[str, ...]] | None:
     """Span and form path of a surface or typed node, a typed definition, or a WCC node."""
 

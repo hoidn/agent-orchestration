@@ -110,6 +110,9 @@ class NameExpr:
     expansion_stack: ExpansionStack = ()
     capture_origin: tuple[object, TypeRef] | None = field(default=None, compare=False, hash=False, repr=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True})
+    # Where the name was written, kept when an inlined procedure's body takes its call site's span.
+    authored_span: SourceSpan | None = field(default=None, compare=False, hash=False, repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
 
 
 @dataclass(frozen=True)

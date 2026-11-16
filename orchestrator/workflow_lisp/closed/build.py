@@ -20,7 +20,7 @@ from orchestrator.workflow_lisp.diagnostics import (
     records_defect_provenance,
 )
 from orchestrator.workflow_lisp.procedures import _procedure_signature_local_type_bindings
-from orchestrator.workflow_lisp.prompt_values import refuse_provider_lookup
+from orchestrator.workflow_lisp.prompt_values import refusing_provider_values
 from orchestrator.workflow_lisp.type_env import (
     PrimitiveTypeRef,
     ProcRefTypeRef,
@@ -4526,19 +4526,12 @@ def _entry_context_values(builder: Builder, workflow: Any, d: Definition, body: 
     return body
 
 
-def _provider_extern_names(typed: Any) -> frozenset[str]:
-    from ..workflows import ProviderExtern
-
-    bindings = [typed.externs, *typed.module_externs.values()]
-    return frozenset(name for each in bindings for name, extern in each.items() if isinstance(extern, ProviderExtern))
-
-
 def build_closed_program(typed: Any, *, builder: Builder | None = None) -> ClosedProgram:
     """Build, site, validate, and digest the complete source-free program table."""
 
     entry_span = getattr(getattr(typed.entry, "definition", None), "span", None)
     path = Path(entry_span.start.path) if entry_span is not None else Path(typed.entry_dir)
-    with compiler_defect_boundary(path):
+    with compiler_defect_boundary(path), refusing_provider_values(typed):
         try:
             # Construction and preflight belong to the same boundary as
             # translation: retained-state defects must be located uniformly.
@@ -4547,9 +4540,6 @@ def build_closed_program(typed: Any, *, builder: Builder | None = None) -> Close
             return _build_with_builder(typed, builder)
         except ClosedProgramGap as gap:
             raise LispFrontendCompileError((gap_diagnostic(gap),)) from gap
-        except KeyError as missing:
-            refuse_provider_lookup(missing, provider_names=_provider_extern_names(typed))
-            raise
 
 
 def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:

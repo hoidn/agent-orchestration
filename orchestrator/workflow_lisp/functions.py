@@ -1627,7 +1627,10 @@ def _clone_function_expr(
     form_path: tuple[str, ...],
     expansion_stack: ExpansionStack,
 ) -> ExprNode:
-    if isinstance(expr, NameExpr | LiteralExpr | EnumMemberExpr | ProcRefLiteralExpr):
+    if isinstance(expr, NameExpr):
+        return replace(expr, span=span, form_path=form_path, expansion_stack=expansion_stack,
+                       authored_span=expr.authored_span or expr.span)
+    if isinstance(expr, LiteralExpr | EnumMemberExpr | ProcRefLiteralExpr):
         return replace(expr, span=span, form_path=form_path, expansion_stack=expansion_stack)
     if isinstance(expr, FieldAccessExpr):
         return replace(

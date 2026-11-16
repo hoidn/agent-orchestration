@@ -5,22 +5,25 @@ wherever it is written. Outside the `:prompt` of `provider-result` and a `reques
 consumes such a value yet, so every position refuses with `prompt_value_escape`, the argument of a call
 included. `Prompt[...]`, where no declared or imported type is named `Prompt`, is the type of a `defproc`
 parameter and of nothing else. A provider extern is not a value: where the closed build's lowering looks one up
-as a value, which on the base was a `compiler_defect`, it refuses with the same code
-(`refuse_provider_lookup`); a program that builds, and a definition the entry does not reach, are never
+as a value, which on the base was a `compiler_defect`, it refuses with the same code at the name
+(`refuse_provider_value`); a program that builds, and a definition the entry does not reach, are never
 refused.
 
 Dependencies: the prompt catalog and syntax of the elaborator (`is_prompt_application`), the fill typecheck of
-`prompts.py` (`refuse_prompt_application`), and the provider externs of the typed program
-(`refuse_provider_lookup`, called by the closed build on a missing key). Every function here either
+`prompts.py` (`refuse_prompt_application`), and the typed program the closed build is lowering, held in a
+context variable for the duration of the build (`refusing_provider_values`, `refuse_provider_value`). Every function here either
 returns a fact or raises one `LispFrontendCompileError`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
-from typing import TYPE_CHECKING, NoReturn
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import fields, is_dataclass
+from typing import TYPE_CHECKING, Any, NoReturn
 
-from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, defect_location, defect_site
+from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .syntax import SyntaxKeyword
 from .type_env import PrimitiveTypeRef, PromptTypeRef, render_type_ref
 
@@ -113,25 +116,96 @@ def refuse_prompt_name(expr: NameExpr, type_ref: TypeRef) -> None:
                 expansion_stack=expr.expansion_stack)
 
 
-# The lowering lookup that a provider extern used as a value reaches: its scope holds the bindings of the
-# program, never an extern, so the name is not found there (defect D7, `KeyError` in this function).
-_PROVIDER_VALUE_LOOKUP = "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+# The program the closed build is lowering, for `refuse_provider_value` at the lowering's name lookup: that
+# lookup is reached from many call sites whose arguments do not carry the externs, so the build sets it here.
+_LOWERED_PROGRAM: ContextVar[Any] = ContextVar("workflow_lisp_lowered_program", default=None)
+# Fields and `(name, value)` collections in which an expression, a definition or a signature declares a name.
+_BINDER_FIELDS = frozenset({"binder_name", "binding_name", "local_name"})
+_BINDER_PAIRS = frozenset({"bindings", "params"})
 
 
-def refuse_provider_lookup(missing: KeyError, *, provider_names: Iterable[str]) -> None:
-    """Refuse a provider extern that lowering looked up as a value; return for any other missing key.
+@contextmanager
+def refusing_provider_values(typed: Any) -> Iterator[None]:
+    """While the closed build lowers the typed program `typed`, `refuse_provider_value` decides against it."""
 
-    The closed build calls this for a `KeyError` it does not otherwise handle, then re-raises the error, which
-    the defect boundary reports as `compiler_defect`. The refusal is raised only where lowering failed on the
-    name, so a program that builds is never refused, and a definition the entry does not reach is never
-    lowered. The location is the innermost authored form the lowering recorded on the error.
+    token = _LOWERED_PROGRAM.set(typed)
+    try:
+        yield
+    finally:
+        _LOWERED_PROGRAM.reset(token)
+
+
+def refuse_provider_value(expr: NameExpr) -> None:
+    """Called by the lowering where `expr` is missing from its scope; return to let the lookup fail as before.
+
+    That scope holds the program's bindings and never an extern, so a provider extern used as a value is missing
+    there (defect D7 of the design, a `compiler_defect` on the base). Refuse when the name is a provider extern
+    of the program being lowered and no binder or parameter of the program has that name: a binder spelled like
+    an extern and looked up out of its scope is a compiler defect, not a provider. The diagnostic is at the name
+    as written, its `authored_span` inside an inlined procedure, whose call the expansion stack keeps. Outside a
+    closed build nothing is refused; a program that builds never reaches this, nor an unreached definition.
     """
 
-    if len(missing.args) != 1 or missing.args[0] not in frozenset(provider_names):
+    typed = _LOWERED_PROGRAM.get()
+    if typed is None:
         return
-    location = defect_location(missing)
-    if location is None or defect_site(missing) != _PROVIDER_VALUE_LOOKUP:
+    programs = _programs(typed)
+    if expr.name not in _provider_names(programs) or expr.name in _binder_names(programs):
         return
-    span, form_path = location
-    _refuse(f"provider `{missing.args[0]}` (type `Provider`) is not a value: it is written only as the provider "
-            "of `provider-result` or `agent`", span=span, form_path=form_path)
+    _refuse(f"provider `{expr.name}` (type `Provider`) is not a value: it is written only as the provider of "
+            "`provider-result` or `agent`", span=expr.authored_span or expr.span, form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack)
+
+
+def _programs(typed: Any) -> list[Any]:
+    """`typed` and every program it imports, directly or not."""
+
+    programs, stack = [], [typed]
+    while stack:
+        program = stack.pop()
+        if all(program is not seen for seen in programs):
+            programs.append(program)
+            stack.extend(program.imported_programs.values())
+    return programs
+
+
+def _provider_names(programs: list[Any]) -> frozenset[str]:
+    from .workflows import ProviderExtern
+
+    bindings = [each for program in programs for each in (program.externs, *program.module_externs.values())]
+    return frozenset(name for each in bindings for name, extern in each.items() if isinstance(extern, ProviderExtern))
+
+
+def _binder_names(programs: list[Any]) -> frozenset[str]:
+    """Every name a binder or parameter of the programs' workflows and procedures declares, a superset."""
+
+    stack: list[Any] = [definition for program in programs
+                        for definition in (program.entry, *program.workflows.values(), *program.procedures.values())]
+    names: set[str] = set()
+    seen: set[int] = set()
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (tuple, list)):
+            stack.extend(node)
+        elif is_dataclass(node) and not isinstance(node, type) and id(node) not in seen:
+            seen.add(id(node))
+            names.update(_declared_names(node))
+            stack.extend(getattr(node, item.name) for item in fields(node))
+    return frozenset(names)
+
+
+def _declared_names(node: Any) -> Iterator[str]:
+    for item in fields(node):
+        value = getattr(node, item.name)
+        if item.name in _BINDER_FIELDS and isinstance(value, str):
+            yield value
+        elif item.name in _BINDER_PAIRS and isinstance(value, tuple):
+            yield from _pair_names(value)
+    if type(node).__name__.endswith(("Binding", "Param")) and isinstance(getattr(node, "name", None), str):
+        yield node.name
+
+
+def _pair_names(pairs: tuple) -> Iterator[str]:
+    """The names of `(name, value)` pairs, as a `let*` binds and a signature lists its parameters."""
+
+    return (pair[0] for pair in pairs if isinstance(pair, tuple) and pair and isinstance(pair[0], str))
