@@ -219,20 +219,30 @@ def _starts(export, one):
     return starts
 
 
-def _size(one, starts, label, probe, fields):
-    """M9's rules 1 to 3: the competitions with no medal among the observations of the current label, in rank order;
-    the ceiling left after every start of every label and the probe; and how many competitions it funds."""
-    classes, tasks = one["classification"]["classes"], one["tasks"]
+def _no_medal(one, starts, label):
+    """M9's rule 1: stage one's qualified competitions with no medal among the current label's observations, in
+    feasibility_rank order."""
+    tasks = one["tasks"]
     medals = {s["task"] for s in starts if s["label"] == label and s["success"]}
     names = tasks["qualified"] if tasks["qualified"] is not None else [t["name"] for t in tasks["list"]]
     rank = {t["name"]: t["feasibility_rank"] for t in tasks["list"]}
-    no_medal = sorted((n for n in names if n not in medals), key=rank.get)
+    return sorted((n for n in names if n not in medals), key=rank.get)
+
+
+def _money(one, starts, probe):
+    """(m, committed, ceiling) of M9's rules 2 and 3: the mean cost of a counted start, what the launcher committed
+    (every start that counts against the ceiling, of every label, and the probe) and the ceiling it leaves."""
+    classes = one["classification"]["classes"]
     counted = [s["usd"] for s in starts if classes[s["class"]]["starts"]]
     if not counted:
         raise Refused("the export has no start that counts: stage two's mean cost per start is undefined")
-    m = round(sum(counted) / len(counted), 6)
     committed = round(sum(s["usd"] for s in starts if classes[s["class"]]["usd"]) + probe, 6)
-    ceiling = round(one["stage"]["class_ceiling_usd"] - committed, 6)
+    return round(sum(counted) / len(counted), 6), committed, round(one["stage"]["class_ceiling_usd"] - committed, 6)
+
+
+def _size(one, starts, label, probe, fields):
+    """M9's rules 1 to 3: the competitions with no medal, the ceiling left, and the first k of them it funds."""
+    no_medal, (m, committed, ceiling) = _no_medal(one, starts, label), _money(one, starts, probe)
     last = one["caps"]["cap_usd"] + one["ceiling"]["reservation"]["margin_usd"] + fields["live_probe_bound_usd"]
     k = max((j for j in range(1, len(no_medal) + 1) if (3 * j - 1) * m + last <= ceiling), default=0)
     return {"no_medal": no_medal, "funded": no_medal[:k], "not_funded": no_medal[k:], "mean_usd_per_start": m,

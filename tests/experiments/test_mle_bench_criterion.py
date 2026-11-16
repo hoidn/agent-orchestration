@@ -257,7 +257,7 @@ def _limits(tranche):
 
 
 def test_a_gpu_tranche_s_limits_file_names_the_device_and_its_attempts_run_one_at_a_time():
-    gpu, cpu = _limits("screen-gpu"), _limits("screen-cpu")
+    gpu = _limits("screen-gpu")
     assert ((gpu["devices"], gpu["security_opt"], gpu["shm_size"], gpu["pids_limit"]),
             {_criterion("screen-gpu")["host"]["concurrency"][k] for k in ("smoke", "pilot", "rounds")}) == (
         (["nvidia.com/gpu=all"], ["label=disable"], "8g", 4096), {1})
