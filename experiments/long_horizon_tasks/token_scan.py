@@ -12,14 +12,16 @@ form's alphabet: RFC 6750 `b64token` for the text forms, its characters each fol
 and prints the path, byte offset and form of a match, never the bytes around it. It finds whole copies only:
 not a part of the token and not any other encoding (compressed, encrypted, escaped beyond JSON).
 
-Usage: python -I token_scan.py scan --fingerprint FILE PATH...
+Usage: python -I token_scan.py scan --fingerprint FILE [--jobs N] PATH...
            PATH is a file, a directory (walked; symlinks and special files inside it are skipped, each named on
-           a `skipped <path> <kind>` line) or `-` (stdin).
+           a `skipped <path> <kind>` line) or `-` (stdin, read in this process).
+           --jobs N: the files are read in N processes (default: the CPU count); 1 reads them here, one by one.
+           The output is the same for every N.
            Prints `match <path> <offset> <form>` and `unreadable <path> <reason>` lines, then `scanned <n> files`.
            Exit 0: nothing found; 1: a match (a stop); 2: no match, but the scan is incomplete: a named path is
            missing, unreadable, a symlink or not a file or directory, a file inside could not be read, no file
            at all was read, or the scanner itself failed (a crash is never read as a match).
-       python -I token_scan.py canary --fingerprint FILE --canary FILE DIR [PATH...]
+       python -I token_scan.py canary --fingerprint FILE --canary FILE [--jobs N] DIR [PATH...]
            The canary check: the canary must be what the fingerprint was made from (it was the passthrough's
            token); a copy of every form planted in DIR must be found there at its offset; nothing else in the
            set may match. The planted file is removed. Exit 0 when all three hold, 1 otherwise.
@@ -27,8 +29,11 @@ Usage: python -I token_scan.py scan --fingerprint FILE PATH...
 
 import argparse
 import base64
+from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ProcessPoolExecutor, wait
+import contextlib
 import hashlib
 import json
+import multiprocessing
 import os
 import re
 import secrets
@@ -39,6 +44,7 @@ from pathlib import Path
 ALPHABET = rb"A-Za-z0-9\-._~+/="  # RFC 6750 b64token; the passthrough refuses a token outside it
 RUNS = {"text": rb"[%s]{%d,}", "wide": rb"(?:[%s]\x00){%d,}"}
 READ = 1 << 20
+AHEAD = 256  # files handed to the workers and not yet read, at most: a file is read soon after it is listed
 
 
 def forms(token):
@@ -130,32 +136,66 @@ def _files(path, unreadable):
 
 
 def _scan_one(path, fp):
-    if path == "-":
-        return scan_stream(sys.stdin.buffer, fp)
-    mode = os.lstat(path).st_mode
-    if not stat.S_ISREG(mode):  # a symlink or special file inside a directory is not followed: its kind
-        return "symlink" if stat.S_ISLNK(mode) else "special file"
-    with open(path, "rb") as fh:
-        return scan_stream(fh, fp)
+    """The file's hits, the kind of a file that is not read, or the OSError that kept it from being read."""
+    try:
+        if path == "-":
+            return scan_stream(sys.stdin.buffer, fp)
+        mode = os.lstat(path).st_mode
+        if not stat.S_ISREG(mode):  # a symlink or special file inside a directory is not followed: its kind
+            return "symlink" if stat.S_ISLNK(mode) else "special file"
+        with open(path, "rb") as fh:
+            return scan_stream(fh, fp)
+    except OSError as exc:  # returned, not raised: only a worker's own failure reaches the parent as an exception
+        return exc
 
 
-def scan(paths, fp, skipped=None):
+def _settle(running, results, return_when=FIRST_COMPLETED):
+    """Wait for the reads of `running` ({future: walk index}) as `return_when` says and move each finished one's
+    result to `results` ({walk index: result}). A worker that raised or died raises here."""
+    for future in wait(running, return_when=return_when).done:
+        results[running.pop(future)] = future.result()
+
+
+def _read(paths, fp, jobs):
+    """(walked, results): each file under the scannable `paths` in walk order, with each directory os.walk could
+    not list in its place as (path, OSError class name); and {walk index: _scan_one's result} of each file, read in
+    `jobs` processes, AHEAD at most at a time, or here when `jobs` is 1 (stdin always here)."""
+    walked, results, running = [], {}, {}
+    # fork: a worker is a copy of this process, so under `python -I` it needs no importable module to run _scan_one
+    pool = None if jobs == 1 else ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("fork"))
+    with pool or contextlib.nullcontext():
+        for top in [p for p in paths if not _named(p)]:
+            for path in _files(top, walked):
+                walked.append(path)
+                if pool is None or path == "-":
+                    results[len(walked) - 1] = _scan_one(path, fp)
+                    continue
+                running[pool.submit(_scan_one, path, fp)] = len(walked) - 1
+                if len(running) >= AHEAD:
+                    _settle(running, results)
+        _settle(running, results, ALL_COMPLETED)
+    return walked, results
+
+
+def scan(paths, fp, skipped=None, jobs=None):
     """(matches as (path, offset, form), unreadable as (path, reason), files read); each path skipped inside a
-    directory is appended to `skipped` as (path, kind)."""
+    directory is appended to `skipped` as (path, kind). The files are read in `jobs` processes (None: one per CPU;
+    1: here, one by one); stdin is read here. The result is the same for every `jobs`."""
     found, count, skipped = [], 0, [] if skipped is None else skipped
     unreadable = [(path, reason) for path in paths if (reason := _named(path))]
-    for top in [p for p in paths if not _named(p)]:
-        for path in _files(top, unreadable):
-            try:
-                hits = _scan_one(path, fp)
-            except OSError as exc:  # an unreadable file is reported, and makes the scan incomplete
-                unreadable.append((path, type(exc).__name__))
-                continue
-            if isinstance(hits, str):
-                skipped.append((path, hits))
-                continue
+    walked, results = _read(paths, fp, jobs)
+    for index, entry in enumerate(walked):
+        if isinstance(entry, tuple):  # a directory os.walk could not list
+            unreadable.append(entry)
+            continue
+        hits = results[index]
+        if isinstance(hits, OSError):  # an unreadable file is reported, and makes the scan incomplete
+            unreadable.append((entry, type(hits).__name__))
+        elif isinstance(hits, str):
+            skipped.append((entry, hits))
+        else:
             count += 1
-            found += [(path, offset, name) for offset, name in hits]
+            found += [(entry, offset, name) for offset, name in hits]
     return found, unreadable, count
 
 
@@ -183,7 +223,7 @@ def _canary(args, fp):
         text += form + b"\n"
     plant.write_bytes(text)
     try:
-        found, unreadable, count = scan(args.paths, fp)
+        found, unreadable, count = scan(args.paths, fp, jobs=args.jobs)
     finally:
         plant.unlink()
     code = _report([f for f in found if f[0] != str(plant)], unreadable, count)
@@ -203,13 +243,14 @@ def main(argv=None):
         cmd.add_argument("--fingerprint", required=True)
         if name == "canary":
             cmd.add_argument("--canary", required=True)
+        cmd.add_argument("--jobs", type=int, default=os.cpu_count())
         cmd.add_argument("paths", nargs="+")
     args = parser.parse_args(argv)
     fp = json.loads(Path(args.fingerprint).read_text())
     if args.command == "canary":
         return _canary(args, fp)
     skipped = []
-    return _report(*scan(args.paths, fp, skipped), skipped)
+    return _report(*scan(args.paths, fp, skipped, args.jobs), skipped)
 
 
 def _main(argv):
