@@ -105,13 +105,66 @@ def test_the_scanner_finds_nothing_in_a_set_without_the_token(short):
     assert (result.returncode, [ln for ln in result.stdout.splitlines() if ln.startswith("match")]) == (0, [])
 
 
-def test_the_scanner_finds_a_token_inside_a_longer_run_and_across_a_read_boundary(short):
+@pytest.mark.parametrize("jobs", ["1", "4"])
+def test_the_scanner_finds_a_token_inside_a_longer_run_and_across_a_read_boundary(short, jobs):
     token = _token()
     (short / "set").mkdir()
     offset = (1 << 20) - 50  # the token straddles the first 1 MiB read
     (short / "set" / "blob.bin").write_bytes(b"A" * offset + token.encode() + b"B" * 10)
-    result = _scan("scan", "--fingerprint", _fingerprint_file(short, token), short / "set")
+    result = _scan("scan", "--fingerprint", _fingerprint_file(short, token), "--jobs", jobs, short / "set")
     assert result.stdout.splitlines()[0] == f"match {short / 'set' / 'blob.bin'} {offset} plain"
+
+
+def test_a_parallel_scan_finds_every_planted_form_among_many_files_and_prints_what_a_serial_scan_prints(short):
+    token = _token()
+    (short / "set" / "sub").mkdir(parents=True)
+    for i in range(120):
+        (short / "set" / ("sub" if i % 3 else "") / f"other-{i:03d}.txt").write_text(_token() + "\n")
+    forms = token_scan.forms(token)
+    for name, form in forms.items():
+        (short / "set" / "sub" / f"{name}.bin").write_bytes(b"x=" + form + b";")
+    fp = _fingerprint_file(short, token)
+    serial, parallel = (_scan("scan", "--fingerprint", fp, "--jobs", jobs, short / "set") for jobs in (1, 4))
+    planted = {f"match {short / 'set' / 'sub' / f'{name}.bin'} 2" for name in forms}  # equal forms share one name
+    found = {line.rsplit(" ", 1)[0] for line in parallel.stdout.splitlines() if line.startswith("match")}
+    assert (parallel.returncode, parallel.stdout, planted - found) == (1, serial.stdout, set())
+
+
+def test_a_parallel_scan_takes_each_file_s_kind_when_the_walk_lists_it_not_when_a_worker_is_free(short):
+    """A slot's socket can go right after the walk lists it. The scanner's own process takes each file's kind at
+    listing, so a special file removed while every worker is busy is still `skipped`, never unreadable. Two files
+    that hold each worker for seconds come first; the FIFO after them is removed meanwhile."""
+    (short / "set").mkdir()
+    for name in ("a1.bin", "a2.bin"):
+        (short / "set" / name).write_bytes(b"A" * (2 << 20))  # one long alphabet run: seconds of hashing
+    fifo = short / "set" / "z.fifo"
+    os.mkfifo(fifo)
+    proc = subprocess.Popen([sys.executable, "-I", str(KIT / "token_scan.py"), "scan", "--fingerprint",
+                             str(_fingerprint_file(short, _token())), "--jobs", "2", str(short / "set")],
+                            stdout=subprocess.PIPE, text=True)
+    _STARTED.append(proc)
+    children, deadline = Path(f"/proc/{proc.pid}/task/{proc.pid}/children"), time.monotonic() + WAIT
+    while proc.poll() is None and not children.read_text().split() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    time.sleep(1.5)  # the workers are forked, the walk has listed the FIFO, and each worker is on a long file
+    fifo.unlink()
+    out, _ = proc.communicate(timeout=WAIT)
+    assert (proc.returncode, out.splitlines()) == (0, [f"skipped {fifo} special file", "scanned 2 files"])
+
+
+def test_a_parallel_scan_reports_unreadable_files_and_directories_as_a_serial_scan_does(short):
+    """The walk's errors and the files' read errors keep the serial scan's order, and the scan is incomplete."""
+    for i in range(60):
+        path = short / "set" / f"d{i % 6}" / f"f{i:02d}.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n")
+        if i % 7 == 0:
+            path.chmod(0o000)
+    (short / "set" / "d3").chmod(0o000)
+    fp = _fingerprint_file(short, _token())
+    serial, parallel = (_scan("scan", "--fingerprint", fp, "--jobs", jobs, short / "set") for jobs in (1, 4))
+    assert (parallel.returncode, parallel.stdout, f"unreadable {short / 'set' / 'd0' / 'f42.txt'} PermissionError"
+            in parallel.stdout.splitlines()) == (2, serial.stdout, True)
 
 
 def test_the_scanner_reads_a_stream_from_stdin(short):
