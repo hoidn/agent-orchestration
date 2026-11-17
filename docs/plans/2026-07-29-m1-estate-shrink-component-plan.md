@@ -198,6 +198,14 @@ and the retained live-root ID-set has SHA-256
 `a0f6f197e1cf9d0b5c6c5f2581007c50d31658397c6fa297c89042b5e87c1c0b`.
 Both ordered Task 8 reviews approved the archive record.
 
+> **Note, 2026-11-17 (owner decision):** the archive's `runs/` directory, with
+> the 4,168 run directories, was deleted to free 6.3 GB. The manifests beside
+> it remain (`census-before.tsv`, `move-plan.tsv`, `regular-files.sha256`,
+> `symlinks.tsv`, `disposition.txt`), with `DELETED-runs-2026-11-17.txt`. They
+> record what existed; the runs cannot be restored, so the "reversibly
+> archive" goal and the restore contract below no longer hold. The text of
+> this plan is otherwise unchanged.
+
 Task 9's routing selector, 59-surface route-readiness check, CLI-help check,
 retired-package absence checks, and clean wheel-content test all passed without
 workflow execution or a live-run-root write. Their combined log has SHA-256

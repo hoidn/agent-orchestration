@@ -10,6 +10,10 @@ queue work, Task-7 product implementation, final scoped broad comparison, and
 both independent reviews are complete. Stage 6 is complete; Stage 7 has not
 started.
 
+**Note, 2026-11-17:** the clone `/home/ollie/Documents/agent-orchestration-2`,
+one of the five run roots named below, was deleted by owner decision. The
+scope below records what was checked on 2026-07-23.
+
 ## Decision
 
 The evidence-first Task 6 execution path has eclipsed the deletion product.

@@ -174,7 +174,10 @@ fresh before mutation.
   source, rerouted, temporary frontend characterization, or retained history.
   The 1,097 pair count is planning characterization only and is never a
   classification-coverage denominator.
-- The five candidate supported roots and whole-queue observations were:
+- The five candidate supported roots and whole-queue observations were
+  (note, 2026-11-17: the clone `/home/ollie/Documents/agent-orchestration-2`,
+  with its run root, was deleted by owner decision; its rows here and in the
+  later path table are a record and cannot be recomputed):
 
 | Root | Canonical-path digest | Matching runs | Matching nonterminal runs | Matching nonterminal frames |
 | --- | --- | ---: | ---: | ---: |
