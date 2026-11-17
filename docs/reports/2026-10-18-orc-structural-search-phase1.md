@@ -440,6 +440,10 @@ The evidence stays outside the repository and is retained:
 - the work root `/home/ollie/ss-work2`;
 - the pools `/home/ollie/ss-pools/phase1/{resume-projection-integrity,pure-result-replay}`;
 - the incident-1 roots `ss-work-incident1` and `ss-evidence-incident1`;
+  (note, 2026-11-17, owner decision: the `agents/` directories of `ss-work2` and
+  `ss-work-incident1`, the candidate checkouts, were deleted to free 25 GB; each
+  candidate's patch stays under `records/`, and `records/`, `runs/`, `episodes/`
+  and `env-manifests/` are kept)
 - the smoke roots `/home/ollie/ss-evidence-smoke`, `/home/ollie/ss-work-smoke` and `/home/ollie/ss-pool-smoke`;
 - the operator scripts and logs in `/home/ollie/ss-evidence-meta`.
 - the three-arm readout's roots: runtime `/home/ollie/ss3-runtime` (`5a85c41e`), evidence `/home/ollie/ss3-evidence`,
