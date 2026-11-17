@@ -130,6 +130,28 @@ def test_a_parallel_scan_finds_every_planted_form_among_many_files_and_prints_wh
     assert (parallel.returncode, parallel.stdout, planted - found) == (1, serial.stdout, set())
 
 
+def test_a_parallel_scan_takes_each_file_s_kind_when_the_walk_lists_it_not_when_a_worker_is_free(short):
+    """A slot's socket can go right after the walk lists it. The scanner's own process takes each file's kind at
+    listing, so a special file removed while every worker is busy is still `skipped`, never unreadable. Two files
+    that hold each worker for seconds come first; the FIFO after them is removed meanwhile."""
+    (short / "set").mkdir()
+    for name in ("a1.bin", "a2.bin"):
+        (short / "set" / name).write_bytes(b"A" * (2 << 20))  # one long alphabet run: seconds of hashing
+    fifo = short / "set" / "z.fifo"
+    os.mkfifo(fifo)
+    proc = subprocess.Popen([sys.executable, "-I", str(KIT / "token_scan.py"), "scan", "--fingerprint",
+                             str(_fingerprint_file(short, _token())), "--jobs", "2", str(short / "set")],
+                            stdout=subprocess.PIPE, text=True)
+    _STARTED.append(proc)
+    children, deadline = Path(f"/proc/{proc.pid}/task/{proc.pid}/children"), time.monotonic() + WAIT
+    while proc.poll() is None and not children.read_text().split() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    time.sleep(1.5)  # the workers are forked, the walk has listed the FIFO, and each worker is on a long file
+    fifo.unlink()
+    out, _ = proc.communicate(timeout=WAIT)
+    assert (proc.returncode, out.splitlines()) == (0, [f"skipped {fifo} special file", "scanned 2 files"])
+
+
 def test_a_parallel_scan_reports_unreadable_files_and_directories_as_a_serial_scan_does(short):
     """The walk's errors and the files' read errors keep the serial scan's order, and the scan is incomplete."""
     for i in range(60):

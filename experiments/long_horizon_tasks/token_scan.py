@@ -135,14 +135,25 @@ def _files(path, unreadable):
             yield os.path.join(root, name)
 
 
+def _unread(path):
+    """Why a walked file is not read, taken when the walk lists it: the kind of a symlink or special file inside a
+    directory (not followed), or the OSError of its lstat; None for stdin and a regular file."""
+    if path == "-":
+        return None
+    try:
+        mode = os.lstat(path).st_mode
+    except OSError as exc:
+        return exc
+    if stat.S_ISREG(mode):
+        return None
+    return "symlink" if stat.S_ISLNK(mode) else "special file"
+
+
 def _scan_one(path, fp):
-    """The file's hits, the kind of a file that is not read, or the OSError that kept it from being read."""
+    """The hits of stdin or a regular file, or the OSError that kept it from being read."""
     try:
         if path == "-":
             return scan_stream(sys.stdin.buffer, fp)
-        mode = os.lstat(path).st_mode
-        if not stat.S_ISREG(mode):  # a symlink or special file inside a directory is not followed: its kind
-            return "symlink" if stat.S_ISLNK(mode) else "special file"
         with open(path, "rb") as fh:
             return scan_stream(fh, fp)
     except OSError as exc:  # returned, not raised: only a worker's own failure reaches the parent as an exception
@@ -159,22 +170,35 @@ def _settle(running, results, return_when=FIRST_COMPLETED):
 def _read(paths, fp, jobs):
     """(walked, results): each file under the scannable `paths` in walk order, with each directory os.walk could
     not list in its place as (path, OSError class name); and {walk index: _scan_one's result} of each file, read in
-    `jobs` processes, AHEAD at most at a time, or here when `jobs` is 1 (stdin always here)."""
+    `jobs` processes, AHEAD at most at a time, or here when `jobs` is 1 (stdin always here). Each file's kind is
+    taken here when the walk lists it; a worker only reads a regular file."""
     walked, results, running = [], {}, {}
-    # fork: a worker is a copy of this process, so under `python -I` it needs no importable module to run _scan_one
-    pool = None if jobs == 1 else ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("fork"))
+    pool = _pool(jobs)
     with pool or contextlib.nullcontext():
         for top in [p for p in paths if not _named(p)]:
             for path in _files(top, walked):
                 walked.append(path)
-                if pool is None or path == "-":
-                    results[len(walked) - 1] = _scan_one(path, fp)
-                    continue
-                running[pool.submit(_scan_one, path, fp)] = len(walked) - 1
-                if len(running) >= AHEAD:
-                    _settle(running, results)
+                index, unread = len(walked) - 1, _unread(path)
+                if unread is not None:
+                    results[index] = unread
+                elif pool is None or path == "-":
+                    results[index] = _scan_one(path, fp)
+                else:
+                    running[pool.submit(_scan_one, path, fp)] = index
+                    if len(running) >= AHEAD:
+                        _settle(running, results)
         _settle(running, results, ALL_COMPLETED)
     return walked, results
+
+
+def _pool(jobs):
+    """None when `jobs` is 1, else a pool of `jobs` worker processes, every one of them started."""
+    if jobs == 1:
+        return None
+    # fork: a worker is a copy of this process, so under `python -I` it needs no importable module to run _scan_one
+    pool = ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("fork"))
+    pool.submit(int).result()  # forks every worker now, before the walk, so no file's lstat waits for the forks
+    return pool
 
 
 def scan(paths, fp, skipped=None, jobs=None):
