@@ -25,9 +25,11 @@ machine and are not copyable examples.
 
 In the ledger's order (row of 2026-11-15, "The kit is on `main`"):
 
-1. **Four owner decisions:** the credential route (below); that paid extra usage is off for the account; the
-   hours and shares of the allowance and the meter-reading protocol; whether a slot cut by a usage limit may run
-   again outside the caps.
+1. **The allowance** (owner decision, still open): the hours and shares of the owner's usage the study may take,
+   and the meter-reading protocol. The first paid call waits for it; the freeze and the rehearsal do not. The
+   other three decisions were answered on 2026-11-17 (plan ledger, rulings R9 and R10): the credential route
+   stays as built (below); paid extra usage is off for the account; a slot cut by a usage limit runs again only
+   inside its cap.
 2. **The freeze on the merged commit:** the runtime worktree, the anchors' stability run on that code,
    `judge-calibration.json` and `judge-seeds.json`, the price table read again, `criterion.json` with its `spend`
    and `sha256` blocks, `study.py record-freeze`, and the hashes in the ledger.
@@ -35,16 +37,14 @@ In the ledger's order (row of 2026-11-15, "The kit is on `main`"):
 4. **The tranche's spend row** in the ledger.
 5. **The smoke.**
 
-## The credential route is an open owner decision
+## The credential route
 
-Today each unit's private home gets a copy of the subscription login file, removed when the unit ends normally,
-is refused or raises (ruling R7 and its correction; the limits of that clean-up are in
-[programs/README.md](programs/README.md), "Known limits"). The agent under test can read its unit's copy. Whether
-this route satisfies the subscription-only rule is for the owner, and the freeze waits for the answer. The
-coordinator recommends the route of the long-horizon kit instead, where one host process holds the token and no
-copy enters a unit ([its README](../long_horizon_tasks/README.md); the
-[roadmap](../../docs/plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#open-owner-decisions) lists the
-decision). Nothing here treats the current route as settled.
+Each unit's private home gets a copy of the subscription login file, removed when the unit ends normally, is
+refused or raises (ruling R7 and its correction; the limits of that clean-up are in
+[programs/README.md](programs/README.md), "Known limits"). The agent under test can read its unit's copy during
+its call. The owner kept this route on 2026-11-17 (ruling R9 in the plan's ledger). The long-horizon kit's route,
+where one host process holds the token and no copy enters a unit
+([its README](../long_horizon_tasks/README.md)), would be a kit change with its own tests, review and rehearsal.
 
 ## Usage limits and paid extra usage
 
