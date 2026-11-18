@@ -1,0 +1,150 @@
+{
+ "about": "This family's fields of each tranche's criterion (family plan docs/plans/2026-11-15-mle-bench-family-plan.md, M1, M4, M5, M9 and Task 4). make_criterion.py copies the ladder's experiments/long_horizon_tasks/ladder.json and replaces the fields named here (`set`, then the class's `set`) and the fields it computes from family.json and from the launcher's own functions; every other field stays the ladder's. Edit this file, never a tranche's generated files, and run `make_criterion.py write`.",
+ "tranches": {
+  "screen-cpu": {"class": "cpu", "stage": 1, "generated": "make_criterion.py write"},
+  "screen-cpu-2": {"class": "cpu", "stage": 2, "generated": "make_criterion.py stage-two cpu, from screen-cpu's export (M9)"},
+  "screen-gpu": {"class": "gpu", "stage": 1, "generated": "make_criterion.py write"},
+  "screen-gpu-2": {"class": "gpu", "stage": 2, "generated": "make_criterion.py stage-two gpu, from screen-gpu's export (M9)"},
+  "place-cpu": {"class": "cpu", "stage": "placement", "generated": "not yet: the placement starts only after the screen is reported to the owner (M9)"},
+  "place-gpu": {"class": "gpu", "stage": "placement", "generated": "not yet: the placement starts only after the screen is reported to the owner (M9)"}
+ },
+ "ledger": "docs/plans/2026-11-15-mle-bench-ledger-{tranche}.md",
+ "screen_ceiling_usd": 200.0,
+ "cap_usd": 8.0,
+ "attempts_per_competition": 3,
+ "live_probe_bound_usd": 0.45,
+ "live_probe_bound_source": "family plan M9, rule 3: the launcher counts the ladder's live probe's usage, at most USD 0.45, into each tranche again",
+ "stage_two_rule": {
+  "source": "family plan M9, 'Why stage two is a tranche of its own', rules 1 to 5",
+  "competitions": "those of stage one's qualified competitions with no medal among the observations of stage one's current label (an observation that is counted, not excluded and with no contamination hit, of reward 1), in the order of feasibility_rank",
+  "ceiling": "the class's ceiling less what stage one's launcher committed: the settled cost of every start whose class counts against the ceiling, cuts included, and the live probe's usage the launcher counted (its request log, summed as the launcher sums it)",
+  "size": "with m the mean priced cost per counted start of stage one, the first k competitions of that order, k the largest number for which (3k - 1) x m + cap_usd + ceiling.reservation.margin_usd + live_probe_bound_usd is within the ceiling; a competition beyond k is reported 'not screened: the second stage was not funded'; with k at zero there is no stage two",
+  "starts": "3k + extra_starts",
+  "schedule": "its own smoke (the first funded competition), its own pilot (the second, or the first when only one is funded) and three rounds; they are its first slots and count as observations like any other",
+  "everything_else": "equal to stage one's: the generator copies stage one's committed ladder.json and changes only the fields above, the per-competition fields restricted to the funded competitions, the stage group, and the per-tranche fields",
+  "refused": "an export of a tranche that has not ended, that has an attempt open, or that ended in a stop"
+ },
+ "screen_classes": [
+  {"after": "stage one", "observed": "3 medals of 3 observations", "class": "above the band", "then": "out"},
+  {"after": "stage one", "observed": "at least one medal, and not 3 of 3", "class": "survives", "then": "the placement"},
+  {"after": "stage one", "observed": "no medal", "class": "undecided", "then": "stage two, if it is funded"},
+  {"after": "stage two", "observed": "at least one medal among its observations", "class": "survives", "then": "the placement"},
+  {"after": "stage two", "observed": "no medal in six observations", "class": "excluded low", "then": "out"},
+  {"after": "the class's screen has ended", "observed": "no medal in fewer than six observations", "class": "not screened", "then": "reported with its count; nothing is rerun to fill it"}
+ ],
+ "screen_classes_source": "family plan M1: only medals among observations decide; the score and the above-median flag enter no rule",
+ "classes": {
+  "cpu": {
+   "tranche": "screen-cpu",
+   "stage_two": "screen-cpu-2",
+   "ceiling_usd": 50.0,
+   "extra_starts": 2,
+   "stops_from_starts": 5,
+   "set": {
+    "host.concurrency.rounds": 3,
+    "schedule.smoke.task": "leaf",
+    "schedule.pilot.task": "birds",
+    "host.disk_plan": {
+     "source": "family plan M9, 'Disk'",
+     "floor": "host.disk_stop_free_gb, the ladder's 20 GB, as the launcher applies it: about once a second, attempts in flight or not, on the least free space of /, /home, the state root and the cache; under it every running attempt and the tranche stop",
+     "launch_room_gb": {"/home": 50, "/": 40},
+     "launch_room_rule": "A condition of the launch that the wrapper refuses (M4, item 6) and a person reads again at each read: on /home the floor and the scratch of three CPU-class attempts at 10 GB, counted after the tranche's images are in the store; on / the floor and 20 GB for what other sessions write there",
+     "images": "built only while no launcher of either line runs, because a build is staged on /",
+     "estimates": "every figure is an estimate until the smoke measures what an attempt writes"
+    }
+   }
+  },
+  "gpu": {
+   "tranche": "screen-gpu",
+   "stage_two": "screen-gpu-2",
+   "ceiling_usd": 150.0,
+   "extra_starts": 4,
+   "stops_from_starts": 10,
+   "set": {
+    "host.concurrency.rounds": 1,
+    "schedule.smoke.task": "patent",
+    "schedule.pilot.task": "tweet",
+    "host.disk_plan": {
+     "source": "family plan M9, 'Disk'",
+     "floor": "host.disk_stop_free_gb, the ladder's 20 GB, as the launcher applies it: about once a second, attempts in flight or not, on the least free space of /, /home, the state root and the cache; under it every running attempt and the tranche stop",
+     "launch_room_gb": {"/home": 50, "/": 40},
+     "launch_room_rule": "A condition of the launch that the wrapper refuses (M4, item 6) and a person reads again at each read: on /home the floor and the scratch of one GPU-class attempt at 30 GB, counted after the tranche's images are in the store; on / the floor and 20 GB for what other sessions write there",
+     "images": "built only while no launcher of either line runs, because a build is staged on /",
+     "estimates": "every figure is an estimate until the smoke measures what an attempt writes"
+    }
+   }
+  }
+ },
+ "set": {
+  "criterion": "One tranche of the MLE-bench family's frozen configuration (family plan docs/plans/2026-11-15-mle-bench-family-plan.md, M4 and Task 4; `stage` names the tranche). Generated by experiments/mle_bench_tasks/make_criterion.py from the ladder's experiments/long_horizon_tasks/ladder.json and criterion_fields.json; never edited by hand. Every field the generator does not replace is the ladder's, and the text of those fields cites the ladder plan's decisions D1 to D7 and the ladder's own figures (240 starts, USD 200, 16 tasks): this tranche's figures are the ones in tasks, caps, ceiling, host, schedule and stops. Not frozen while `pending` is non-empty.",
+  "attempt.efforts": ["medium"],
+  "harness.agent_timeout": {"is": "the task's own", "seconds": 86400, "multiplier": 1, "source": "family plan M5 (24 hours per attempt); family.json agent_timeout_sec, which wrap.py writes into task.toml"},
+  "harness.rule": "Equal for every attempt of a competition: the task's own agent limit (86,400 s) and verifier limit, multiplier 1; the class's CPUs and memory in task.toml; the class's shared memory, and for the GPU class the device, in the limits file; a process limit of 4,096; the dollar cap of caps (family plan M5, M9).",
+  "harness.host_side.image_name": "built on this machine and named by digest, <name>@sha256:<digest>, never by tag; nothing is pulled by tag (family plan M4)",
+  "tasks": {
+   "source": "family plan Candidates, M1, M2, M4, M9; family.json (names, slugs, classes, ranks)",
+   "identity": "A competition is the same task when every file of its package equals the digest recorded when it qualified (tasks.json digest_4_1_0, the ladder's key name kept), with task.toml compared after removing exactly the agent phase's two network keys (family plan M4; ladder D1).",
+   "digests": "tasks.json, per competition: digest_4_1_0 (the digest of the package wrap.py built), environment_image and verifier_image (each <name>@sha256:<digest>); covered by the manifest. Placeholders until tasks.packages is filled",
+   "images": "built on this machine from wrap.py's two contexts and named by digest (family plan M4)",
+   "qualification": {"rule": "family plan M2: the three legs run twice and the four controls once, through the verifier an attempt uses, on this machine", "under": "the package and its two images by digest, the ladder's allowlist, the ladder's CPU set and load gate"},
+   "dropped": "A competition that fails the qualification check is dropped. It is not replaced and its slots are not given to another competition (family plan M2).",
+   "extra_hosts": {}
+  },
+  "caps": {
+   "source": "family plan M9 (the cap per attempt)",
+   "formula": "one cap for every competition and effort: tasks.list[].cap_usd",
+   "cap_usd": 8.0,
+   "rule": "USD 8 per attempt, the top of the feasibility report's range for a direct session that stops by itself (report sections 9.1 and 10), the same at every effort, enforced by the passthrough and by the CLI's own budget limit (ladder D4; family plan M9).",
+   "enforced_by": ["the passthrough: the slot's cap", "the CLI: agent kwarg max_budget_usd"],
+   "overshoot": "one response: each guard acts one response late (ladder D4)"
+  },
+  "ceiling.source": "family plan M9 (the tranche's ceiling and starts); ladder plan D4 (reservation, settlement, what ends a tranche)",
+  "ceiling.launch_if": "committed + reservation <= total_usd and starts < ceiling.starts",
+  "ceiling.ends": ["nothing in flight and the next slot's reservation does not fit", "ceiling.starts starts", "a stop rule of stops"],
+  "host.concurrency.pilot": 1,
+  "host.disk_plan_rule": "family plan M9, 'Disk': one floor, checked all the time, and room above it at launch, by class; the smoke measures what an attempt writes",
+  "schedule.source": "family plan M1 (the screen: three attempts per competition at one effort), M9 (the tranche's order); ladder plan D7 (the launcher's schedule)",
+  "schedule.smoke.effort": "medium",
+  "schedule.smoke.fallback_rule": "If the named smoke competition does not qualify, the smoke is the first qualified competition in tasks.json order that is not on the load-sensitive list (the launcher's smoke_task; ladder D7.1).",
+  "schedule.pilot.efforts": ["medium"],
+  "schedule.pilot.together": false,
+  "schedule.pilot.concurrency": 1,
+  "schedule.pilot.becomes": "the pilot competition's slot of round 1; an observation, marked in the readout",
+  "schedule.pilot.meters": "the owner reads every usage meter the account shows before the pilot starts and after it ends",
+  "schedule.pilot.fallback_rule": "If the named pilot competition does not qualify, the pilot is the first qualified competition of fallback: the class's other competitions in tasks.json order, the smoke's last (the launcher's pilot_task).",
+  "schedule.rounds": 3,
+  "schedule.blocks_per_round": {"one_per": "tasks.qualified", "count": "one per qualified competition of tasks.list", "count_source": "family plan M1: three attempts per competition, one per round"},
+  "schedule.block": "one competition's one effort (medium)",
+  "schedule.skipped": "the two slots already run (the smoke and the pilot)",
+  "schedule.tail": "When the ceiling or ceiling.starts ends the tranche, the tail of that order is dropped, fixed before the first attempt; the launcher never skips ahead (ladder D7.4).",
+  "schedule.no_top_up": "Nothing is topped up, moved between competitions or re-thresholded after the first attempt. A slot run again after a cut is not a top-up: it is one of the tranche's starts. Stage two is not a top-up: its list, size and ceiling follow from stage one's export by stage.stage_two_rule (family plan M9).",
+  "label.source": "family plan M4 (one manifest per tranche), M1 (the one exception to pooling); ladder plan D7.1 and D7.6",
+  "label.is": "the SHA-256 of the tranche's manifest, experiments/mle_bench_tasks/manifests/<tranche>.json",
+  "label.pooling": "observations under different labels are never pooled, with one exception fixed before spend: the screen reads a competition's stage-one and stage-two observations together (family plan M1)",
+  "readout.contamination_scan.canary_identifier": "read from the task packages at run time by canary_sha256; it is the last word of family.json's canary, which wrap.py writes into each task.toml"
+ },
+ "pending": [
+  {"field": "tasks.qualified", "type": "array", "filled_by": "the qualification check of family plan M2 on this machine (Tasks 10b and 12b), from its row in the tranche's ledger",
+   "why": "M2 decides which competitions of the class run"},
+  {"field": "tasks.load_sensitive", "type": "array", "filled_by": "the same qualification check: a competition whose legs passed quiet but failed under load",
+   "why": "ladder D1, kept: such a competition stays, listed, frozen before spend"},
+  {"field": "tasks.withholding", "type": "object", "filled_by": "Task 3's withholding check on each built agent image (Tasks 10b and 12b): {name: its result, naming the image's digest}",
+   "why": "family plan M3, M4: a withholding result is recorded against the digest the task names; tasks.json carries it per competition"},
+  {"field": "tasks.packages", "type": "object", "filled_by": "the build of each competition's images and packages (Tasks 10 and 12): {name: {digest_4_1_0, environment_image, verifier_image}}, the strings tasks.json then carries",
+   "why": "family plan M4: images are named by digest, known only after a build; until then tasks.json holds placeholders that no package can match, and this field keeps the tranche from freezing"},
+  {"field": "tasks.weights", "type": "object", "classes": ["gpu"], "filled_by": "Task 11, once the owner has decided M6 (owner action 6): {file: experiments/mle_bench_tasks/weights.json, sha256: its SHA-256} of the committed set",
+   "why": "family plan M6: the weights set is part of the task definition and is fixed before the GPU class's first freeze"},
+  {"field": "readout.contamination_scan.terms", "type": "array", "filled_by": "the dry run of family plan M7 over the qualification jobs (Tasks 10b and 12b): this family's canary aside, the benchmark repository's path and the terms shown free of false hits",
+   "why": "family plan M7: the terms are frozen after that dry run"},
+  {"field": "readout.contamination_scan.canary_exempt_tasks", "type": "array", "filled_by": "the withholding check of the built agent images: the competitions whose agent-visible starting files hold the canary (an empty list when none does)",
+   "why": "ladder Task 7 ruling 6, kept: for such a competition the canary term is not applied"},
+  {"field": "schedule.order.seed", "type": "scalar", "filled_by": "the tranche's freeze, before its Configuration label row",
+   "why": "ladder D7.3: the order is fixed by a hash of one frozen seed; each tranche has its own"},
+  {"field": "readout.fall_bound.seed", "type": "scalar", "filled_by": "the tranche's freeze, before its Configuration label row",
+   "why": "ladder D6: a fixed seed for the bootstrap; each tranche has its own"}
+ ],
+ "per_tranche": ["schedule.order.seed", "readout.fall_bound.seed"],
+ "per_tranche_rule": "A stage-two tranche takes these two fields as its own, pending until its own freeze, whatever stage one's hold; every other pending or filled field is stage one's, restricted to stage two's competitions. They are last in `pending` so that stage two keeps stage one's order.",
+ "filled": {},
+ "filled_rule": "A pending field is filled by giving it, for its tranche, in criterion_fields.json `filled` ({tranche: {field: {value, source}}}) and running make_criterion.py; it then moves from `pending` to `filled` with its source. Entries copied from the ladder's ladder.json (the live probe's two fields, and the fields the ladder has filled in the groups copied here) name the ladder plan's tasks and are filled there: regenerate to take the ladder's value. `manifest.py write --freeze` refuses while `pending` is non-empty, any null is left, or a filled field fails its type or names no source."
+}
