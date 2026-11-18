@@ -10,15 +10,17 @@
   "tranches/": "the tranches' directories: this tranche's files are covered through EXTERNAL, the others' are no part of its label"
  },
  "files": {
-  "experiments/mle_bench_tasks/agent/validate_submission.py": "0502e591e407352c6773936645127832a139ec0ad4144debc2e51eaf00c8dd56",
+  "experiments/mle_bench_tasks/agent/validate_submission.py": "485f337a40e24c13db591177dd71c870565ffe7f5f10570ffd16700f09043168",
   "experiments/mle_bench_tasks/criterion_fields.json": "66bdd3864bb4288e425ffec1f753b6c1146bb1b5d5d34cca71323aead168241b",
   "experiments/mle_bench_tasks/family.json": "433cc88732a2fb23bd511257f389f48c8810dc21142af1e9a92909895c97a817",
   "experiments/mle_bench_tasks/instructions.md": "5313a51debec8005b1d353bace6c4d9a85fe6879d0da9d85024127bc5b394339",
   "experiments/mle_bench_tasks/make_criterion.py": "81228ac7f6170ad44a77ad598645007d20b02894b76ef8df25ef72213ec99d3a",
-  "experiments/mle_bench_tasks/verifier/grade_submission.py": "e44a9c38e4802ff83382b21d3fec217c4c755a2f7600a06abd5ad899dbc5237d",
+  "experiments/mle_bench_tasks/screen_readout.py": "994f019c795309125d2593a40fe0c0844cdb340fc86f9c32347454c6dc9c836e",
+  "experiments/mle_bench_tasks/verifier/grade_submission.py": "25aa0acf24ee900f409dd432c43243235cf2c9ecbaf6d4f0bb1caf734b75eff1",
   "experiments/mle_bench_tasks/verifier/test.sh": "184d64dcf1a5dec950609da08965d6f9a994a8cda136522f721fce43051872d4",
   "experiments/mle_bench_tasks/weights.json": "c69f0dde5c2f73ebb8c96e2d183d9cdbcebdff93e5b3e8f46eb5a996d5c69964",
-  "experiments/mle_bench_tasks/wrap.py": "32deaab97fc7ae5d59321d70f34b5b24f745547b246325867e07b19f0b7f267f",
+  "experiments/mle_bench_tasks/withhold_check.py": "454c5c2536486d8d818e396413e5bfc9d8662f796ddf3b98e74bf42f90cceeb6",
+  "experiments/mle_bench_tasks/wrap.py": "6eb03d9351c9caca0539b7d5e511d14268fbb7760b50d89ce34fea0aa4f87a80",
   "experiments/long_horizon_tasks/allowlist_probe.py": "e70d933212120c2fe5c67dd78930915ef47fadb6512f18e4ca2dfa4a39999fe5",
   "experiments/long_horizon_tasks/cut_fixture.py": "c6b1c53a227d0470757cc98b96b3022175c5be378438fc216f7751eb2927e168",
   "experiments/long_horizon_tasks/fixtures/after-limit/s3-timeout-low.json": "441893b89ce94ac0c2d180c665512bd94d81cd5173b36dbb5cb7faa80ebda815",
@@ -201,7 +203,7 @@
   "experiments/long_horizon_tasks/stub_api.py": "342f0998efd42ce8b09d22ff53d6d39649ea3c216f50fbdbd10e7a30d7685d18",
   "experiments/long_horizon_tasks/summarize.py": "cc486172cd693bf9f76f453e6229b4159d651400f7a400b7f6c69910aa799c44",
   "experiments/long_horizon_tasks/tasks.json": "1e7bfd91599ca1fcbc86f549b4673959dd4620ca1ef166d8a82912d50c052aa4",
-  "experiments/long_horizon_tasks/token_scan.py": "766b48f82dfc2bd2297875724e0794b85817954849c37f9586c0c8c975a0f99a",
+  "experiments/long_horizon_tasks/token_scan.py": "7750a725142202a28047af7f10ff3e08ea2277e44883de189d5977c8e4c9935b",
   "experiments/long_horizon_tasks/uidfix_variant.py": "508e3296f223e467788dca357080c12dcc7ed3fe56fac3a73c3591a4108214df",
   "orchestrator/providers/price_table.json": "77a237c6934a5ff1663a347c2d3757e52f576ac4752d8456facfd227cf52452b",
   "tests/experiments/test_long_horizon_ladder.py": "b1f0e1d30921577bde3022deb43443e28ccac056536f30ffd7dd94bc0688e5ad",
@@ -210,6 +212,6 @@
   "experiments/mle_bench_tasks/tranches/screen-gpu/passthrough.py": "0566bec4d7cd7ccd95fb9e46e0fa035a6ab55bea6d2569cf035bcdff4044cba3",
   "experiments/mle_bench_tasks/tranches/screen-gpu/relay-compose.yaml": "e86f395a055698c3760fa7a6b50f146a54758f1f3555b9397d81acb7f83b522b",
   "experiments/mle_bench_tasks/tranches/screen-gpu/tasks.json": "d7787bff80880cd5410f4a5ad72c9fc2a8e652e0e6e9be93f493ac29cb84c42b",
-  "experiments/mle_bench_tasks/tranches/screen-gpu/token_scan.py": "766b48f82dfc2bd2297875724e0794b85817954849c37f9586c0c8c975a0f99a"
+  "experiments/mle_bench_tasks/tranches/screen-gpu/token_scan.py": "7750a725142202a28047af7f10ff3e08ea2277e44883de189d5977c8e4c9935b"
  }
 }
