@@ -168,14 +168,23 @@ runtime_check() {  # runtime_check DIR: the kept containers' configuration, envi
   if ! podman export "$main" | scan_into "$report" -; then echo "exit 2 (export of $main failed)" >> "$report"; fi
 }
 
-remove_containers() {  # remove_containers DIR: this trial's containers and networks
-  local prefix c n
+trial_networks() {  # trial_networks PREFIX: the names of this trial's networks
+  local n
+  podman network ls --format '{{.Name}}' 2>/dev/null | while read -r n; do case "$n" in "$1"*) echo "$n" ;; esac; done
+}
+
+remove_containers() {  # remove_containers DIR: this trial's containers and networks; what is left is named on stderr
+  local prefix containers networks left
   prefix=$(trial_prefix "$1")
   [ -n "$prefix" ] || return 0
-  for c in $(trial_containers "$1" -a); do podman rm -f -t 5 "$c" > /dev/null 2>&1 || true; done
-  for n in $(podman network ls --format '{{.Name}}' 2>/dev/null); do
-    case "$n" in "$prefix"*) podman network rm "$n" > /dev/null 2>&1 || true ;; esac
-  done
+  # one call with --depend: the agent container shares the egress sidecar's network namespace, and podman refuses
+  # to remove the sidecar while it exists; `podman ps -a` lists the sidecar first (oldest first)
+  containers=$(trial_containers "$1" -a)
+  [ -z "$containers" ] || podman rm -f -t 5 --depend $containers > /dev/null || true
+  networks=$(trial_networks "$prefix")
+  [ -z "$networks" ] || podman network rm $networks > /dev/null || true
+  left=$(trial_containers "$1" -a; trial_networks "$prefix")
+  [ -z "$left" ] || echo "live_probe.sh: not removed after $(basename "$1"):" $left >&2
 }
 
 session() {  # session EFFORT: one harness trial with its own slot and fake token

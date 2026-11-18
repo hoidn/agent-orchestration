@@ -149,7 +149,75 @@ def test_a_parallel_scan_takes_each_file_s_kind_when_the_walk_lists_it_not_when_
     time.sleep(1.5)  # the workers are forked, the walk has listed the FIFO, and each worker is on a long file
     fifo.unlink()
     out, _ = proc.communicate(timeout=WAIT)
-    assert (proc.returncode, out.splitlines()) == (0, [f"skipped {fifo} special file", "scanned 2 files"])
+    assert (proc.returncode, out.splitlines()) == (0, [f"skipped {fifo} special file", "scanned 2 files, 0 vanished"])
+
+
+LONG = 4  # files that hold the scanner for seconds each (one long alphabet run), one per worker at --jobs 4
+
+
+def _scan_holding(short, paths, jobs):
+    """token_scan.py over `paths`, started, and returned once the scanner (or its workers) holds every one of the
+    LONG files `short`/set/a<i>.bin open: what the walk has listed by then waits for them."""
+    proc = subprocess.Popen([sys.executable, "-I", str(KIT / "token_scan.py"), "scan", "--fingerprint",
+                             str(_fingerprint_file(short, _token())), "--jobs", str(jobs), *map(str, paths)],
+                            stdout=subprocess.PIPE, text=True)
+    _STARTED.append(proc)
+    want, deadline = {str(short / "set" / f"a{i}.bin") for i in range(min(jobs, LONG))}, time.monotonic() + WAIT
+    while proc.poll() is None and time.monotonic() < deadline:
+        pids = [proc.pid] + Path(f"/proc/{proc.pid}/task/{proc.pid}/children").read_text().split()
+        held = set()
+        for fd in itertools.chain.from_iterable(Path(f"/proc/{pid}/fd").glob("*") for pid in pids):
+            with contextlib.suppress(OSError):  # a descriptor closed between the listing and its readlink
+                held.add(os.readlink(fd))
+        if want <= held:
+            break
+        time.sleep(0.05)
+    time.sleep(0.5)  # the walk has handed out every file it can and waits for a worker
+    return proc
+
+
+def _long_files(short):
+    (short / "set").mkdir()
+    for i in range(LONG):
+        (short / "set" / f"a{i}.bin").write_bytes(b"A" * (512 << 10))
+
+
+@pytest.mark.parametrize("jobs", [1, 4])
+def test_an_entry_listed_inside_a_walked_directory_and_gone_when_it_is_read_is_vanished_and_the_scan_complete(
+        short, jobs):
+    """Ruling LH-R3. After the long files, enough small files that the walk waits for a worker (AHEAD); meanwhile a
+    small file handed out, a socket and a file listed but not yet lstat-ed, and a directory not yet listed are
+    removed. Each is `vanished`, and the output is the same at every --jobs."""
+    _long_files(short)
+    top = short / "set"
+    (top / "y").mkdir()
+    (top / "y" / "f.txt").write_text("x\n")
+    for i in range(token_scan.AHEAD):
+        (top / f"b{i:03d}.txt").write_text("x\n")
+    (top / "z.txt").write_text("x\n")
+    with socket.socket(socket.AF_UNIX) as sock:
+        sock.bind(str(top / "z.sock"))
+        proc = _scan_holding(short, [top], jobs)
+        gone = [top / "b100.txt", top / "z.sock", top / "z.txt", top / "y"]
+        shutil.rmtree(top / "y")
+        for path in gone[:3]:
+            path.unlink()
+        out, _ = proc.communicate(timeout=WAIT)
+    assert (proc.returncode, out.splitlines()) == (
+        0, [f"vanished {path}" for path in gone] + [f"scanned {LONG + token_scan.AHEAD - 1} files, 4 vanished"])
+
+
+@pytest.mark.parametrize("jobs", [1, 4])
+def test_a_named_path_gone_when_it_is_read_is_unreadable_and_the_scan_incomplete(short, jobs):
+    """Ruling LH-R3: only an entry inside a walked directory can vanish; a named file is read whole or the scan fails."""
+    _long_files(short)
+    named = short / "set" / "z.txt"
+    named.write_text("x\n")
+    proc = _scan_holding(short, [*sorted((short / "set").glob("a*.bin")), named], jobs)
+    named.unlink()
+    out, _ = proc.communicate(timeout=WAIT)
+    assert (proc.returncode, out.splitlines()) == (
+        2, [f"unreadable {named} FileNotFoundError", f"scanned {LONG} files, 0 vanished"])
 
 
 def test_a_parallel_scan_reports_unreadable_files_and_directories_as_a_serial_scan_does(short):
@@ -1166,6 +1234,11 @@ args = sys.argv[1:]
 effort, jobs = args[args.index("--effort") + 1], pathlib.Path(args[args.index("-o") + 1])
 agent = jobs / "2026-11-14__00-00-00" / "recording-task__AbCdEf1" / "agent"
 (agent / "sessions" / "projects" / "-app").mkdir(parents=True)
+podman = pathlib.Path(sys.argv[0]).parents[2] / "podman"  # $LH/podman: the stand-in podman's containers, networks
+podman.mkdir(exist_ok=True)
+project = "recording-task__abcdef1__env"  # created as Harbor creates them: the sidecar first, then the agent
+(podman / "containers").write_text(f"{project}_harbor-docker-egress-control-sidecar_1\n{project}_main_1\n")
+(podman / "networks").write_text(f"{project}_default\n")
 time.sleep(3)  # the trial's containers live a while: the probe reads their process environments meanwhile
 
 
@@ -1208,10 +1281,31 @@ stream.append({"type": "result", "terminal_reason": "completed" if status == 200
 sys.exit(0 if status == 200 else 1)
 '''
 FAKE_PODMAN = r'''#!/bin/bash
-# Stands in for podman: one trial's main container and egress sidecar, kept after the run.
-P=recording-task__abcdef1__env
+# Stands in for podman: the trial's containers and networks the fake harness made ($LH/podman), kept after the run,
+# oldest first, and another session's container. The agent container shares the sidecar's network namespace: the
+# sidecar cannot be removed while the agent container exists (unless --depend), nor a network while either does.
+S=$(dirname "$0")/../../podman
 case "$1" in
-  ps) printf '%s\n' "${P}_main_1" "${P}_harbor-docker-egress-control-sidecar_1" other-session__env_main_1 ;;
+  ps) cat "$S/containers" 2>/dev/null; echo other-session__env_main_1 ;;
+  rm)
+    shift; depend=0 names=() rc=0
+    while [ $# -gt 0 ]; do case $1 in -t) shift ;; --depend) depend=1 ;; -*) ;; *) names+=("$1") ;; esac; shift; done
+    for c in "${names[@]}"; do
+      if [[ $c == *sidecar* ]] && grep -q _main_1 "$S/containers"; then
+        if [ $depend = 0 ]; then echo "Error: $c has dependent containers" >&2; rc=125; continue; fi
+        sed -i /_main_1/d "$S/containers"
+      fi
+      sed -i "/^$c\$/d" "$S/containers"
+    done
+    exit $rc ;;
+  network)
+    case $2 in
+      ls) cat "$S/networks" 2>/dev/null ;;
+      rm) for n in "${@:3}"; do
+            if grep -q "^${n%default}" "$S/containers"; then echo "Error: $n is being used" >&2; exit 2; fi
+            sed -i "/^$n\$/d" "$S/networks"
+          done ;;
+    esac ;;
   inspect) printf '[{"Name": "%s", "Config": {"Env": ["PATH=/usr/bin"]}}]\n' "$2" ;;
   exec) printf 'PATH=/usr/bin\0HOME=/root\0' ;;
   logs) printf '%s\n' '{"msg": "10.89.0.2:1 <-> relay:8080", "host": "relay:8080"}' ;;
@@ -1271,6 +1365,14 @@ def test_the_live_probe_against_the_stub_passes_and_records_each_session_and_run
         0, True, [], ["low", "medium", "high"], [2, 2, 2], [1000, 1000, 1000], ["canary: pass", "exit 0"],
         ["recording-task__abcdef1__env_harbor-docker-egress-control-sidecar_1"] * 2
         + ["recording-task__abcdef1__env_main_1"] * 2, (3, True))
+
+
+def test_the_live_probe_removes_every_container_and_network_of_each_session(probe):
+    """The agent container shares the egress sidecar's network namespace, and `podman ps -a` lists the sidecar first:
+    removed one by one in that order, the sidecar and the network stayed (2026-11-17)."""
+    result = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
+    left = [(probe.lh / "podman" / name).read_text() for name in ("containers", "networks")]
+    assert (result.returncode, left, "not removed" in result.stderr) == (0, ["", ""], False)
 
 
 def test_the_live_probe_stops_at_the_first_answer_that_is_not_200(probe):
