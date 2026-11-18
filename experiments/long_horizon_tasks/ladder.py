@@ -2050,7 +2050,7 @@ def contamination(trial, terms, chunk=1 << 20):
         for path in sorted(p for p in (trial / top).rglob("*") if p.is_file() and not p.is_symlink()):
             try:
                 hits += _hits_in(path, trial, wanted, keep, chunk)
-            except OSError:  # named here; token_scan.py reads the same file, and its incomplete scan is a stop
+            except OSError:  # named here; token_scan.py reads the same file: its incomplete scan is a stop, unless the file is gone
                 unreadable.append(path.relative_to(trial).as_posix())
     return {"contaminated": bool(hits), "hits": hits, "unreadable": unreadable}
 
