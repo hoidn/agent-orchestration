@@ -9,8 +9,9 @@ vendor's API. Task 2's probes are in their own section after the assumption tabl
 
 **What is committed and what is not.**
 - **Committed:** the cut fixtures, `fixtures/` (the stream side), `fixtures/requests/` (the request
-  side), `fixtures/traces/` (file and process calls) and `fixtures/after-limit/` (requests after a time
-  limit). The cut rules are in "Fixtures" below.
+  side), `fixtures/traces/` (file and process calls), `fixtures/after-limit/` (requests after a time
+  limit) and `fixtures/live-probe/` (the live probe's sessions and the passthrough's log). The cut rules are in
+  "Fixtures" below.
 - **Local cache only:** the raw recordings stay under `$LH/recordings/` in the cache directory
   (`$LH`, by default `~/lh-cache`) (the stub's
   request logs, egress logs, container inspections, harness jobs, session files and debug logs).
@@ -988,6 +989,25 @@ system, pulled by digest one at a time and mounted read-only, for the 17 terms o
 - **Applied as the launcher applies it** (no canary for the seven): no term fires on any untouched run, install
   run or recording.
 
+## The live probe (plan Task 4, 2026-11-17): the vendor's own answers
+
+Unlike every recording above, these went to the vendor: three sessions of the scratch task, at effort `low`,
+`medium` and `high`, one request each, through the relay and the passthrough on the owner's subscription, run by
+`live_probe.sh` at kit commit `4e193695` under the plan ledger's approval row (3 requests, priced USD 0.00166806).
+The ledger row of 2026-11-17 is the account of the run; the recordings are `$LH/recordings/live-probe/` and the
+passthrough's state files, indexed in `recordings.json` as `live-probe-low`, `-medium`, `-high` and `live-probe`
+(the last also holds the SHA-256 of the passthrough's `requests.jsonl` and `tranche.jsonl`, under `state_sha256`,
+since they lie outside `$LH/recordings`; a session id in an indexed path is written `<session id>`).
+
+| Question | Fixture (`fixtures/live-probe/`) | What it shows |
+| --- | --- | --- |
+| Does the vendor accept the token on the ladder's request shape? | `passthrough-log.json` | Yes: status 200, response model `claude-haiku-5-5`, credential `live`, on all three |
+| Response headers on an ordinary 200 | `passthrough-log.json` (`header_names`, `headers`) | The same 28 names on all three. `anthropic-ratelimit-unified-overage-status: rejected`, `…-overage-disabled-reason: out_of_credits`, `…-status: allowed_warning`, `…-7d-status: allowed_warning`, `…-7d-utilization: 0.98`, `…-representative-claim: seven_day`; no five-hour header and no `…-overage-in-use`. The header names read from the CLI's bundle are the vendor's (ruling LH-R1) |
+| The stream on the subscription | `session-low.json`, `-medium`, `-high` | `rate_limit_event` `{"status":"allowed_warning","overageStatus":"rejected","overageDisabledReason":"out_of_credits","isUsingOverage":false,…}`; init `apiKeySource none`; result `terminal_reason completed`, with `total_cost_usd`, `usage` and `modelUsage` (`costBasis list`, the one-hour split) filled as in the stand-in's sessions |
+| The exported configuration's word on paid usage | `session-*.json` (`exported_config`) | `cachedExtraUsageDisabledReason: out_of_credits` |
+| Is the meter's price the CLI's? | `passthrough-log.json` (`usd`, `usage`) against `session-*.json` (`total_cost_usd`) | Equal in each session: USD 0.0012861, 0.00018273, 0.00019923. The first session wrote 6,162 prompt tokens to the one-hour cache; the later two read 5,823 of them and wrote 339 |
+| Cache marks and betas | `passthrough-log.json` (`cache_marks`, `beta`) | `system.1:1h`, `system.2:1h`, `messages.1.content.0:1h` on all three; `oauth-2025-04-20` and `extended-cache-ttl-2025-04-11` among the betas; no fall back to five-minute caching |
+
 ## Fixtures
 
 **Stream fixtures** (`fixtures/*.json`) are cut by `cut_fixture.py` from one trial. They keep:
@@ -1045,6 +1065,17 @@ call on are kept: the host-side `podman exec`, `conmon` and `crun` are dropped. 
 fixture adds `decoy`: the canary, how many requests carried the slot's token, how many the stub watched
 for the canary and how many named it, and which files of the recording hold it. Its request fixture
 counts the canary under `<canary>`, never its value.
+
+**Live-probe fixtures** (`fixtures/live-probe/`) are cut by `cut_fixture.py live-probe` from the probe's
+directory and the passthrough's `requests.jsonl`, all four in one run: `session-<effort>.json`, a stream fixture as
+above plus `exported_config` (only `cachedExtraUsageDisabledReason` of the exported configuration; never its user
+or machine id), and `passthrough-log.json`, the passthrough's rows as it logged them, each time as seconds since the
+first. The passthrough never logs the `authorization` header, and logs only the values of its listed headers, so
+`traceresponse` and `cf-ray` appear as names only. Across the four files every vendor or account identifier (the
+request, message and workspace ids, and every UUID: the organization's, the sessions', the events') becomes one
+placeholder of its shape, numbered in order of appearance (`req_000…0003`, `00000000-0000-0000-0000-000000000017`),
+so a request id in a stream still matches its log row. The fixtures are in a directory of their own, not among
+`fixtures/*.json`, which the criterion's tests hold to a fixed count of the stand-in's sessions.
 
 What each stream fixture supports:
 

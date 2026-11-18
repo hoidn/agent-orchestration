@@ -2016,3 +2016,27 @@ def test_with_the_probes_switch_any_answer_but_200_stops_the_tranche(short, stub
     after, _, data = _post(sock, "lh-fake-a", _request(turn=1))
     assert (first, [(e["event"], e["reason"]) for e in _events(state)], after, _error(data)[1]) == (
         529, [("stop", "vendor status 529")], 403, "lh-passthrough: tranche stopped")
+
+
+# --- the live probe's recorded answers (fixtures/live-probe, cut by cut_fixture.py live-probe) ---------------------
+
+PROBE = KIT / "fixtures" / "live-probe"
+PROBE_LOG = json.loads((PROBE / "passthrough-log.json").read_text())["requests"]
+
+
+@pytest.mark.parametrize("row", PROBE_LOG, ids=[row["effort"] for row in PROBE_LOG])
+def test_a_recorded_vendor_200_with_overage_rejected_is_passed_on_unstopped_and_priced_at_the_cli_s_cost(
+        short, canned, inproc, row):
+    """Ruling LH-R1: the header set of an ordinary 200 of the live probe (`overage-status: rejected`, unified status
+    `allowed_warning`) neither stops the tranche nor closes starts, with the probe's own switch on; and the meter
+    prices the recorded usage to the figure the probe logged, which is the CLI's `total_cost_usd` for that session."""
+    session = json.loads((PROBE / f"session-{row['effort']}.json").read_text())
+    cli_total = next(e for e in session["stream_tail"] if e["type"] == "result")["total_cost_usd"]
+    headers = [("content-type", "text/event-stream"), *row["headers"].items()]
+    upstream = canned(_http(200, headers, _sse(_message(row["usage"]))))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}),
+                         stop_on_non_200=True)
+    status = _post(sock, "lh-fake-a", _request())[0]
+    logged = _eventually(lambda: _rows(state))[0]
+    assert (status, _events(state), logged["passed_on"], round(logged["usd"], 12), round(cli_total, 12)) == (
+        200, [], True, round(row["usd"], 12), round(row["usd"], 12))

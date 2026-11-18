@@ -1,0 +1,272 @@
+{
+ "source": "local recording live-probe (the live probe of 2026-11-17, plan Task 4, at kit commit 4e193695: CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay and the passthrough to the vendor on the owner's subscription; the passthrough's log)",
+ "requests": [
+  {
+   "time": 0.0,
+   "slot": "probe-low",
+   "credential": "live",
+   "model": "claude-haiku-5-5",
+   "effort": "low",
+   "tools": [
+    "Bash",
+    "Edit",
+    "DeferredToolPlaceholder",
+    "Read"
+   ],
+   "beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,claude-code-20250219,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,thinking-token-count-2026-05-13,effort-2025-11-24,thinking-display-updates-2026-08-18,extended-cache-ttl-2025-04-11",
+   "cache_marks": [
+    "system.1:1h",
+    "system.2:1h",
+    "messages.1.content.0:1h"
+   ],
+   "status": 200,
+   "headers": {
+    "anthropic-ratelimit-unified-overage-status": "rejected",
+    "anthropic-ratelimit-unified-representative-claim": "seven_day",
+    "anthropic-ratelimit-unified-upgrade-paths": "overage",
+    "anthropic-ratelimit-unified-reset": "1795280400",
+    "anthropic-ratelimit-unified-7d-surpassed-threshold": "0.75",
+    "anthropic-ratelimit-unified-7d-reset": "1795280400",
+    "anthropic-ratelimit-unified-7d-status": "allowed_warning",
+    "anthropic-ratelimit-unified-fallback-percentage": "0.5",
+    "anthropic-ratelimit-unified-overage-disabled-reason": "out_of_credits",
+    "anthropic-ratelimit-unified-7d-utilization": "0.98",
+    "anthropic-ratelimit-unified-status": "allowed_warning",
+    "request-id": "req_000000000000000000000008",
+    "anthropic-organization-id": "00000000-0000-0000-0000-000000000016",
+    "anthropic-workspace-id": "wrkspc_000000000000000000000017"
+   },
+   "header_names": [
+    "date",
+    "content-type",
+    "transfer-encoding",
+    "connection",
+    "cache-control",
+    "anthropic-ratelimit-unified-overage-status",
+    "anthropic-ratelimit-unified-representative-claim",
+    "anthropic-ratelimit-unified-upgrade-paths",
+    "anthropic-ratelimit-unified-reset",
+    "anthropic-ratelimit-unified-7d-surpassed-threshold",
+    "anthropic-ratelimit-unified-7d-reset",
+    "anthropic-ratelimit-unified-7d-status",
+    "anthropic-ratelimit-unified-fallback-percentage",
+    "anthropic-ratelimit-unified-overage-disabled-reason",
+    "anthropic-ratelimit-unified-7d-utilization",
+    "anthropic-ratelimit-unified-status",
+    "strict-transport-security",
+    "request-id",
+    "traceresponse",
+    "anthropic-organization-id",
+    "anthropic-workspace-id",
+    "content-security-policy",
+    "vary",
+    "server",
+    "server-timing",
+    "cf-cache-status",
+    "x-robots-tag",
+    "cf-ray"
+   ],
+   "passed_on": true,
+   "usd": 0.0012861,
+   "slot_usd": 0.0012861,
+   "total_usd": 0.0012861,
+   "worst_case": false,
+   "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 6162,
+    "cache_read_input_tokens": 0,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 6162
+    },
+    "output_tokens": 107,
+    "service_tier": "standard",
+    "inference_geo": "global",
+    "speed": "standard",
+    "output_tokens_details": {
+     "thinking_tokens": 71
+    }
+   },
+   "response_model": "claude-haiku-5-5",
+   "message_id": "msg_000000000000000000000018"
+  },
+  {
+   "time": 221.6,
+   "slot": "probe-medium",
+   "credential": "live",
+   "model": "claude-haiku-5-5",
+   "effort": "medium",
+   "tools": [
+    "Bash",
+    "Edit",
+    "DeferredToolPlaceholder",
+    "Read"
+   ],
+   "beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,claude-code-20250219,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,thinking-token-count-2026-05-13,effort-2025-11-24,thinking-display-updates-2026-08-18,extended-cache-ttl-2025-04-11",
+   "cache_marks": [
+    "system.1:1h",
+    "system.2:1h",
+    "messages.1.content.0:1h"
+   ],
+   "status": 200,
+   "headers": {
+    "anthropic-ratelimit-unified-overage-status": "rejected",
+    "anthropic-ratelimit-unified-representative-claim": "seven_day",
+    "anthropic-ratelimit-unified-upgrade-paths": "overage",
+    "anthropic-ratelimit-unified-reset": "1795280400",
+    "anthropic-ratelimit-unified-7d-surpassed-threshold": "0.75",
+    "anthropic-ratelimit-unified-7d-reset": "1795280400",
+    "anthropic-ratelimit-unified-7d-status": "allowed_warning",
+    "anthropic-ratelimit-unified-fallback-percentage": "0.5",
+    "anthropic-ratelimit-unified-overage-disabled-reason": "out_of_credits",
+    "anthropic-ratelimit-unified-7d-utilization": "0.98",
+    "anthropic-ratelimit-unified-status": "allowed_warning",
+    "request-id": "req_000000000000000000000013",
+    "anthropic-organization-id": "00000000-0000-0000-0000-000000000016",
+    "anthropic-workspace-id": "wrkspc_000000000000000000000017"
+   },
+   "header_names": [
+    "date",
+    "content-type",
+    "transfer-encoding",
+    "connection",
+    "cache-control",
+    "anthropic-ratelimit-unified-overage-status",
+    "anthropic-ratelimit-unified-representative-claim",
+    "anthropic-ratelimit-unified-upgrade-paths",
+    "anthropic-ratelimit-unified-reset",
+    "anthropic-ratelimit-unified-7d-surpassed-threshold",
+    "anthropic-ratelimit-unified-7d-reset",
+    "anthropic-ratelimit-unified-7d-status",
+    "anthropic-ratelimit-unified-fallback-percentage",
+    "anthropic-ratelimit-unified-overage-disabled-reason",
+    "anthropic-ratelimit-unified-7d-utilization",
+    "anthropic-ratelimit-unified-status",
+    "strict-transport-security",
+    "request-id",
+    "traceresponse",
+    "anthropic-organization-id",
+    "anthropic-workspace-id",
+    "content-security-policy",
+    "vary",
+    "server",
+    "server-timing",
+    "cf-cache-status",
+    "x-robots-tag",
+    "cf-ray"
+   ],
+   "passed_on": true,
+   "usd": 0.00018273,
+   "slot_usd": 0.00018273,
+   "total_usd": 0.0014688300000000002,
+   "worst_case": false,
+   "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 339,
+    "cache_read_input_tokens": 5823,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 339
+    },
+    "output_tokens": 113,
+    "service_tier": "standard",
+    "inference_geo": "global",
+    "speed": "standard",
+    "output_tokens_details": {
+     "thinking_tokens": 75
+    }
+   },
+   "response_model": "claude-haiku-5-5",
+   "message_id": "msg_000000000000000000000019"
+  },
+  {
+   "time": 442.8,
+   "slot": "probe-high",
+   "credential": "live",
+   "model": "claude-haiku-5-5",
+   "effort": "high",
+   "tools": [
+    "Bash",
+    "Edit",
+    "DeferredToolPlaceholder",
+    "Read"
+   ],
+   "beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,claude-code-20250219,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,thinking-token-count-2026-05-13,effort-2025-11-24,thinking-display-updates-2026-08-18,extended-cache-ttl-2025-04-11",
+   "cache_marks": [
+    "system.1:1h",
+    "system.2:1h",
+    "messages.1.content.0:1h"
+   ],
+   "status": 200,
+   "headers": {
+    "anthropic-ratelimit-unified-overage-status": "rejected",
+    "anthropic-ratelimit-unified-representative-claim": "seven_day",
+    "anthropic-ratelimit-unified-upgrade-paths": "overage",
+    "anthropic-ratelimit-unified-reset": "1795280400",
+    "anthropic-ratelimit-unified-7d-surpassed-threshold": "0.75",
+    "anthropic-ratelimit-unified-7d-reset": "1795280400",
+    "anthropic-ratelimit-unified-7d-status": "allowed_warning",
+    "anthropic-ratelimit-unified-fallback-percentage": "0.5",
+    "anthropic-ratelimit-unified-overage-disabled-reason": "out_of_credits",
+    "anthropic-ratelimit-unified-7d-utilization": "0.98",
+    "anthropic-ratelimit-unified-status": "allowed_warning",
+    "request-id": "req_000000000000000000000003",
+    "anthropic-organization-id": "00000000-0000-0000-0000-000000000016",
+    "anthropic-workspace-id": "wrkspc_000000000000000000000017"
+   },
+   "header_names": [
+    "date",
+    "content-type",
+    "transfer-encoding",
+    "connection",
+    "cache-control",
+    "anthropic-ratelimit-unified-overage-status",
+    "anthropic-ratelimit-unified-representative-claim",
+    "anthropic-ratelimit-unified-upgrade-paths",
+    "anthropic-ratelimit-unified-reset",
+    "anthropic-ratelimit-unified-7d-surpassed-threshold",
+    "anthropic-ratelimit-unified-7d-reset",
+    "anthropic-ratelimit-unified-7d-status",
+    "anthropic-ratelimit-unified-fallback-percentage",
+    "anthropic-ratelimit-unified-overage-disabled-reason",
+    "anthropic-ratelimit-unified-7d-utilization",
+    "anthropic-ratelimit-unified-status",
+    "strict-transport-security",
+    "request-id",
+    "traceresponse",
+    "anthropic-organization-id",
+    "anthropic-workspace-id",
+    "content-security-policy",
+    "vary",
+    "server",
+    "server-timing",
+    "cf-cache-status",
+    "x-robots-tag",
+    "cf-ray"
+   ],
+   "passed_on": true,
+   "usd": 0.00019923000000000003,
+   "slot_usd": 0.00019923000000000003,
+   "total_usd": 0.00166806,
+   "worst_case": false,
+   "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 339,
+    "cache_read_input_tokens": 5823,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 339
+    },
+    "output_tokens": 146,
+    "service_tier": "standard",
+    "inference_geo": "global",
+    "speed": "standard",
+    "output_tokens_details": {
+     "thinking_tokens": 112
+    }
+   },
+   "response_model": "claude-haiku-5-5",
+   "message_id": "msg_000000000000000000000020"
+  }
+ ]
+}
