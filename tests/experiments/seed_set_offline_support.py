@@ -196,13 +196,16 @@ def write_frozen_criterion(study, **extra):
     study.frozen.write_text(json.dumps({"sha256": rules.required_hashes(study), "spend": SPEND_TERMS, **extra}))
 
 
-def stable_anchors(tasks, unstable=()):
+def stable_anchors(tasks, unstable=(), scoring_path="current"):
     """anchor_stability.json beside `tasks` (a task list): a stable entry at the current hash for every package the
-    study can use, except the `unstable` ids."""
+    study can use, except the `unstable` ids, measured under `scoring_path` ("current": this checkout's
+    `anchors.scoring_path_hash()`; None: an entry without the field)."""
     import json
 
     from experiments.seed_set import anchors, build_tasks
     rows = [json.loads(line) for line in tasks.read_text().splitlines()]
-    entries = {pid: {"sha256": build_tasks.package_hash(tasks.parent / "tasks" / pid), "stable": pid not in unstable}
-               for pid in anchors.packages(rows)}
+    path = {"current": {"scoring_path": anchors.scoring_path_hash()}, None: {}}.get(
+        scoring_path, {"scoring_path": scoring_path})
+    entries = {pid: {"sha256": build_tasks.package_hash(tasks.parent / "tasks" / pid), "stable": pid not in unstable,
+                     **path} for pid in anchors.packages(rows)}
     (tasks.parent / anchors.FILE).write_text(json.dumps(entries))

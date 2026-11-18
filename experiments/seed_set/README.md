@@ -61,16 +61,18 @@ The plan ("Changes since review 2", usage limits) and [programs/README.md](progr
 base fails some, three times with identical outcomes, under the study's own scoring path. It writes
 `anchor_stability.json`, and the freeze refuses a package without a stable entry.
 
-- **The record is keyed by the package's hash only.** A run without ids skips every package already recorded at
-  its current hash, which makes it resumable.
-- **The limit:** an outcome also depends on the code that scores it (the pool's clone builder, the hidden-test
-  scorer, the guard). A record written before that code changed says nothing about stability under the current
-  code, and neither the resume nor the freeze's check notices, because the package's hash is unchanged.
-- **So the freeze runs the anchors again on the frozen code, every package:** name the ids, since a run without
-  ids would skip them all.
+- **An entry holds for its package hash and its scoring path.** Each entry carries `scoring_path`, a hash of every
+  module directly in `experiments/seed_set/` and `experiments/compare/` when it was measured. An outcome also
+  depends on that code (the pool's clone builder, the hidden-test scorer, the guard), so an entry measured under
+  another scoring path, or with none, says nothing about stability under the current code.
+- **Such an entry is refused:** `anchors.unstable`, `tiers verify` and the freeze check name its package
+  "(other scoring path)" as lacking a stable anchor, and `tiers reject-unstable` skips it instead of rejecting on
+  it, saying how many it skipped. A run without ids measures it again, as it does a package whose hash changed,
+  and skips a package already recorded at its current hash and scoring path, which makes it resumable.
+- **The freeze runs the anchors on the frozen code,** so that its record carries the frozen code's scoring path:
 
   ```
-  python -m experiments.seed_set.anchors --work <dir> <id> ...
+  python -m experiments.seed_set.anchors --work <dir>
   ```
 
-Binding the record to the scoring code, so that a stale entry is refused, is a code change that is still owed.
+Any edit to a module in either directory invalidates the record; a re-run takes about an hour.

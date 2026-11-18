@@ -22,7 +22,8 @@ files and the results directory, written after the commit, excepted), and when
 `score_functional.orc`, the price table `orchestrator/providers/price_table.json` (coordinator ruling R4) and
 `judge-calibration.json` (plan Step 1f; keys are runtime-relative paths, the judge criterion by its file name), and
 when a package the study can draw, probe or smoke on has no stable entry at its
-current hash in `anchor_stability.json` (`anchors.py`; coordinator ruling, 2026-11-12). A second freeze after a start needs a reason, which the ledger keeps.
+current hash and the current scoring path in `anchor_stability.json` (`anchors.py`; coordinator rulings, 2026-11-12
+and 2026-11-15). A second freeze after a start needs a reason, which the ledger keeps.
 """
 
 import shutil
@@ -85,7 +86,8 @@ def require_named_hashes(study):
 
 
 def require_stable_anchors(study):
-    """The anchor stability file; refuses when a package the study can use has no stable entry at its hash."""
+    """The anchor stability file; refuses when a package the study can use has no stable entry at its hash and
+    scoring path."""
     stability = study.tasks_file.parent / anchors.FILE
     if lost := anchors.unstable(layout.task_rows(study), load(stability) if stability.is_file() else {},
                                 study.tasks_file.parent / "tasks"):
