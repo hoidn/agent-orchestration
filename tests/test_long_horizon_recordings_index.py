@@ -110,3 +110,16 @@ def test_every_task_2a_token_mode_session_ran_with_the_eighteen_name_deny_list()
     wrong = [r["name"] for r in CLI_2A if r["name"] != "t2a-simple-key-sizes"
              and _arg(r["harbor_args"], "--ak disallowed_tools=") != DENY]
     assert wrong == []
+
+
+PROBE_LOG = Path.home() / ".local" / "state" / "lh-probe" / "passthrough" / "requests.jsonl"
+
+
+@pytest.mark.skipif(not (CACHE / "live-probe").is_dir() or not PROBE_LOG.is_file(),
+                    reason="the live probe's recordings and the passthrough's log are not on this machine")
+def test_the_live_probe_fixtures_are_the_cut_of_its_recordings(tmp_path):
+    committed = sorted((FIXTURES / "live-probe").glob("*.json"))
+    note = re.match(r"local recording live-probe \((.*); the passthrough's log\)$",
+                    json.loads((FIXTURES / "live-probe" / "passthrough-log.json").read_text())["source"]).group(1)
+    cut.live_probe(CACHE / "live-probe", PROBE_LOG, note, tmp_path)
+    assert [p.name for p in committed if (tmp_path / p.name).read_text() != p.read_text()] == []

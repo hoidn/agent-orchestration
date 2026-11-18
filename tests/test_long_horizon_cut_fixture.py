@@ -283,3 +283,28 @@ def test_an_after_limit_cut_counts_the_requests_after_the_agent_phase_and_keeps_
     assert (got["requests"], got["requests_after_the_agent_phase"], got["last_request_after_s"],
             got["statuses_after"], got["cli_tool_errors"], "must not" in json.dumps(got)) == (
         3, 2, 18.3, [200], [blocked], False)
+
+
+def test_a_live_probe_cut_replaces_every_identifier_by_one_shared_placeholder_and_keeps_one_config_key(tmp_path):
+    session, org, request = "1234abcd-0000-4000-8000-00000000beef", "abcd1234-1111-4111-8111-11111111cafe", \
+        "req_011MadeUpRequestId00001"
+    trial = tmp_path / "probe" / "low" / "jobs" / "j" / "t"
+    trial.mkdir(parents=True)
+    _trial(trial, [{"type": "system", "subtype": "init", "session_id": session, "capabilities": ["msg_lifecycle_v1"]},
+                   {"type": "assistant", "request_id": request, "message": {"id": "msg_011MadeUpMessageId00001"}}])
+    (trial / "agent" / "sessions").mkdir()
+    (trial / "agent" / "sessions" / ".claude.json").write_text(json.dumps(
+        {"userID": "u" * 64, "machineID": "m" * 64, "cachedExtraUsageDisabledReason": "out_of_credits"}))
+    log = tmp_path / "requests.jsonl"
+    log.write_text(json.dumps({"time": 5.0, "effort": "low", "headers": {
+        "request-id": request, "anthropic-organization-id": org,
+        "anthropic-workspace-id": "wrkspc_013MadeUpWorkspace0001"}, "message_id": "msg_011MadeUpMessageId00001"}) + "\n")
+    (tmp_path / "out").mkdir()
+    cut.live_probe(tmp_path / "probe", log, "src", tmp_path / "out")
+    texts = [(tmp_path / "out" / name).read_text() for name in ("session-low.json", "passthrough-log.json")]
+    stream, row = json.loads(texts[0]), json.loads(texts[1])["requests"][0]
+    assert ([v in t for t in texts for v in (session, org, request, "MadeUp", "u" * 64, "m" * 64)],
+            stream["stream_tail"][-1]["request_id"] == row["headers"]["request-id"], len(row["headers"]["request-id"]),
+            stream["init"]["capabilities"], stream["exported_config"], row["time"]) == (
+        [False] * 12, True, len(request), ["msg_lifecycle_v1"], {"cachedExtraUsageDisabledReason": "out_of_credits"},
+        0.0)

@@ -43,6 +43,14 @@ phase, how many requests the stub logged after it, the last one's delay, their s
 checks; and the distinct `<tool_use_error>` texts of the stream (CLI-made text, as a refused tool call
 is answered), never any other tool output.
 
+Live-probe fixtures (plan Task 4: the probe's directory and the passthrough's `requests.jsonl`), into one
+directory: per session, `session-<effort>.json`, a stream fixture as above plus `exported_config`, the keys of
+the exported configuration (`agent/sessions/.claude.json`) in CONFIG_KEYS and no other; and `passthrough-log.json`,
+the passthrough's rows as logged (it never logs the `authorization` header or a header value outside its list),
+each row's time as seconds since the first. Across the four files each distinct vendor or account identifier
+(VENDOR_IDS: request, message and workspace ids, and every UUID: organization, session, event) becomes one
+placeholder of its shape, numbered in order of appearance, so a value shared by two files stays shared.
+
 The index: `harbor-args <trial config.json>` prints the harness arguments a trial ran with, read back from
 its configuration (the `harbor_args` field of `recordings.json`).
 
@@ -50,6 +58,7 @@ Usage: python -I cut_fixture.py <trial dir holding result.json and agent/> <sour
        python -I cut_fixture.py requests <stub.jsonl> <source label> <out.json>
        python -I cut_fixture.py trace <recording dir> <source label> <out.json>
        python -I cut_fixture.py after-limit <trial dir> <stub.jsonl> <source label> <out.json>
+       python -I cut_fixture.py live-probe <probe dir> <requests.jsonl> <source note> <out dir>
        python -I cut_fixture.py harbor-args <trial config.json>
 """
 
@@ -66,6 +75,8 @@ SECRET_HEADERS = ("x-api-key", "authorization")
 NAMED_PARAMS = ("model", "metadata", "max_tokens", "stream", "output_config")
 SESSION_FILES = "jobs/*/*/agent/sessions/projects/**/*.jsonl"
 CACHE_MARK = len(', "cache_control": ')  # what a cache mark adds to a block's JSON, besides its value
+CONFIG_KEYS = ("cachedExtraUsageDisabledReason",)  # the exported configuration's word on paid extra usage
+VENDOR_IDS = re.compile(r"\b(req|msg|wrkspc)_[0-9A-Za-z]{20,}\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 def _cut_message(message):
@@ -384,11 +395,48 @@ def harbor_args(config):
     return " ".join(args + (["--effort", effort] if effort else []))
 
 
-def _write(data, out):
+def _text(data):
     text = json.dumps(data, indent=1)
     text = re.sub(r"/home/(?!claude/)[^/\"\s]+", "<home>", text)  # /home/claude: the CLI's own container path
     text = re.sub(r"\blh-fake-slot-[0-9a-f]+", "<fake slot token>", text)
-    Path(out).write_text(re.sub(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", "<address>", text) + "\n")
+    return re.sub(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", "<address>", text) + "\n"
+
+
+def _write(data, out):
+    Path(out).write_text(_text(data))
+
+
+def _placeholders(texts):
+    """`texts` with each distinct VENDOR_IDS match replaced, in every text alike, by a placeholder of its shape."""
+    seen = {}
+
+    def placeholder(found):
+        value = found.group(0)
+        if value not in seen:
+            number, prefix = str(len(seen) + 1), f"{found.group(1)}_" if found.group(1) else "00000000-0000-0000-0000-"
+            seen[value] = prefix + number.rjust(len(value) - len(prefix), "0")
+        return seen[value]
+    return [VENDOR_IDS.sub(placeholder, text) for text in texts]
+
+
+def passthrough_log(log, source):
+    rows = [json.loads(line) for line in Path(log).read_text().splitlines() if line.strip()]
+    start = rows[0]["time"] if rows else None
+    return {"source": source, "requests": [{**row, "time": round(row["time"] - start, 1)} for row in rows]}
+
+
+def live_probe(probe, log, note, out):
+    """The live probe's fixtures (plan Task 4): one stream fixture per session, and the passthrough's log."""
+    cuts = {}
+    for result in sorted(Path(probe).glob("*/jobs/*/*/result.json")):
+        effort, trial = result.relative_to(probe).parts[0], result.parent
+        config = json.loads((trial / "agent" / "sessions" / ".claude.json").read_text())
+        cuts[f"session-{effort}.json"] = {
+            **fixture(trial, f"local recording live-probe-{effort} ({note}, effort {effort})"),
+            "exported_config": {k: config[k] for k in CONFIG_KEYS if k in config}}
+    cuts["passthrough-log.json"] = passthrough_log(log, f"local recording live-probe ({note}; the passthrough's log)")
+    for name, text in zip(cuts, _placeholders([_text(data) for data in cuts.values()])):
+        (Path(out) / name).write_text(text)
 
 
 def main(argv):
@@ -396,6 +444,8 @@ def main(argv):
         print(harbor_args(json.loads(Path(argv[1]).read_text())))
     elif argv[0] == "after-limit":
         _write(after_limit(Path(argv[1]), argv[2], argv[3]), argv[4])
+    elif argv[0] == "live-probe":
+        live_probe(Path(argv[1]), argv[2], argv[3], argv[4])
     elif argv[0] in ("requests", "trace"):
         _write((requests if argv[0] == "requests" else trace)(argv[1], argv[2]), argv[3])
     else:
