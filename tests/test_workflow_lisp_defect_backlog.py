@@ -47,7 +47,6 @@ No program, listed only (plan row id):
     | ---- | --------------------------------------------------------------------------------- |
     | A1   | missing prompt `input_file`: branch `fix/missing-prompt-file` carries its tests   |
     | E16  | bare `[Errno 2]` for a missing prompt file: the same branch                       |
-    | D18  | provider extern used as a value in reached code: not re-run, no program           |
     | E3   | the `variant_ref_unproved` message: a message is not asserted                     |
     | E14  | `TimestampNs` documented as a type: closed by the documentation, no program       |
     | E17  | dead prompt identity code: a `grep`, not a program                                |
@@ -67,6 +66,8 @@ let-proc-generic-capture (a local capturing a generic call's result) and let-pro
 capturing the result of a procedure with an effect and calling one) and D20-subject-tag (a `match` subject that is
 an `if` on a variant test) by its review, and D20-let-proc-branch (an `if` on an `and` or `or` with a `let-proc`
 branch, in a subject that lowers typed) by its re-review.
+Row D18 (a provider extern used as a value in reached code, design D7 of the staged-authoring design) was listed
+without a program until that plan's Task P1 gave it one and fixed it.
 Rows D10-input-pure, D10-field, D10-field-pure, D10-literal-let, D10-literal-let-pure and D10-rebound-*
 (the twelfth batch, found by the TD6 review and its fix round) are in the Defect Table.
 """
@@ -267,6 +268,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D12-name": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D13": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
     "D14": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"),
+    "D18": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D19": ("crash", "SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
     "D20": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D21": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"),
@@ -426,6 +428,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D16": ("refused", "proc_ref_literal_required"),
     "D17-effect": ("value", 2, "m", "m"),
     "D17-pure": ("value", 2),
+    "D18": ("refused", "prompt_value_escape"),
     "D19": None,
     "D19-done": ("value", 1, "e"),
     "D20": None,
@@ -1198,6 +1201,11 @@ PROVIDER_ROWS: dict[str, ProviderRow] = {
     # Not planned (E15): the extern's path is checked when the call runs; the build does not read it. Its
     # second spelling, an `asset_file` outside the source tree, is the row `A4-asset-dotdot`.
     "E15-missing": ProviderRow(ASSET_LEAVES_SOURCE_TREE, prompt=("asset_file", "missing.md")),
+    # D18: the provider extern bound by `let*` in the entry's body; fixed by Task P1 of the staged-authoring plan.
+    "D18": ProviderRow(refused("prompt_value_escape"), '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (export run) (defrecord Result (ok Bool))
+  (defworkflow run ((message String)) -> Result
+    (let* ((p providers.review)) (provider-result providers.review :prompt prompts.base :inputs (message) :returns Result))))'''),
 }
 
 # E27 (tenth batch): `resume` of a run whose committed step has other inputs prints two commands "to run this

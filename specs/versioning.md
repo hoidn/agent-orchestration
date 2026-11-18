@@ -1559,6 +1559,30 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   `(list :of T …)` builds the closed program, digest and effect identities of the list without
   `:of`. A list element that holds an effect is admitted and refused as in a list without `:of`.
   Every program that compiled before keeps its closed program, digest and identities.
+- **P1, a prompt application is a value.** `(name :slot value …)`, with `name` a visible
+  `defprompt` declared `-> T`, is an application of type `Prompt[T]` wherever it is written, unless
+  `name` is also a language form or an operator; `(name)` is the application only when no binding,
+  procedure, function or `let-proc` local has that name. Nothing consumes a prompt value yet:
+  outside the `:prompt` of `provider-result` and a `request-input` question, each position (a
+  binding, a field, a list element, loop state, an `if` or `match` value, a result, a call argument,
+  a workflow input) refuses with `prompt_value_escape`, after the fills are checked; before it was
+  `procedure_call_unknown`, or `keyword_argument_invalid` where a binding or procedure has the
+  prompt's name. `(name)` with slots outside `:prompt` is `prompt_slot_undischarged`, as inside it.
+  Where no declared or imported type is named `Prompt`, `Prompt[T]` is the type of a `defproc`
+  parameter only: such a procedure builds when it is not called; in a record or union field, inside
+  `List`, `Optional`, `Map` or `ProcRef`, in a `defworkflow`, `defun` or `let-proc` signature or as a
+  result type it is `prompt_value_escape` (before `generic_union_not_generic`). A `:prompt` that names
+  such a parameter stays `frontend_parse_error`, which the change that consumes prompt values
+  replaces. A user's own type named `Prompt` or `Provider`, and a type parameter named `Prompt`, keeps
+  its meaning. A provider extern that the closed build's lowering reads as a value, which ended in
+  `compiler_defect` (a `let*` binding, a record or variant field, an `if`, `cond` or `match` value, a
+  result, a procedure or `defun` argument, a call through a `bind-proc` reference over it), is
+  `prompt_value_escape`, located at the provider's name in the file that holds it, inside an inlined
+  or imported procedure too. The refusal is raised where that lowering failed, so a provider it never
+  reads (an uncalled `bind-proc` over one, an unreached definition) builds as before; where a binder
+  or parameter of the program has the extern's name, the failure stays `compiler_defect`; a provider
+  as a list element or a workflow `call` input keeps its typecheck refusal. Every program that
+  compiled before keeps its closed program, digest and identities.
 
 ### Run-time corrections without a new target
 

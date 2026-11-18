@@ -65,6 +65,8 @@ from .procedure_refs import (
     resolve_proc_ref_name,
 )
 from .phase import PhaseScope, build_phase_scope
+from .prompt_values import refuse_prompt_application, refuse_prompt_name
+from .prompts import PromptApplicationExpr
 from .parametric_constraints import SharedUnionFieldCapability
 from .typecheck_calls import (
     typecheck_call_expr as _typecheck_call_expr,
@@ -495,6 +497,7 @@ def _typecheck(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
+        refuse_prompt_name(expr, type_ref)
         return _typed(expr=expr, type_ref=type_ref, effect=EMPTY_EFFECT_SUMMARY)
     if isinstance(expr, WorkflowRefLiteralExpr):
         if workflow_catalog is None:
@@ -1221,4 +1224,6 @@ def _typecheck(
             recurse=recurse,
             typed_factory=_typed,
         )
+    if type(expr) is PromptApplicationExpr:
+        return refuse_prompt_application(expr, recurse=recurse, type_env=context.type_env)
     raise TypeError(f"unsupported expression node: {type(expr)!r}")

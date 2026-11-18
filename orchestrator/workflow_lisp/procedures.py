@@ -470,6 +470,7 @@ def build_procedure_catalog(
                         form_path=param.form_path,
                         expansion_stack=param.expansion_stack,
                         local_type_params=local_type_params,
+                        prompt_parameter=True,
                     ),
                 )
             )

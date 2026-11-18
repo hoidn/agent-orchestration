@@ -72,6 +72,7 @@ from ..procedures import (
     procedure_type_env_for,
 )
 from ..prompts import PromptApplicationExpr
+from ..prompt_values import refuse_provider_value
 from ..procedure_refs import ResolvedProcRefValue
 from ..phase import (
     IMPLEMENTATION_ATTEMPT_TARGET_FIELDS,
@@ -6903,6 +6904,8 @@ def _infer_expr_type(
             PrimitiveTypeRef(name="String"),
         )
     if isinstance(expr, NameExpr):
+        if expr.name not in value_env:
+            refuse_provider_value(expr)
         return value_env[expr.name]
     if isinstance(expr, PhaseTargetExpr):
         return PrimitiveTypeRef(name="String")
