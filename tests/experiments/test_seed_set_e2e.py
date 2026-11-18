@@ -112,7 +112,7 @@ def world(tmp_path, monkeypatch):
         listed, plan["tasks"][task] = write_task(runtime / "seedset", task, base, fixes[task], task_repo, row)
         rows.append(listed)
     (runtime / "seedset" / "tasks.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
-    stable_anchors(runtime / "seedset" / "tasks.jsonl")
+    stable_anchors(runtime / "seedset" / "tasks.jsonl", root=runtime)
     git(runtime, "add", "-A", "seedset")
     git(runtime, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "tasks")
     OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)

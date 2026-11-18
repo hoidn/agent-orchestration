@@ -394,15 +394,26 @@ def rebuild(tier, work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior
 UNSTABLE = "anchor not stable under study conditions: "
 
 
-def reject_unstable(rows, stability):
-    """The manifest with every row whose package (either form) is unstable in `stability` rejected, naming the
-    reference's failing tests; each tier's probe flags then move to its next usable rows in seed order until it has
-    four again, and a rejected smoke moves to the first usable T2 task that is not a probe task (ruling 1). The draw
-    refills by its own rules, since a rejected row is no package."""
-    rows = [dict(row) for row in rows]
+def anchor_verdicts(row, stability, tasks_dir, scoring_path):
+    """The row's packages (either form) with an entry in `stability`: [(id, entry)] of those unstable at their current
+    hash and `scoring_path`, and the number measured at another hash or scoring path (`anchors.lacking`)."""
+    why = {pid: anchors.lacking(stability[pid], tasks_dir / pid, scoring_path)
+           for pid in (row["id"], row.get("withheld_id")) if pid in stability}
+    return [(pid, stability[pid]) for pid, reason in why.items() if reason == "unstable"], sum(
+        reason in ("not measured", "other scoring path") for reason in why.values())
+
+
+def reject_unstable(rows, stability, tasks_dir):
+    """The manifest with every row whose package (either form) is unstable in `stability`, at its current hash under
+    `tasks_dir` and the current scoring path, rejected, naming the reference's failing tests; an entry measured at
+    another hash or scoring path rejects nothing, and their number is printed. Each tier's probe flags then move to
+    its next usable rows in seed order until it has four again, and a rejected smoke moves to the first usable T2
+    task that is not a probe task (ruling 1). The draw refills by its own rules, since a rejected row is no
+    package."""
+    rows, scoring_path, skipped = [dict(row) for row in rows], anchors.scoring_path_hash(), 0
     for row in rows:
-        failed = [(pid, stability[pid]) for pid in (row["id"], row.get("withheld_id"))
-                  if pid in stability and not stability[pid]["stable"]]
+        failed, stale = anchor_verdicts(row, stability, tasks_dir, scoring_path)
+        skipped += 0 if row.get("rejected") else stale
         if failed and not row.get("rejected"):
             row["rejected"] = UNSTABLE + "; ".join(
                 (f"{pid}: " if pid != row["id"] else "") + ", ".join(anchors.unstable_tests(entry) or ["no repetition ran"])
@@ -416,6 +427,9 @@ def reject_unstable(rows, stability):
     for old in [row for row in rows if row["set"] == "smoke" and row.get("rejected")]:
         old["set"] = "rejected"
         next(row for row in usable if row["tier"] == "T2" and not row.get("probe"))["set"] = "smoke"
+    if skipped:
+        print(f"{skipped} anchors entries skipped, measured at another package hash or scoring path: the default "
+              "run `python -m experiments.seed_set.anchors --work W` measures them")
     return rows
 
 
@@ -455,7 +469,7 @@ if __name__ == "__main__":
     elif args.cmd == "reject-unstable":
         manifest = b.HERE / "tasks.jsonl"
         lines = reject_unstable([json.loads(line) for line in manifest.read_text().splitlines()],
-                                json.loads((b.HERE / anchors.FILE).read_text()))
+                                json.loads((b.HERE / anchors.FILE).read_text()), b.HERE / "tasks")
         manifest.write_text("".join(json.dumps(line, sort_keys=True) + "\n" for line in lines))
         verify()
     elif args.cmd == "build":

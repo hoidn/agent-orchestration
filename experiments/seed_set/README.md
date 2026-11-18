@@ -31,8 +31,11 @@ In the ledger's order (row of 2026-11-15, "The kit is on `main`"):
    stays as built (below); paid extra usage is off for the account; a slot cut by a usage limit runs again only
    inside its cap.
 2. **The freeze on the merged commit:** the runtime worktree, the anchors' stability run on that code,
-   `judge-calibration.json` and `judge-seeds.json`, the price table read again, `criterion.json` with its `spend`
-   and `sha256` blocks, `study.py record-freeze`, and the hashes in the ledger.
+   `judge-calibration.json`, the price table read again, `criterion.json` with its `spend` and `sha256` blocks,
+   `study.py record-freeze`, and the hashes in the ledger. `judge-seeds.json` is not part of the freeze: it names
+   the judge the calibration selects (plan Step 1f), so it is written after the calibration. The freeze pins the
+   Claude CLI's path and version (`spend.cli` in `criterion.json`), so a CLI self-update before the first start
+   means recording the freeze again.
 3. **The 20-task rehearsal** on the frozen code at low load.
 4. **The tranche's spend row** in the ledger.
 5. **The smoke.**
@@ -61,16 +64,24 @@ The plan ("Changes since review 2", usage limits) and [programs/README.md](progr
 base fails some, three times with identical outcomes, under the study's own scoring path. It writes
 `anchor_stability.json`, and the freeze refuses a package without a stable entry.
 
-- **The record is keyed by the package's hash only.** A run without ids skips every package already recorded at
-  its current hash, which makes it resumable.
-- **The limit:** an outcome also depends on the code that scores it (the pool's clone builder, the hidden-test
-  scorer, the guard). A record written before that code changed says nothing about stability under the current
-  code, and neither the resume nor the freeze's check notices, because the package's hash is unchanged.
-- **So the freeze runs the anchors again on the frozen code, every package:** name the ids, since a run without
-  ids would skip them all.
+- **An entry holds for its package hash and its scoring path.** Each entry carries `scoring_path`, a hash of every
+  module directly in `experiments/seed_set/` and `experiments/compare/`, the Python version and the installed
+  pytest's version when it was measured. An outcome also depends on that code (the pool's clone builder, the
+  hidden-test scorer, the guard), so an entry measured under another scoring path, or with none, says nothing about
+  stability under the current code. A Python or pytest update makes every entry "other scoring path". The freeze
+  and each start compute the scoring path from the runtime's files.
+- **What the scoring path does not bind:** the environment variables `host.guarded` passes through (for example
+  `PYTEST_ADDOPTS`, `PYTHONHASHSEED`, `LC_ALL`, `TZ`), the git binary and its configuration, the other
+  site-packages the hidden tests import, and the no-provider stubs in `experiments/thread_m/no_provider`. A change
+  to any of them leaves the record in force without a new measurement.
+- **Such an entry is refused:** `anchors.unstable`, `tiers verify` and the freeze check name its package
+  "(other scoring path)" as lacking a stable anchor, and `tiers reject-unstable` skips it instead of rejecting on
+  it, saying how many it skipped. A run without ids measures it again, as it does a package whose hash changed,
+  and skips a package already recorded at its current hash and scoring path, which makes it resumable.
+- **The freeze runs the anchors on the frozen code,** so that its record carries the frozen code's scoring path:
 
   ```
-  python -m experiments.seed_set.anchors --work <dir> <id> ...
+  python -m experiments.seed_set.anchors --work <dir>
   ```
 
-Binding the record to the scoring code, so that a stale entry is refused, is a code change that is still owed.
+Any edit to a module in either directory invalidates the record; a re-run takes about an hour.
