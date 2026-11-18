@@ -319,6 +319,9 @@ def oracle(repo, pkg, clone, runs=RUNS, visible=visible_passes, hidden_runs=True
     for side in ("base", "fix"):
         if side == "fix":
             git("apply", "--binary", str(pkg / "anchors" / f"{pkg.name}-upstream.diff"), repo=clone)
+            # the base runs' bytecode is keyed on source size and mtime in whole seconds: a same-size fix applied
+            # within that second would run the base's code
+            remove(Path(os.environ["PYTHONPYCACHEPREFIX"], *clone.resolve().parts[1:]))
         for i in range(runs):
             ok, sec, broken, output = visible(pkg, clone)
             times[f"visible_{side}"].append(sec)

@@ -181,7 +181,7 @@ def committed_runtime(root, rows):
     (root / rules.PRICE_TABLE).write_bytes((checkout / rules.PRICE_TABLE).read_bytes())
     tasks = root / "experiments" / "seed_set" / "tasks.jsonl"
     tasks.write_text("".join(json.dumps(row) + "\n" for row in rows))
-    stable_anchors(tasks)
+    stable_anchors(tasks, root=root)
     for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rt"]):
         subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
     return tasks
@@ -196,13 +196,16 @@ def write_frozen_criterion(study, **extra):
     study.frozen.write_text(json.dumps({"sha256": rules.required_hashes(study), "spend": SPEND_TERMS, **extra}))
 
 
-def stable_anchors(tasks, unstable=()):
+def stable_anchors(tasks, unstable=(), scoring_path="current", root=None):
     """anchor_stability.json beside `tasks` (a task list): a stable entry at the current hash for every package the
-    study can use, except the `unstable` ids."""
+    study can use, except the `unstable` ids, measured under `scoring_path` ("current": the scoring path of the files
+    under `root`, this checkout by default; None: an entry without the field)."""
     import json
 
     from experiments.seed_set import anchors, build_tasks
     rows = [json.loads(line) for line in tasks.read_text().splitlines()]
-    entries = {pid: {"sha256": build_tasks.package_hash(tasks.parent / "tasks" / pid), "stable": pid not in unstable}
-               for pid in anchors.packages(rows)}
+    path = {"current": {"scoring_path": anchors.scoring_path_hash(root or build_tasks.ROOT)}, None: {}}.get(
+        scoring_path, {"scoring_path": scoring_path})
+    entries = {pid: {"sha256": build_tasks.package_hash(tasks.parent / "tasks" / pid), "stable": pid not in unstable,
+                     **path} for pid in anchors.packages(rows)}
     (tasks.parent / anchors.FILE).write_text(json.dumps(entries))

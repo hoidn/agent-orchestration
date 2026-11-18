@@ -120,6 +120,23 @@ def test_evaluated_package_passes_the_oracle(built):
     assert row["reason"] is None
 
 
+def test_oracle_runs_the_fix_when_it_lands_in_the_base_runs_second(built, history, tmp_path):
+    _, pkg = built
+    repo, _ = history
+    stamp = {}
+
+    def visible(pkg, clone):
+        calc = clone / "orchestrator/calc.py"
+        if not stamp:
+            stamp["ns"] = calc.stat().st_mtime_ns
+        else:  # the same-size fix, stamped into the second the base run compiled in
+            os.utime(calc, ns=(stamp["ns"], stamp["ns"]))
+        return b.visible_passes(pkg, clone)
+    with b.sandboxed(tmp_path, "t"):
+        reason, _, _ = b.oracle(repo, pkg, tmp_path / "t" / "clone", runs=1, visible=visible)
+    assert reason is None
+
+
 def test_package_seed_holds_no_hidden_function(built):
     row, pkg = built
     names = {n.split("::")[-1] for n in row["hidden"]}

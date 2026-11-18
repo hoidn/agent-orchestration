@@ -804,7 +804,7 @@ the owner can amend any of them.
 | --- | --- | --- |
 | 1 | Select this roadmap | Selected 2026-11-11 |
 | 2 | H-G1 to H-G3 are the claims the project stands on, each with its refutation condition | Confirmed 2026-11-11 |
-| 3 | Name the consumer | Open; needed before the consumer thread starts |
+| 3 | Name the consumer | Named 2026-11-17 by the coordinator, at the owner's word ("you name it"): the PtychoPINN paper's result pipeline, a campaign that reconstructs one scan again, scores it, regenerates the figures and tables it feeds and updates the text. A Claude session with subagents runs such a campaign by hand today (PtychoPINN, `docs/plans/2026-11-16-paper-fly001-four-mode-branch.md`). The first instance is the next campaign the owner starts, not the one in flight. Reasons: it is the owner's current work, it lasts hours, its handoffs are scores and figure inputs that can be typed and gated, it ends in a figure or a paper section (the exit test's own words), and `AGENTS.md` already carries launch rules for that repository. The consumer thread needs its own plan, written with the session that runs that work; it is not started. The owner can name another |
 | 4 | Lane D deletions | Approved 2026-11-11. Owner, same day: the dashboard and `report` stop reading runs from the retired runtime, and the dashboard is migrated to read evaluated runs. The migration precedes stage 3 |
 | 5 | Dynamic branch: tag it and stop porting main into it; reopen if the authoring check shows typed authoring is the agents' bottleneck. Its adoption lane was already stopped (simplification record, Task 4) | Approved 2026-11-11 |
 | 6 | Phase 5 size | Superseded by decision 8 |
@@ -962,20 +962,25 @@ Python emitter change of stage 5 (I2b, decided after the experiments).
 
 ### Open owner decisions
 
-Open on 2026-11-15. The first eight come from the two experiment plans; the
-last is decision 3 of [Owner decisions](#owner-decisions).
+Asked on 2026-11-17, the owner answered seven of the nine decisions that were
+open on 2026-11-15; each answer is a dated row in the plan that asked.
+
+| Decision | Answer, 2026-11-17 | Recorded in |
+| --- | --- | --- |
+| Paid extra usage is off for the account | "yes". Owed again at the long-horizon pilot and freeze | Both experiment plans' ledgers |
+| The subscription's terms allow unattended runs of this size | "yes". Owed again at the freeze | Long-horizon ledger |
+| The seed-set credential route | "whatever easier". Coordinator ruling R9: the route as built stays (a copy of the login file in each unit's private home) | Seed-set ledger |
+| Whether a slot cut by a usage limit may run again outside the caps | "you decide". Coordinator ruling R10: no; a cut slot runs again only inside its cap | Seed-set ledger |
+| Whether the token disclosed on 2026-11-14 was revoked | "dont knwn". Recorded as not known; it may stay valid until 2027-11-14 | Long-horizon ledger |
+| Name the consumer (decision 3) | "you name it". The PtychoPINN paper's result pipeline | [Owner decisions](#owner-decisions) |
+
+Still open:
 
 | Decision | Recorded in | Blocks |
 | --- | --- | --- |
-| Confirm that paid extra usage is off for the account | [long-horizon plan](2026-11-13-long-horizon-task-family-and-seed-plan.md#owner-preconditions-and-questions), preconditions; [seed-set plan](2026-11-11-seed-set-calibration-plan.md#ledger), row of 2026-11-15 | The long-horizon live probe, pilot and freeze (confirmed again each time); the seed set's first paid call |
-| Confirm that the subscription's terms allow unattended runs of this size | Long-horizon plan, preconditions | The long-horizon live probe, and again the freeze |
-| The seed-set credential route: today each unit's private home gets a copy of the subscription login file (ruling R7); the coordinator recommends the long-horizon kit's host-side passthrough instead (the recommendation is not yet a ledger row) | Seed-set plan, rows R7 and 2026-11-15 | The seed-set freeze, and with it the rehearsal, the smoke and the calibration |
-| Allowance: the hours in which attempts may start, the shares of the weekly and the five-hour allowance kept free, and a meter reading before each window | Long-horizon plan, question 2; seed-set plan, row of 2026-11-15 | The long-horizon smoke (hours and shares) and every window of attempts (a reading); the seed set's first paid call |
-| Whether the token disclosed to the coordinating session on 2026-11-14 was revoked | Long-horizon plan, ledger rows of 2026-11-14 and 2026-11-15 | Nothing by itself: the replaced token is in place. The answer is recorded before the live probe; unrevoked, the disclosed token may stay valid until 2027-11-14 |
-| Whether `designed` (62 lines, over the 50-line figure) stays in the long-horizon seed set | Long-horizon plan, ledger row of 2026-11-14 (third fix round of the seeds) | Nothing before step 9; it fixes which programs step 9's request names |
-| Whether a slot cut by a usage limit may run again outside the caps | Seed-set plan, row of 2026-11-15 | The seed set's first paid call |
-| Whether "experiment critical path first" becomes a standing rule | The coordinator's parking of 2026-11-14 ([parked work](#parked-work)); no ledger row | Nothing. Until it is answered the parking holds as one coordinator ruling, not as a rule; decision 19 (2026-11-15) took the staged-workflow authoring work out of it |
-| Name the consumer (decision 3) | [Owner decisions](#owner-decisions) | The consumer thread, and Phase 4, which enters only with the consumer's friction items |
+| The allowance. The owner answered "30 percent weekly". Not settled: whether that is the share kept free or the share the experiments may use; the five-hour share; the hours in which attempts may start; a meter reading before each window | Both experiment plans' ledgers, rows of 2026-11-17 | The long-horizon smoke and every window of attempts; the seed set's first paid call |
+| Whether `designed` (62 lines, over the 50-line figure) stays in the long-horizon seed set | Long-horizon plan, ledger row of 2026-11-14 (third fix round of the seeds) | Nothing before step 9 |
+| Whether "experiment critical path first" becomes a standing rule | The coordinator's parking of 2026-11-14 ([parked work](#parked-work)); no ledger row | Nothing |
 
 The long-horizon plan's questions 3 to 6 (quiet machine time, two root
 commands, tasks outside the 16, the disk) stay in that plan.

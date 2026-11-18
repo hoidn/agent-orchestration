@@ -159,6 +159,8 @@ GREEN or post-change acceptance is claimed.
 The chosen long `E/full-tmp` path causes observed `AF_UNIX path too long`
 failures in provider materialization tests. Watchdog-watcher tmux setup errors
 may have the same path-length cause; that attribution remains unverified.
+(Note, 2026-11-17, owner decision: `E/full-tmp`, the pytest temporary
+directories of that run, was deleted to free 13 GB; the rest of E is kept.)
 The coordinator's 394-case failed/error retest completed before product edits,
 with `/tmp/oc-b0` as basetemp: 231 failed, 163 passed, zero errors, exit 1,
 188.05s pytest time (188.84s receipt wall time). Exact selectors/cwd/exit and
