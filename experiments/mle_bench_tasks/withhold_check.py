@@ -94,10 +94,11 @@ LIMITS = (
     "answers re-encoded (delimiter, quoting, number format, column order, an encoding such as UTF-16), split or "
     "altered, labels without their ids, or learned into model weights are not seen",
     "a line longer than LINE_CAP bytes is not compared",
+    "lines are split on \\n only: a file with CR-only line endings (classic Mac) is one line, and its rows are not seen",
     "the check reads the export it is given; that the export came from the named image is the exporter's to show",
 )
 PACKAGE = re.compile(r"(__editable__[._-])?mlebench([-_.].*)?")
-COMPETITION = re.compile(r"[a-z0-9][a-z0-9-]*")
+COMPETITION = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*")  # every id of the benchmark, AI4Code included
 # zipfile raises RuntimeError for an encrypted member and NotImplementedError for an unknown compression
 BROKEN = (OSError, EOFError, zlib.error, tarfile.TarError, zipfile.BadZipFile, RuntimeError, NotImplementedError)
 
@@ -245,9 +246,13 @@ def _tree(root):
 
 
 def _tree_digest(entries):
-    """"sha256:<hex>" over the sorted "<relative path>\\0<sha256>\\n" lines of _tree entries (wrap.digest's formula,
-    without its bytecode-cache filter)."""
-    text = "".join(f"{rel}\0{sha}\n" for rel, _, sha in sorted(entries))
+    """"sha256:<hex>" over the sorted "<relative path>\\0<sha256>\\n" lines of _tree entries: wrap.digest's formula
+    and its filter. Bytecode caches (`__pycache__/`, `*.pyc`) are left out, because they appear when grade.py is
+    imported and differ between machines and Python versions; they stay hash targets all the same, since a compiled
+    copy of the grading code in an image is worth finding."""
+    kept = [(rel, sha) for rel, _, sha in entries
+            if "__pycache__" not in rel.split("/") and not rel.endswith(".pyc")]
+    text = "".join(f"{rel}\0{sha}\n" for rel, sha in sorted(kept))
     return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -280,7 +285,7 @@ def targets(private, grader, leaderboard, public, withheld=()):
         hashes.setdefault(sha, []).append((kind, source))
     lines, names = _private_lines(trees["private"], trees["public"])
     inputs = {name: _tree_digest(tree) for name, tree in trees.items()}
-    inputs |= {"leaderboard": "sha256:" + board, "withheld": [_tree_digest(tree) for tree in held]}
+    inputs |= {"leaderboard": "sha256:" + board, "withheld": sorted(_tree_digest(tree) for tree in held)}
     return _Targets(hashes, {sha for _, _, sha in trees["public"]}, lines, names, inputs)
 
 
@@ -303,7 +308,7 @@ class _Scan:
     """The findings over one export, built one entry at a time from `found` (_Targets)."""
 
     def __init__(self, found, competition, cap):
-        self.t, self.competition, self.cap = found, competition, cap
+        self.t, self.competition, self.cap = found, competition.lower(), cap
         self.findings = {kind: [] for kind in KINDS}
         self.checked, self.seen, self.benchmark = 0, {}, set()  # seen: {tar member path: files checked under it}
 
@@ -501,10 +506,12 @@ def _exemptions(path):
         return {}, None
     entries = json.loads(Path(path).read_text())
     ok = isinstance(entries, list) and all(
-        isinstance(e, dict) and re.fullmatch(r"[0-9a-f]{64}", str(e.get("sha256"))) and str(e.get("reason", "")).strip()
-        for e in entries)
+        isinstance(e, dict) and re.fullmatch(r"[0-9a-f]{64}", str(e.get("sha256")))
+        and isinstance(e.get("reason"), str) and e["reason"].strip() for e in entries)
     if not ok:
-        raise Refused(f"{path}: not a JSON list of {{sha256, reason}}")
+        raise Refused(f"{path}: not a JSON list of {{sha256, reason}} with a non-empty string reason")
+    if len({e["sha256"] for e in entries}) != len(entries):
+        raise Refused(f"{path}: a hash is listed twice")
     return {e["sha256"]: e["reason"] for e in entries}, "sha256:" + _sha(path)
 
 

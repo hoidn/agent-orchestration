@@ -493,7 +493,7 @@ def test_an_image_reference_not_pinned_by_digest_is_refused(wc, tmp_path, ref):
     lambda t: {"public": t / "missing"},
     lambda t: {"withheld": [t / "missing"]},
     lambda t: {"competition": "another-competition"},  # not the id config.yaml names
-    lambda t: {"competition": "Not An Id"},
+    lambda t: {"competition": "not an id"},
 ])
 def test_missing_empty_or_mismatched_inputs_are_refused(wc, tmp_path, change):
     (tmp_path / "empty").mkdir()
@@ -555,8 +555,11 @@ def test_an_exemption_for_a_file_not_present_is_reported_unused(wc, tmp_path):
     assert (result["verdict"], result["exemptions_unused"]) == ("pass", ["b" * 64])
 
 
-@pytest.mark.parametrize("entries", [{"sha256": "b" * 64}, [{"sha256": "b" * 63, "reason": "x"}],
-                                     [{"sha256": "b" * 64, "reason": " "}]])
+@pytest.mark.parametrize("entries", [
+    {"sha256": "b" * 64}, [{"sha256": "b" * 63, "reason": "x"}], [{"sha256": "b" * 64, "reason": " "}],
+    [{"sha256": "b" * 64, "reason": ""}], [{"sha256": "b" * 64, "reason": None}], [{"sha256": "b" * 64, "reason": False}],
+    [{"sha256": "b" * 64}], [{"sha256": "b" * 64, "reason": "x"}, {"sha256": "b" * 64, "reason": "y"}],  # twice
+], ids=["not-a-list", "short-hash", "blank", "empty", "null", "false", "no-reason", "same-hash-twice"])
 def test_a_malformed_exemption_file_is_refused(wc, tmp_path, entries):
     with pytest.raises(wc.Refused):
         _run(wc, _export(tmp_path / "x"), exempt=_exempt(tmp_path, entries))
@@ -570,6 +573,91 @@ def test_a_binary_private_file_is_withheld_by_hash_only(wc, tmp_path):
     _put(private / "images" / "1.png", signature + b"private image")
     result = _run(wc, _export(tmp_path / "x", {"usr/share/a.png": signature + b"another image"}), private=private)
     assert result["verdict"] == "pass"
+
+
+def test_a_line_in_a_public_table_after_a_nul_byte_is_never_private_only(wc, tmp_path):
+    """The public side reads a table's every line, as the export side does: a shared line after a NUL in a public
+    .csv is public, wherever it appears in the export."""
+    private, public = tmp_path / "private", tmp_path / "public"
+    shutil.copytree(PUBLIC, public)
+    _put(private / "answers.csv", b"id,y\n1,shared\n")
+    _put(public / "extra.csv", b"id,y\n\x00\n1,shared\n")
+    result = _run(wc, _export(tmp_path / "x", {"tmp/f.csv": b"1,shared\n", "tmp/g.txt": b"1,shared\n"}),
+                  private=private, public=public)
+    assert result["verdict"] == "pass"
+
+
+def test_the_order_of_withheld_directories_does_not_change_the_inputs(wc, tmp_path):
+    first, second = tmp_path / "raw-a", tmp_path / "raw-b"
+    _put(first / "a.csv", b"a\n")
+    _put(second / "b.csv", b"b\n")
+    one = _run(wc, _export(tmp_path / "x"), withheld=[first, second])["inputs"]
+    two = _run(wc, _export(tmp_path / "x"), withheld=[second, first])["inputs"]
+    assert one == two
+
+
+def test_bytecode_caches_leave_every_input_digest_unchanged(wc, tmp_path):
+    inputs = {name: tmp_path / name for name in ("private", "grader", "public")}
+    for name, source in (("private", PRIVATE), ("grader", GRADER), ("public", PUBLIC)):
+        shutil.copytree(source, inputs[name])
+    before = _run(wc, _export(tmp_path / "x"), **inputs)["inputs"]
+    for root in inputs.values():
+        _put(root / "__pycache__" / "grade.cpython-313.pyc", b"\xf3\r\r\n compiled")
+        _put(root / "stray.pyc", b"\xf3\r\r\n compiled")
+    assert _run(wc, _export(tmp_path / "x"), **inputs)["inputs"] == before
+
+
+def test_each_input_digest_is_wraps_digest_of_the_directory(wc, tmp_path):
+    spec = importlib.util.spec_from_file_location("mle_bench_wrap_t3", ROOT / "experiments" / "mle_bench_tasks" / "wrap.py")
+    wrap = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wrap)
+    grader = tmp_path / "grader"
+    shutil.copytree(GRADER, grader)
+    _put(grader / "__pycache__" / "grade.cpython-313.pyc", b"compiled")
+    inputs = _run(wc, _export(tmp_path / "x"), grader=grader)["inputs"]
+    assert [inputs[k] for k in ("private", "grader", "public")] == [wrap.digest(d) for d in (PRIVATE, grader, PUBLIC)]
+
+
+def test_a_compiled_copy_of_the_grading_code_is_still_found(wc, tmp_path):
+    grader = tmp_path / "grader"
+    shutil.copytree(GRADER, grader)
+    compiled = b"\xf3\r\r\n compiled grade"
+    _put(grader / "__pycache__" / "grade.cpython-313.pyc", compiled)
+    result = _run(wc, _export(tmp_path / "x", {"usr/lib/g.pyc": compiled}), grader=grader)
+    assert _paths(result, "grader_hash") == ["usr/lib/g.pyc"]
+
+
+REAL_IDS = ["AI4Code", "leaf-classification", "text-normalization-challenge-russian-language", "mlsp-2013-birds",
+            "us-patent-phrase-to-phrase-matching", "tweet-sentiment-extraction", "lmsys-chatbot-arena",
+            "the-icml-2013-whale-challenge-right-whale-redux", "petfinder-pawpularity-score", "kuzushiji-recognition",
+            "3d-object-detection-for-autonomous-vehicles", "ml2021spring-hw2"]
+BENCHMARK = Path.home() / "lh-cache" / "mle" / "src" / "mlebench" / "competitions"
+
+
+@pytest.mark.parametrize("competition", REAL_IDS)
+def test_real_competition_ids_are_accepted(wc, competition):
+    assert wc.COMPETITION.fullmatch(competition)
+
+
+@pytest.mark.skipif(not BENCHMARK.is_dir(), reason="the benchmark's source is not on this machine")
+def test_every_competition_id_of_the_benchmark_is_accepted(wc):
+    ids = sorted(p.name for p in BENCHMARK.iterdir() if (p / "config.yaml").is_file())
+    assert (len(ids) > 50, [i for i in ids if not wc.COMPETITION.fullmatch(i)]) == (True, [])
+
+
+@pytest.mark.parametrize("competition", ["../x", "a/b", ".hidden", "-x", "", "a b"])
+def test_an_id_with_a_path_separator_or_a_leading_dot_or_hyphen_is_refused(wc, tmp_path, competition):
+    with pytest.raises(wc.Refused):
+        _run(wc, _export(tmp_path / "x"), competition=competition)
+
+
+def test_an_upper_case_id_is_found_by_name_in_any_case(wc, tmp_path):
+    grader = tmp_path / "grader"
+    shutil.copytree(GRADER, grader)
+    (grader / "config.yaml").write_text((grader / "config.yaml").read_text().replace("id: tiny-tabular", "id: AI4Code"))
+    result = _run(wc, _export(tmp_path / "x", {"opt/ai4code/readme.txt": b"x\n"}), grader=grader,
+                  competition="AI4Code")
+    assert _paths(result, "benchmark") == ["opt/ai4code"]
 
 
 def test_lines_are_counted_per_private_file(wc, tmp_path):
