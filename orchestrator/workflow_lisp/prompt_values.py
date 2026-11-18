@@ -120,13 +120,17 @@ def refuse_prompt_name(expr: NameExpr, type_ref: TypeRef) -> None:
 # lookup is reached from many call sites whose arguments do not carry the externs, so the build sets it here.
 _LOWERED_PROGRAM: ContextVar[Any] = ContextVar("workflow_lisp_lowered_program", default=None)
 # Fields and `(name, value)` collections in which an expression, a definition or a signature declares a name.
-_BINDER_FIELDS = frozenset({"binder_name", "binding_name", "local_name"})
+# `authored_local_name` is a `let-proc` local once the local is rewritten into a generated procedure.
+_BINDER_FIELDS = frozenset({"binder_name", "binding_name", "local_name", "authored_local_name"})
 _BINDER_PAIRS = frozenset({"bindings", "params"})
 
 
 @contextmanager
 def refusing_provider_values(typed: Any) -> Iterator[None]:
-    """While the closed build lowers the typed program `typed`, `refuse_provider_value` decides against it."""
+    """While the closed build lowers the typed program `typed`, `refuse_provider_value` decides against it.
+
+    A thread started inside the build does not inherit the context variable, so a lookup there refuses nothing
+    and falls back to the `compiler_defect` report."""
 
     token = _LOWERED_PROGRAM.set(typed)
     try:
