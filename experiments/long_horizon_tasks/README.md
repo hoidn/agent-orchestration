@@ -49,7 +49,8 @@ this page too, means a new row.
 ## Running it, in order
 
 1. **The live probe** (three short sessions of a scratch task; at most 18 requests, priced USD 0.45, counted
-   inside the USD 200). It has one try per approval row:
+   inside the USD 200). The scratch task must exist first: `experiments/long_horizon_tasks/record.sh make_task`
+   builds it, and the probe refuses to start without it. The probe has one try per approval row:
 
    ```
    LH_PROBE_SPEND_AUTHORIZED=yes LH_PROBE_COMMIT=<the kit's commit> LH_TOKEN_FILE=<the token file's path> \
