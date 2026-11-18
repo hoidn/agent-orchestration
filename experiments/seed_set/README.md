@@ -30,13 +30,13 @@ In the ledger's order (row of 2026-11-15, "The kit is on `main`"):
    other three decisions were answered on 2026-11-17 (plan ledger, rulings R9 and R10): the credential route
    stays as built (below); paid extra usage is off for the account; a slot cut by a usage limit runs again only
    inside its cap.
-2. **The freeze on the merged commit:** the runtime worktree, the anchors' stability run on that code,
+2. **The freeze on the merged commit** (recorded on `592ed731`, plan ledger row of 2026-11-17)**:** the runtime worktree, the anchors' stability run on that code,
    `judge-calibration.json`, the price table read again, `criterion.json` with its `spend` and `sha256` blocks,
    `study.py record-freeze`, and the hashes in the ledger. `judge-seeds.json` is not part of the freeze: it names
    the judge the calibration selects (plan Step 1f), so it is written after the calibration. The freeze pins the
    Claude CLI's path and version (`spend.cli` in `criterion.json`), so a CLI self-update before the first start
    means recording the freeze again.
-3. **The 20-task rehearsal** on the frozen code at low load.
+3. **The 20-task rehearsal** on the frozen code (run on 2026-11-17, plan ledger ruling R12).
 4. **The tranche's spend row** in the ledger.
 5. **The smoke.**
 
