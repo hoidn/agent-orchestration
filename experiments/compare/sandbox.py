@@ -28,6 +28,19 @@ POLICY = ('ORC_ALLOWED_CODEX_MODELS', 'ORC_ALLOWED_CLAUDE_MODELS', 'ORC_SINGLE_C
 CLAUDE_BINDING = '/.compare-claude-model'  # the model guard's read-only Claude binding (shim/model-guard)
 SONNET, HAIKU = 'claude-sonnet-5-5', 'claude-haiku-5-5'
 CLAUDE_MODELS = (SONNET, HAIKU)  # a unit's one bound Claude model is one of these exact IDs
+# Every Claude session of a unit, an agent's or a judge's, starts from these user settings (the unit home's
+# ~/.claude/settings.json, read-only to the session) and this environment. Keys as documented for CLI 2.1.327
+# (code.claude.com/docs/en/settings, /mcp#disable-claude-ai-connectors, /permissions, /env-vars). They keep out
+# the account's claude.ai connectors, skills and plugins and any MCP tool, turn auto memory off, and remove the
+# tools that start other agents or sessions, act on the account, or wake a session after its answer, with the
+# background runs of Bash, so that one call is one session. Which tools to remove is a policy: change it here.
+CLAUDE_SETTINGS = {
+    "disableClaudeAiConnectors": True, "syncClaudeAiSkills": False, "syncClaudeAiPlugins": False,
+    "autoMemoryEnabled": False,
+    "permissions": {"deny": ["mcp__*", "Agent", "Task", "Workflow", "SendMessage", "ListAgents", "RemoteTrigger",
+                             "PushNotification", "DesignSync", "Monitor", "CronCreate", "CronDelete", "CronList",
+                             "ScheduleWakeup"]}}
+CLAUDE_ENV = {"ENABLE_CLAUDEAI_MCP_SERVERS": "false", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
 BROAD = frozenset(('/', '/home', '/root', '/etc', '/mnt', '/srv', '/opt', '/run', '/var', '/tmp'))
 DEPENDENCY_FIELDS = frozenset(('codex', 'claude', 'readonly', 'path', 'environment', 'catalog', 'skills'))
 UNIT_FIELDS = frozenset(('tree', 'records', 'home', 'home_path', 'clones', 'providers', 'result_root', 'claude_model'))
@@ -189,6 +202,8 @@ def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment
             destination.chmod(0o600)
     if 'claude' in selected:
         (home / '.claude.json').write_text('{"hasCompletedOnboarding":true}\n')
+        (home / '.claude').mkdir(mode=0o700, exist_ok=True)
+        _write(home / '.claude/settings.json', CLAUDE_SETTINGS)
     data.update(tree=str(tree), records=str(records), home=str(home), home_path=str(GUEST_HOME),
                 clones=[str(Path(p).resolve()) for p in clones], providers=selected,
                 result_root=str(Path(result_root).resolve() if result_root else tree), claude_model=claude_model)
@@ -276,6 +291,14 @@ def _publish_result(result, parent, staged):
             os.unlink(temporary, dir_fd=parent)
 
 
+def _settings_mount(home):
+    """The unit home's CLAUDE_SETTINGS file, read-only over itself so the session cannot change its own settings."""
+    settings = home / '.claude/settings.json'
+    if not settings.is_file():
+        raise ValueError('Claude unit lacks its isolation settings; prepare it again')
+    return ['--ro-bind', str(settings), str(GUEST_HOME / '.claude/settings.json')]
+
+
 def launch(name, argv, environment=None, *, call=None):
     """Run the guarded native CLI inside its prepared positive mount boundary."""
     environment = os.environ if environment is None else environment
@@ -360,6 +383,8 @@ def launch(name, argv, environment=None, *, call=None):
             args += ['--tmpfs', str(GUEST_HOME / '.claude'), '--ro-bind', '/dev/null', str(GUEST_HOME / '.claude.json')]
             if data.get('claude'):
                 args += ['--ro-bind', '/dev/null', data['claude']]
+        else:
+            args += _settings_mount(home)
         for name_ in ('.bashrc', '.profile', '.bash_profile', '.bash_login'):
             args += ['--ro-bind', '/dev/null', str(GUEST_HOME / name_)]
         native_env = {key: environment[key] for key in data.get('environment', []) if key in environment}
@@ -369,6 +394,8 @@ def launch(name, argv, environment=None, *, call=None):
         native_env.update({key: environment[key] for key in POLICY if key in environment})
         if no_claude:
             native_env['ORC_ALLOWED_CLAUDE_MODELS'] = ''
+        else:
+            native_env.update(CLAUDE_ENV)
         for provider in data['providers']:
             if provider != 'claude' or not no_claude:
                 native_env.update({key: environment[key] for key in AUTH[provider] if key in environment})

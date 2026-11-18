@@ -4,7 +4,8 @@ patterns(...) -> {name: regex}; find_hits(calls_root, tree, since, home, pattern
 "pattern", "text"}]. The same scan serves an agent run (calls_root = its records directory, tree = its
 agents' tree) and a judge (calls_root = its records under the pool, tree = its working directory).
 
-Sources: the shims' calls/<n>/stdout.txt and stderr.txt under calls_root; the Claude CLI's session
+Sources: the shims' calls/<n>/stdout.txt and stderr.txt under calls_root, all but the Claude CLI's own
+`system/init` events (`cli_init`: its auto-memory path names .claude/projects on every run); the Claude CLI's session
 files (~/.claude/projects/<slug>, the slug being the path with every non-alphanumeric character as "-")
 for the tree and every directory under it, tool_use inputs only; codex rollouts
 (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl) modified since `since` whose session cwd lies in the
@@ -129,11 +130,24 @@ def sources(calls_root, tree, since, home):
     """(file, line number, text) for every recorded output and structured agent action."""
     for path in sorted(calls_root.glob("calls/*/std*.txt")):
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
-            yield path, number, line
+            if not cli_init(line):
+                yield path, number, line
     for path in claude_sessions(tree, home):
         yield from json_actions(path, claude_actions)
     for path in codex_sessions(tree, since, home):
         yield from json_actions(path, codex_actions)
+
+
+def cli_init(line):
+    """Whether a stdout line is the Claude CLI's own `system/init` event: the session's settings (tools, cwd, its
+    auto-memory path under .claude/projects), printed before any request, never an agent's text or action."""
+    if '"init"' not in line:
+        return False
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return False
+    return isinstance(event, dict) and event.get("type") == "system" and event.get("subtype") == "init"
 
 
 def claude_sessions(tree, home):

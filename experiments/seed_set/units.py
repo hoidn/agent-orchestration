@@ -16,6 +16,10 @@
   tree or its /tmp (the repository's own tests write session-shaped fixtures there, so they cannot be told
   apart), sessions in memory-only mounts such as /dev/shm, a CLI run with session persistence off, and direct API
   requests with the copied credential.
+- `isolation_breach`: a session given a tool, MCP server, skill or plugin from outside the CLI's built-in set (the
+  account's claude.ai connectors and synced skills, which `sandbox.CLAUDE_SETTINGS` keeps out), from the
+  `system/init` events of the unit's calls. The kit reads a call's stream only after it ends, so a breach is an
+  incident of the settled unit, not a refusal before the session's first request.
 - `disable_resume`: the harness's resume scripts carry no reservation and no call cap; the study never resumes,
   so they are replaced by a script that refuses.
 - `priced`: a unit's metered usage priced by the frozen price table, for the spend guard's settlement
@@ -287,6 +291,26 @@ def audit_sessions(home, tree, made, model):
     if len(top) > made:
         return f"{len(top)} sessions for {made} recorded calls", None, sessions
     return None, None, sessions
+
+
+def isolation_breach(records):
+    """Why a unit's sessions were not isolated (the first `system/init` event of its calls that lists one), or None."""
+    for call in calls(records):
+        for event in stream_events(call / "stdout.txt"):
+            if (event.get("type"), event.get("subtype")) == ("system", "init") and (found := foreign(event)):
+                return f"call {call.name}: the session was given {found[:5]} ({len(found)} in all)"
+    return None
+
+
+def foreign(init):
+    """What an init event lists from outside the CLI's built-in set: an MCP tool or server, a skill named
+    `<source>:<skill>` (a plugin's or the account's), a plugin that is not `@builtin`."""
+    tools = [name for name in init.get("tools") or [] if str(name).startswith("mcp__")]
+    servers = [server.get("name") for server in init.get("mcp_servers") or [] if isinstance(server, dict)]
+    skills = [name for name in init.get("skills") or [] if ":" in str(name)]
+    plugins = [plugin.get("source") for plugin in init.get("plugins") or []
+               if isinstance(plugin, dict) and not str(plugin.get("source")).endswith("@builtin")]
+    return tools + servers + skills + plugins
 
 
 def priced(records, table, per_call):

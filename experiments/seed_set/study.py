@@ -311,6 +311,7 @@ def settle(study, records, task, fix, cap, model, status):
                 else {"incident": str(error)})
     out = provider_end(study, records, str(records), out)
     reason, policy, sessions = units.audit_sessions(record["sandbox"]["home"], record["tree"], made, model)
+    reason = reason or units.isolation_breach(records)
     out["sessions"] = len(sessions)
     if policy:
         rules.stop(study, f"forbidden model in {records}: {policy}")
@@ -597,6 +598,7 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
         rules.stop(study, f"forbidden model in judge {model} of {out}")
     home, tree = info["sandbox"]["home"], out / "judges" / info["dir"]
     reason, policy, sessions = units.audit_sessions(home, tree, facts["calls"], model)
+    reason = reason or units.isolation_breach(records / "judges" / model)
     facts["sessions"] = len(sessions)
     if policy:
         rules.stop(study, f"forbidden model in judge {model} of {out}: {policy}")
