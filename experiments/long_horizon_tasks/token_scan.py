@@ -17,10 +17,16 @@ Usage: python -I token_scan.py scan --fingerprint FILE [--jobs N] PATH...
            a `skipped <path> <kind>` line) or `-` (stdin, read in this process).
            --jobs N: the files are read in N processes (default: the CPU count); 1 reads them here, one by one.
            The output is the same for every N.
-           Prints `match <path> <offset> <form>` and `unreadable <path> <reason>` lines, then `scanned <n> files`.
+           Prints `match <path> <offset> <form>`, `unreadable <path> <reason>` and `vanished <path>` lines, then
+           `scanned <n> files, <m> vanished`.
            Exit 0: nothing found; 1: a match (a stop); 2: no match, but the scan is incomplete: a named path is
-           missing, unreadable, a symlink or not a file or directory, a file inside could not be read, no file
+           missing, unreadable, a symlink or not a file or directory, an entry inside could not be read, no file
            at all was read, or the scanner itself failed (a crash is never read as a match).
+           An entry inside a walked directory that the walk listed and that is gone (FileNotFoundError) when it is
+           lstat-ed, opened or, for a directory, listed, is `vanished` and leaves the scan complete (ruling LH-R3):
+           one pass over a set that changes cannot be atomic anyway (a file renamed from a directory not yet walked
+           into one already walked is missed with no error at all), so a vanished entry is not evidence of a missed
+           copy; the copy that was there is gone from that path. Any other error, and a named path, stay incomplete.
        python -I token_scan.py canary --fingerprint FILE --canary FILE [--jobs N] DIR [PATH...]
            The canary check: the canary must be what the fingerprint was made from (it was the passthrough's
            token); a copy of every form planted in DIR must be found there at its offset; nothing else in the
@@ -125,11 +131,11 @@ def _named(path):
     return None if stat.S_ISDIR(mode) or stat.S_ISREG(mode) else "not a file or directory"
 
 
-def _files(path, unreadable):
+def _files(path, walked):
     if path == "-" or not os.path.isdir(path):
         yield path
         return
-    for root, dirs, files in os.walk(path, onerror=lambda exc: unreadable.append((exc.filename, type(exc).__name__))):
+    for root, dirs, files in os.walk(path, onerror=walked.append):
         dirs.sort()
         for name in sorted(files):
             yield os.path.join(root, name)
@@ -169,7 +175,7 @@ def _settle(running, results, return_when=FIRST_COMPLETED):
 
 def _read(paths, fp, jobs):
     """(walked, results): each file under the scannable `paths` in walk order, with each directory os.walk could
-    not list in its place as (path, OSError class name); and {walk index: _scan_one's result} of each file, read in
+    not list in its place as its OSError; and {walk index: _scan_one's result} of each file, read in
     `jobs` processes, AHEAD at most at a time, or here when `jobs` is 1 (stdin always here). Each file's kind is
     taken here when the walk lists it; a worker only reads a regular file."""
     walked, results, running = [], {}, {}
@@ -202,35 +208,39 @@ def _pool(jobs):
 
 
 def scan(paths, fp, skipped=None, jobs=None):
-    """(matches as (path, offset, form), unreadable as (path, reason), files read); each path skipped inside a
-    directory is appended to `skipped` as (path, kind). The files are read in `jobs` processes (None: one per CPU;
-    1: here, one by one); stdin is read here. The result is the same for every `jobs`."""
-    found, count, skipped = [], 0, [] if skipped is None else skipped
+    """(matches as (path, offset, form), unreadable as (path, reason), vanished paths, files read); each path
+    skipped inside a directory is appended to `skipped` as (path, kind). An entry inside a walked directory that is
+    gone when it is lstat-ed, opened or listed is vanished; a named path never is. The files are read in `jobs`
+    processes (None: one per CPU; 1: here, one by one); stdin is read here. The result is the same for every
+    `jobs`."""
+    found, vanished, count, skipped = [], [], 0, [] if skipped is None else skipped
     unreadable = [(path, reason) for path in paths if (reason := _named(path))]
     walked, results = _read(paths, fp, jobs)
     for index, entry in enumerate(walked):
-        if isinstance(entry, tuple):  # a directory os.walk could not list
-            unreadable.append(entry)
-            continue
-        hits = results[index]
-        if isinstance(hits, OSError):  # an unreadable file is reported, and makes the scan incomplete
-            unreadable.append((entry, type(hits).__name__))
+        # an OSError in the walk is a directory os.walk could not list
+        path, hits = (entry.filename, entry) if isinstance(entry, OSError) else (entry, results[index])
+        if isinstance(hits, FileNotFoundError) and path not in paths:
+            vanished.append(path)
+        elif isinstance(hits, OSError):  # reported, and makes the scan incomplete
+            unreadable.append((path, type(hits).__name__))
         elif isinstance(hits, str):
-            skipped.append((entry, hits))
+            skipped.append((path, hits))
         else:
             count += 1
-            found += [(entry, offset, name) for offset, name in hits]
-    return found, unreadable, count
+            found += [(path, offset, name) for offset, name in hits]
+    return found, unreadable, vanished, count
 
 
-def _report(found, unreadable, count, skipped=()):
+def _report(found, unreadable, vanished, count, skipped=()):
     for path, offset, name in found:
         print("match", path, offset, name)
     for path, reason in unreadable:
         print("unreadable", path, reason)
+    for path in vanished:
+        print("vanished", path)
     for path, kind in skipped:
         print("skipped", path, kind)
-    print("scanned", count, "files")
+    print(f"scanned {count} files, {len(vanished)} vanished")
     return 1 if found else 2 if unreadable or not count else 0
 
 
@@ -247,10 +257,10 @@ def _canary(args, fp):
         text += form + b"\n"
     plant.write_bytes(text)
     try:
-        found, unreadable, count = scan(args.paths, fp, jobs=args.jobs)
+        found, unreadable, vanished, count = scan(args.paths, fp, jobs=args.jobs)
     finally:
         plant.unlink()
-    code = _report([f for f in found if f[0] != str(plant)], unreadable, count)
+    code = _report([f for f in found if f[0] != str(plant)], unreadable, vanished, count)
     missed = planted - {(path, offset) for path, offset, _ in found}
     if missed:
         print("canary: planted copies not found at offsets", sorted(offset for _, offset in missed))
