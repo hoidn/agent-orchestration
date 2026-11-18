@@ -3284,17 +3284,17 @@ def test_an_export_of_a_rehearsal_run_loads_through_slot_record(rig):
 
 # The live probe's recorded sessions (fixtures/live-probe, cut by cut_fixture.py live-probe): real vendor answers.
 
-PROBE = KIT / "fixtures" / "live-probe"
-PROBE_LOG = json.loads((PROBE / "passthrough-log.json").read_text())["requests"]
+PROBE_FIXTURES = KIT / "fixtures" / "live-probe"
+PROBE_ROWS = json.loads((PROBE_FIXTURES / "passthrough-log.json").read_text())["requests"]
 
 
-@pytest.mark.parametrize("row", PROBE_LOG, ids=[row["effort"] for row in PROBE_LOG])
+@pytest.mark.parametrize("row", PROBE_ROWS, ids=[row["effort"] for row in PROBE_ROWS])
 def test_a_recorded_probe_session_with_overage_rejected_is_an_observation_settled_at_the_cli_s_cost(short, row):
     """Ruling LH-R1: a session of the live probe, with its stream (a rate_limit_event with `isUsingOverage: false`,
     `overageStatus: rejected`) and its logged 200 (`overage-status: rejected`, unified status `allowed_warning`),
     is no stop, no usage limit and no pause: it closes as an ordinary ending, settled at the CLI's `total_cost_usd`,
     and starts stay open."""
-    session = json.loads((PROBE / f"session-{row['effort']}.json").read_text())
+    session = json.loads((PROBE_FIXTURES / f"session-{row['effort']}.json").read_text())
     cli_total = ladder.result_event(session)["total_cost_usd"]
     logged = {k: v for k, v in row.items() if k not in ("time", "slot")}
     root, _, record = _closed(short, session, [logged], entry=_entry(effort=row["effort"]))
