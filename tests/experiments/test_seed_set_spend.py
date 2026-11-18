@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from experiments.compare.repos import sha256_file
-from experiments.seed_set import host, layout, rules, spend, study, units
+from experiments.seed_set import anchors, host, layout, rules, spend, study, units
 from tests.experiments.seed_set_offline_support import (
     REPORTED_USD, SPEND_TERMS, USAGE, committed_runtime, stable_anchors, write_frozen_criterion,
 )
@@ -1248,16 +1248,28 @@ def test_the_freeze_refuses_a_package_without_stable_anchors(runner, state, reas
     if state == "missing":
         stability.unlink()
     elif state == "unstable":
-        stable_anchors(runner.tasks_file, unstable={"r2"})
+        stable_anchors(runner.tasks_file, unstable={"r2"}, root=runner.runtime)
     elif state == "other path":
-        stable_anchors(runner.tasks_file, scoring_path="0" * 64)
+        stable_anchors(runner.tasks_file, scoring_path="0" * 64, root=runner.runtime)
     elif state == "no path":
-        stable_anchors(runner.tasks_file, scoring_path=None)
+        stable_anchors(runner.tasks_file, scoring_path=None, root=runner.runtime)
     else:
         (layout.task_dir(runner, "r2")).mkdir(parents=True)
         (layout.task_dir(runner, "r2") / "task.txt").write_text("changed after the check\n")
     commit_runtime(runner)
     with pytest.raises(SystemExit, match=f"no stable anchors .*r2 \\({reason}\\)"):
+        rules.record_freeze(runner)
+
+
+def test_the_freeze_accepts_anchors_measured_under_the_runtimes_files(runner):  # the checkout's kit differs
+    stable_anchors(runner.tasks_file, scoring_path=anchors.scoring_path_hash(runner.runtime))  # as committed
+    assert rules.record_freeze(runner)["event"] == "freeze"
+
+
+def test_the_freeze_refuses_anchors_measured_under_the_checkouts_files(runner):  # the runtime holds no kit module
+    stable_anchors(runner.tasks_file, scoring_path=anchors.scoring_path_hash(ROOT))
+    commit_runtime(runner)
+    with pytest.raises(SystemExit, match=r"no stable anchors .*r2 \(other scoring path\)"):
         rules.record_freeze(runner)
 
 

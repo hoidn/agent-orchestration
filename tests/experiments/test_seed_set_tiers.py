@@ -1,10 +1,12 @@
 """Seed-set ladder builder: tier assignment, statements, squashed topic runs, carried rejections, T0 hints, and
 the check-withheld form on a real task package."""
 
+import importlib.metadata
 import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -281,6 +283,57 @@ def test_the_scoring_path_hash_depends_on_each_modules_relative_path(tmp_path):
     before = anchors.scoring_path_hash(root)
     (root / "experiments/seed_set/anchors.py").rename(root / "experiments/seed_set/anchors2.py")
     assert anchors.scoring_path_hash(root) != before
+
+
+@pytest.mark.parametrize("moved", ["python", "pytest"])
+def test_the_scoring_path_hash_follows_the_python_and_pytest_versions(tmp_path, monkeypatch, moved):
+    from experiments.seed_set import anchors
+    root = kit_tree(tmp_path)
+    before = anchors.scoring_path_hash(root)
+    if moved == "python":
+        monkeypatch.setattr(sys, "version", sys.version + " (another build)")
+    else:
+        version = importlib.metadata.version
+        monkeypatch.setattr(importlib.metadata, "version", lambda name: "0.0" if name == "pytest" else version(name))
+    assert anchors.scoring_path_hash(root) != before
+
+
+def test_the_scoring_path_hash_covers_every_experiments_module_that_scoring_loads():
+    from experiments.seed_set import anchors
+    code = ("import sys, experiments.seed_set.anchors, experiments.seed_set.host, experiments.compare.pool, "
+            "experiments.compare.summarize\n"
+            "print('\\n'.join(m.__file__ for m in list(sys.modules.values()) if getattr(m, '__file__', None)))")
+    done = subprocess.run([sys.executable, "-c", code], cwd=b.ROOT, env=os.environ | {"PYTHONPATH": str(b.ROOT)},
+                          capture_output=True, text=True, check=True)
+    loaded = {p for f in done.stdout.splitlines() if (p := Path(f).resolve()).is_relative_to(b.ROOT / "experiments")}
+    hashed = {p.resolve() for p in anchors.scoring_path_files()}
+    assert (b.HERE / "anchors.py" in loaded, loaded - hashed) == (True, set())
+
+
+def toy_package(tmp_path):
+    """A runtime repository whose base commit has a bug, and a task package `p` whose upstream anchor fixes it and
+    whose one hidden test passes on the fix."""
+    runtime, task = tmp_path / "runtime", tmp_path / "p"
+    runtime.mkdir()
+    (runtime / "calc.py").write_text("def add(a, b):\n    return a - b\n")
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "b"]):
+        repos.git(runtime, *args)
+    (runtime / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    files = {"base_commit": repos.git(runtime, "rev-parse", "HEAD") + "\n", "anchors/p-base.diff": "",
+             "anchors/p-upstream.diff": repos.git(runtime, "diff") + "\n", "hidden_tests.txt": "test_h.py::test_h\n",
+             "hidden/test_h.py": "from calc import add\n\n\ndef test_h():\n    assert add(2, 3) == 5\n"}
+    for relative, text in files.items():
+        (task / relative).parent.mkdir(parents=True, exist_ok=True)
+        (task / relative).write_text(text)
+    repos.git(runtime, "checkout", "--", "calc.py")
+    return runtime, task
+
+
+def test_the_anchors_score_each_hidden_test_under_the_studys_time_limit(tmp_path, monkeypatch):
+    from experiments.seed_set import anchors, host
+    runtime, task = toy_package(tmp_path)
+    monkeypatch.setattr(host, "HIDDEN_TEST_SEC", 0.001)  # no pytest starts this fast: every hidden test runs past it
+    assert anchors.score(task, tmp_path / "out", runtime)["p-upstream"] == ["test_h.py::test_h"]
 
 
 def test_the_anchor_check_stops_without_an_entry_when_the_scoring_path_changes_during_a_package(tmp_path, monkeypatch):

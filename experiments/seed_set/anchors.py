@@ -4,9 +4,9 @@ scores 1.0 and its untouched base below 1.0 on the hidden set, with identical pe
 
 The path is the study's: the pool's clone builder (`pool.build_batches`: random clone ids, random build order, the
 seeded base, the anchor patches) and summarize's scorer (`summarize.hidden_acceptance`: a copy of each clone without
-`.git`, `hidden/` over it, one pytest per hidden node), each task in its own process behind `host.guarded` (fresh
-no-provider stubs, an empty home), as `host.summarize` runs it, `WIDTH` tasks at a time (the study's four). No model
-is called.
+`.git`, `hidden/` over it, one pytest per hidden node, each bounded at the study's `host.HIDDEN_TEST_SEC`), each task
+in its own process behind `host.guarded` (fresh no-provider stubs, an empty home), as `host.summarize` runs it,
+`WIDTH` tasks at a time (the study's four). No model is called.
 
   python -m experiments.seed_set.anchors --work W [ID ...]   # default: every ladder and smoke package not yet
                                                              # recorded at its current hash and scoring path
@@ -14,11 +14,12 @@ is called.
 
 writes `anchor_stability.json` beside `tasks.jsonl`: per package its sha256, `stable`, the failing test ids per
 repetition, the repetition counts, the load average seen and `scoring_path` (`scoring_path_hash()`: the kit's and the
-harness's modules the run scored with). An entry holds only for the scoring path it was measured under (coordinator
-ruling, 2026-11-15): `tiers.verify` and the freeze require a stable entry, at the current package hash and the current
-scoring path, for every package the study can draw, probe or smoke on, and name each package that lacks one as
-"not measured", "other scoring path" or "unstable"; `tiers reject-unstable` rejects a task only on an entry unstable
-at the current hash and scoring path, and skips (does not reject on) an entry measured under another.
+harness's modules the run scored with, the Python version and the pytest version). An entry holds only for the
+scoring path it was measured under (coordinator ruling, 2026-11-15): `tiers.verify` and the freeze require a stable
+entry, at the current package hash and the current scoring path (the freeze: of the runtime's files), for every
+package the study can draw, probe or smoke on, and name each package that lacks one as "not measured", "other scoring
+path" or "unstable"; `tiers reject-unstable` rejects a task only on an entry unstable at the current hash and scoring
+path, and skips (does not reject on) an entry measured under another.
 
 Limit of the record: it shows stability only under the scoring path it was measured under. An entry written before
 that code changed is refused as "other scoring path", and the default run measures it again. The freeze runs the
@@ -27,6 +28,7 @@ anchors on the frozen code, so its record carries the frozen code's scoring path
 
 import argparse
 import hashlib
+import importlib.metadata
 import json
 import os
 import shutil
@@ -42,12 +44,17 @@ REPS, WIDTH = 3, 4
 FILE = "anchor_stability.json"
 
 
+def scoring_path_files(root=b.ROOT):
+    """Every module directly in the kit and the harness under `root`: the files `scoring_path_hash` covers."""
+    return [p for d in ("experiments/seed_set", "experiments/compare") for p in (root / d).glob("*.py")]
+
+
 def scoring_path_hash(root=b.ROOT):
-    """sha256 over (repository-relative path, sha256) of every module directly in the kit and the harness, sorted:
-    the scoring path an anchors record was measured under."""
+    """sha256 over (repository-relative path, sha256) of `scoring_path_files`, sorted, then this interpreter's
+    `sys.version` and the installed pytest's version: the scoring path an anchors record was measured under."""
     # deliberately over-inclusive: any kit module edit invalidates the record; a re-run costs about an hour
-    rows = sorted([p.relative_to(root).as_posix(), repos.sha256_file(p)]
-                  for d in ("experiments/seed_set", "experiments/compare") for p in (root / d).glob("*.py"))
+    rows = sorted([p.relative_to(root).as_posix(), repos.sha256_file(p)] for p in scoring_path_files(root))
+    rows += [["python", sys.version], ["pytest", importlib.metadata.version("pytest")]]
     return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
 
 
@@ -63,7 +70,8 @@ def score(task, out, runtime):
         directory.mkdir(parents=True)
     ref = {"runtime": str(runtime), "base": base, "compare_base": compare_base}
     clones, _, _ = pool.build_batches(out, task, ref, [[]], {"reference": None})
-    _, failed = summarize.hidden_acceptance(out, {"task": str(task), "clones": clones}, sys.executable)
+    _, failed = summarize.hidden_acceptance(out, {"task": str(task), "clones": clones}, sys.executable,
+                                            host.HIDDEN_TEST_SEC)
     return {clones[cid]["labels"][0]: sorted(f) for cid, f in failed.items()}
 
 
@@ -140,10 +148,10 @@ def lacking(entry, package, scoring_path):
     return None if entry["stable"] else "unstable"
 
 
-def unstable(study_rows, stability, tasks_dir):
-    """The usable packages without a stable entry at their current hash and the current scoring path, each as
-    "<id> (<why>)"."""
-    scoring_path = scoring_path_hash()
+def unstable(study_rows, stability, tasks_dir, root=b.ROOT):
+    """The usable packages without a stable entry at their current hash and the scoring path of `root`'s files,
+    each as "<id> (<why>)"."""
+    scoring_path = scoring_path_hash(root)
     return [f"{pid} ({why})" for pid in packages(study_rows)
             if (why := lacking(stability.get(pid), tasks_dir / pid, scoring_path))]
 
