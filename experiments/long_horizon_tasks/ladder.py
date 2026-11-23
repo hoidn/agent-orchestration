@@ -1871,12 +1871,14 @@ def file_set(ctx):
     """D4's file set, which every round's read scans whole: the launcher's state (the attempts' harness job
     directories and egress logs, the passthrough's log and output file), the recordings directory, the repository's
     main worktree and this checkout (the detached checkout of a live launch; one path when they are the same), and
-    the agents' transcript directory of this user. A worktree git cannot name is a missing path: an incomplete
-    scan."""
+    the agents' transcript directory of this user. The checkout must be a git worktree of the main repository (D4
+    names both); when git names no main worktree apart from it (a clone, or no git), the main worktree's place is a
+    path that does not exist, so the read is incomplete, a stop (coordinator ruling), never silently narrower."""
     common = _git("rev-parse", "--path-format=absolute", "--git-common-dir")
-    worktree = Path(common).parent if common else ROOT / "<no git common directory>"
-    paths = [ctx.root, ctx.lh / "recordings", worktree, ROOT, ctx.home / ".claude" / "projects"]
-    return list(dict.fromkeys(paths))
+    worktree = Path(common).parent if common else None
+    if worktree is None or worktree.resolve() == ROOT.resolve():
+        worktree = ROOT / "<the main worktree: git names none apart from this checkout>"
+    return [ctx.root, ctx.lh / "recordings", worktree, ROOT, ctx.home / ".claude" / "projects"]
 
 
 def _scan_verdict(code, match, incomplete):
@@ -2364,7 +2366,7 @@ class Tranche:
         """(the head of the queue, None), or (None, why nothing starts: the schedule is done, or a person's row is
         awaited). A failed smoke is written as a stop, which the gate then reads."""
         left = queue(self.root, self.plan)
-        if not self.round_read(left[0]["round"] - 1 if left else self.plan[-1]["round"]):
+        if left and not self.round_read(left[0]["round"] - 1):
             return None, None
         if not left:
             return None, self.end("schedule", "the schedule is done")
@@ -2376,8 +2378,8 @@ class Tranche:
         return (left[0], None) if why is None else (None, why)
 
     def round_read(self, rnd):
-        """D4, every round's read: token_scan.py over the whole file set once round `rnd` has ended, before the next
-        round starts or the tranche ends. True when it was read clean (now or before; a resume after a stop reads it
+        """D4, every round's read: token_scan.py over the whole file set once round `rnd` has ended (or the tranche
+        ends inside it), before the next round starts or end.json is written. True when it was read clean (now or before; a resume after a stop reads it
         again), or `rnd` is 0; False while the round's last attempts run, or when the read matched or could not
         finish: a stop, written as the teardown's scan writes it."""
         events = _jsonl(self.root / "passthrough" / "tranche.jsonl")
@@ -2457,9 +2459,14 @@ class Tranche:
         return True
 
     def end(self, by, cause):
-        """The tranche's end, recorded once nothing is in flight: the schedule done, the ceiling, the 240."""
-        if not self.workers:
-            _write_json(self.root / "end.json", {"by": by, "cause": None, "why": cause})
+        """The tranche's end, recorded once nothing is in flight and the whole file set of the last round reached
+        is read clean (D4; coordinator ruling: whatever ended it): the schedule done, the ceiling, the 240. None
+        while that read is not clean: its stop is then the loop's next answer."""
+        if self.workers:
+            return cause
+        if not self.round_read(max((a["round"] for a in attempts(self.root)), default=0)):
+            return None
+        _write_json(self.root / "end.json", {"by": by, "cause": None, "why": cause})
         return cause
 
     def on_signal(self, *_):
