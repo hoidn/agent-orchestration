@@ -2152,6 +2152,8 @@ class Rig:
         (kit.reh / "host").mkdir()
         (kit.reh / "host" / "loadavg").write_text("1.0 1.0 1.0 1/1 1\n")  # a quiet host, by stand-in
         (kit.reh / "host" / "free_gb").write_text("100")  # and room on its disk
+        (short / "home" / ".claude" / "projects").mkdir(parents=True)  # D4's file set: the agents' transcripts
+        (self.lh / "recordings").mkdir()  # and the recordings directory
         (self.lh / "standin" / "plan.json").write_text(json.dumps(list(plan)))
         now = time.time()
         rows = [{"kind": "inputs", "at": now - 120, "f_week": 10, "f_five": 10, "hours": ["daily 00:00-24:00"],
@@ -2792,6 +2794,43 @@ def test_the_whole_schedule_ends_inside_both_caps_and_a_usage_limit_in_its_middl
         [(0, "waiting for the smoke read"), (0, "waiting for the pilot's ledger row"),
          (0, "waiting for the round-one read"), (0, "the schedule is done")], [], cut["id"], True, None, 46, 46, [],
         True, True, True, True, "schedule", 46)
+
+
+def _through_round_one(r):
+    """The smoke, the pilot and round 1 with their reads written; the last launch's (exit, last line of stdout)."""
+    for what, cell in (("Smoke read", f"{r.label} pass"), ("Pilot read", f"{r.label} read"), (None, None)):
+        code, out, err = r.launch(timeout=WAIT * 5)
+        if what:
+            r.ledger(what, cell)
+    return code, out.strip().splitlines()[-1]
+
+
+@pytest.mark.parametrize("change, cause", [
+    (None, None),
+    (lambda r: r.short / "home" / ".claude" / "projects" / "-a-project" / "s.jsonl", "a match of token_scan.py"),
+    (lambda r: r.lh / "recordings" / "live-probe" / "x.log", "a match of token_scan.py"),
+    (lambda r: r.kit.repo / "notes" / "x.txt", "a match of token_scan.py"),
+    (lambda r: r.root / "kept.txt", "a match of token_scan.py"),
+    ("no recordings", "an incomplete scan of token_scan.py")],
+    ids=["clean", "transcripts", "recordings", "checkout", "state", "missing-recordings"])
+def test_a_round_s_end_reads_the_whole_file_set_before_the_next_round_and_a_match_or_an_incomplete_read_stops(
+        rig, change, cause):
+    """D4, every round's read: after round 1's last attempt, before round 2 or the round-one read, token_scan.py
+    reads the launcher's state, the recordings, the checkout and the agents' transcripts; a canary planted in any of
+    them, or a named path that is missing, stops the tranche, as at teardown."""
+    r = rig()
+    if change == "no recordings":
+        (r.lh / "recordings").rmdir()
+    elif change:
+        planted = change(r)
+        planted.parent.mkdir(parents=True, exist_ok=True)
+        planted.write_text(f"x {r.canary} y\n")
+    code, last = _through_round_one(r)
+    rounds = [(e["round"], e["exit"]) for e in r.events() if e["event"] == "round_scan"]
+    stops = [e["reason"] for e in r.events() if e["event"] == "stop"]
+    assert (code, rounds, stops, last, {a["round"] for a in r.attempts()}) == (
+        0, [(1, {None: 0, "a match of token_scan.py": 1}.get(cause, 2))], [cause] if cause else [],
+        "waiting for the round-one read" if cause is None else f"stop: {cause}", {1})
 
 
 def test_a_failed_smoke_stops_the_tranche_and_its_start_is_a_stop_never_scored(rig):

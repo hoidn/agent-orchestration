@@ -1867,6 +1867,18 @@ def token_scan(ctx, *paths, stdin=None):
     return subprocess.run(command, stdin=stdin, capture_output=True, timeout=3 * 3600, check=False).returncode
 
 
+def file_set(ctx):
+    """D4's file set, which every round's read scans whole: the launcher's state (the attempts' harness job
+    directories and egress logs, the passthrough's log and output file), the recordings directory, the repository's
+    main worktree and this checkout (the detached checkout of a live launch; one path when they are the same), and
+    the agents' transcript directory of this user. A worktree git cannot name is a missing path: an incomplete
+    scan."""
+    common = _git("rev-parse", "--path-format=absolute", "--git-common-dir")
+    worktree = Path(common).parent if common else ROOT / "<no git common directory>"
+    paths = [ctx.root, ctx.lh / "recordings", worktree, ROOT, ctx.home / ".claude" / "projects"]
+    return list(dict.fromkeys(paths))
+
+
 def _scan_verdict(code, match, incomplete):
     """A scan's stop: a match, or a scan that could not finish (open ruling: read as a stop, since it cannot show
     that nothing leaked)."""
@@ -2352,6 +2364,8 @@ class Tranche:
         """(the head of the queue, None), or (None, why nothing starts: the schedule is done, or a person's row is
         awaited). A failed smoke is written as a stop, which the gate then reads."""
         left = queue(self.root, self.plan)
+        if not self.round_read(left[0]["round"] - 1 if left else self.plan[-1]["round"]):
+            return None, None
         if not left:
             return None, self.end("schedule", "the schedule is done")
         why = hold(left[0], *ledger_labels(self.ctx))
@@ -2360,6 +2374,23 @@ class Tranche:
             self.stop(why)
             return None, None
         return (left[0], None) if why is None else (None, why)
+
+    def round_read(self, rnd):
+        """D4, every round's read: token_scan.py over the whole file set once round `rnd` has ended, before the next
+        round starts or the tranche ends. True when it was read clean (now or before; a resume after a stop reads it
+        again), or `rnd` is 0; False while the round's last attempts run, or when the read matched or could not
+        finish: a stop, written as the teardown's scan writes it."""
+        events = _jsonl(self.root / "passthrough" / "tranche.jsonl")
+        if rnd < 1 or any(e.get("event") == "round_scan" and e["round"] >= rnd and e["exit"] == 0 for e in events):
+            return True
+        if self.workers:
+            return False
+        code = token_scan(self.ctx, *file_set(self.ctx))
+        tranche_event(self.root, "round_scan", round=rnd, exit=code)
+        found = _scan_verdict(code, TOKEN_MATCH, TOKEN_INCOMPLETE)
+        if found:
+            tranche_event(self.root, "stop", reason=found, round=rnd)
+        return found is None
 
     def passthrough_ok(self):
         """The passthrough answers (else a pause) in this launch's mode (else a stop; Task 8 M3)."""
