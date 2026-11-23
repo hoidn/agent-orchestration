@@ -20,6 +20,17 @@ seven characters; any mention of other sessions' transcripts or tmux sockets (.c
 their recorded private-home backing; historical callers retain their original home. Paths
 match as typed: absolute, or under ~, $HOME or ${HOME} (R23).
 
+Two exemptions keep the repository's own text and the CLI's own files from reading as reach:
+- The main checkout prefix is not matched in what the agent's tools printed: the tool results of a Claude
+  stream-json `user` row in the shims' stdout (its tool_result blocks and its `tool_use_result`), as session
+  files already contribute tool_use inputs only. The sandbox mounts no main checkout, so a tool result names it
+  only as text inside the clone (repository documents name it) or after an input that named it, itself a hit.
+  Limit: a path reached without spelling the prefix in an input (a variable, a relative path) and echoed only in
+  a result is not counted; Codex output in stdout and every other pattern are still matched in full.
+- "other sessions' files" does not count the unit's own Claude project folders (where the CLI persists large tool
+  output): `.claude/projects/<the tree's slug>[-...]` under its own home, written as the guest home, the backing
+  home, ~, $HOME or ${HOME}. Another slug, another home and a bare `.claude/projects` remain hits.
+
 Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1 and an
 explicitly bound Claude run or judge Haiku (expected_claude_model). Any other answering model is a hit. Read actual
 Claude assistant message.model and Codex turn_context.model metadata, never printed model names. A Claude row
@@ -37,6 +48,8 @@ try:
 except ImportError:  # run as a script
     import sandbox
 
+MAIN = "main checkout prefix"
+OTHER_SESSIONS = "other sessions' files"
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
 FORBIDDEN_MODEL = "Forbidden model"
@@ -58,12 +71,12 @@ def patterns(*, main, runtime, solution, home, others=(), roots=()):
     """`roots` are (name, path) pairs matched wherever the path is written, as itself or a prefix ending at a
     path boundary (a root /a/ss matches /a/ss/t, not /a/ss-work); roots sharing a name (two holdout roots, the
     records roots of several runs) all match under it."""
-    found = {"main checkout prefix": spelled(main, home),
+    found = {MAIN: spelled(main, home),
              "frozen checkout": spelled(runtime, home) + BOUNDARY,
              "records layout": rf"records/(?:{ARMS})/run-\d+\b", "pool record files": POOL_FILES,
              "github.com": r"github\.com", "gh": r"(?<![\w./-])gh\s", "git fetch": r"git\s+fetch",
              "solution hash": re.escape(solution[:7]),
-             "other sessions' files": r"\.claude/projects|\.codex/(?:sessions|history)|claude-tmux-sockets"}
+             OTHER_SESSIONS: r"\.claude/projects|\.codex/(?:sessions|history)|claude-tmux-sockets"}
     for name, path in roots:
         bounded = spelled(path, home) + BOUNDARY
         found[name] = f"{found[name]}|{bounded}" if name in found else bounded
@@ -136,9 +149,35 @@ def sources(calls_root, tree, since, home):
         yield from json_actions(path, codex_actions)
 
 
+def project_slug(tree):
+    """The Claude CLI's project folder name for a directory."""
+    return re.sub(r"[^A-Za-z0-9]", "-", str(tree))
+
+
+def own_projects(tree, home):
+    """The unit's own Claude project folders under its home, written as the guest or backing home or a ~ form."""
+    homes = "|".join(map(re.escape, (str(home), str(sandbox.GUEST_HOME), "~", "$HOME", "${HOME}")))
+    return re.compile(rf"(?<![\w.~$/-])(?:{homes})/\.claude/projects/{re.escape(project_slug(tree))}"
+                      rf"(?:-[\w.-]*)?{BOUNDARY}")
+
+
+def without_tool_output(text):
+    """A Claude stream-json `user` row without its tool results; any other text unchanged."""
+    try:
+        row = json.loads(text)
+    except ValueError:
+        return text
+    message = row.get("message") if isinstance(row, dict) and row.get("type") == "user" else None
+    if not isinstance(message, dict) or not isinstance(message.get("content"), list):
+        return text
+    content = [c for c in message["content"] if not (isinstance(c, dict) and c.get("type") == "tool_result")]
+    rest = {key: value for key, value in row.items() if key != "tool_use_result"}
+    return json.dumps(rest | {"message": message | {"content": content}}, ensure_ascii=False)
+
+
 def claude_sessions(tree, home):
     """The Claude CLI's session files for the tree and every directory under it."""
-    slug = re.sub(r"[^A-Za-z0-9]", "-", str(tree))
+    slug = project_slug(tree)
     for project in sorted((home / ".claude" / "projects").glob(slug + "*")):
         if project.name == slug or project.name.startswith(slug + "-"):
             yield from sorted(project.rglob("*.jsonl"))
@@ -188,13 +227,15 @@ def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="
         raise SystemExit("expected Codex model must be an exact known Codex ID")
     if expected_claude_model not in sandbox.CLAUDE_MODELS:
         raise SystemExit("expected Claude model must be the exact Sonnet or Haiku ID")
-    hits = []
+    hits, own = [], own_projects(tree, home)
     for path, number, text in sources(Path(calls_root), Path(tree), since, Path(home)):
+        subjects = {MAIN: without_tool_output(text), OTHER_SESSIONS: own.sub(" ", text)}
         for name, pattern in compiled.items():
-            found = re.search(pattern, text)
+            subject = subjects.get(name, text)
+            found = re.search(pattern, subject)
             if found:
                 hits.append({"file": str(path), "line": number, "pattern": name,
-                             "text": text[max(0, found.start() - 80):found.end() + 80]})
+                             "text": subject[max(0, found.start() - 80):found.end() + 80]})
     hits.extend(model_hits(claude_sessions(Path(tree), Path(home)), expected_claude_model))
     hits.extend(model_hits(codex_sessions(Path(tree), since, Path(home)), expected_codex_model))
     return hits

@@ -390,6 +390,56 @@ def test_scan_counts_reads_of_other_sessions_transcripts(world):
         "other sessions' files"]
 
 
+def stream_json(rows):
+    """A stand-in script printing Claude stream-json rows to stdout, one per line."""
+    return "cat <<'EOF'\n" + "".join(json.dumps(row) + "\n" for row in rows) + "EOF\n"
+
+
+def assistant(*content):
+    return {"type": "assistant", "message": {"role": "assistant", "content": list(content)}}
+
+
+def tool_result(text, **extra):
+    """A `user` row as the CLI prints a tool's output: the tool_result block and the `tool_use_result` copy."""
+    return {"type": "user", "message": {"role": "user", "content": [
+        {"tool_use_id": "toolu_1", "type": "tool_result", "content": text}]},
+        "session_id": "SESSION", "tool_use_result": {"stdout": text, "stderr": "", **extra}}
+
+
+def test_scan_counts_the_main_checkout_in_inputs_and_assistant_text_but_not_in_tool_output(world):
+    """The real case: a relative `cat` of a repository document whose text names the main checkout."""
+    records, record = start(world, "direct_task")
+    doc = f"## Working-tree rules\n\n- Run from `{world.main}`.\n- Do not create a worktree.\n"
+    call(world, record, stream_json([
+        assistant({"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "cat docs/plans/x.md"}}),
+        tool_result(doc),
+        assistant({"type": "tool_use", "id": "toolu_2", "name": "Bash",
+                   "input": {"command": f"cat {world.main}/docs/x.md"}}),
+        assistant({"type": "text", "text": f"The plan says to work in {world.main}."}),
+        tool_result(f"{doc}see github.com/x\n"),
+    ]))
+    assert [h["pattern"] for h in prepare.scan(records, world.solution)] == [
+        "main checkout prefix", "main checkout prefix", "github.com"]
+
+
+def test_scan_does_not_count_the_units_own_project_folder_but_counts_any_other(world):
+    """The real case: the CLI saves a large tool output under the unit's own home's project folder for its tree."""
+    records, record = start(world, "direct_task")
+    own = "".join(c if c.isalnum() else "-" for c in record["tree"])
+    home = record["sandbox"]["home"]
+    persisted = f"/home/compare/.claude/projects/{own}-cand-1/SESSION/tool-results/b1.txt"
+    lines = [f"cat ~/.claude/projects/{own}-cand-1/SESSION/tool-results/b1.txt",
+             f"ls {home}/.claude/projects/{own}",
+             "cat /home/compare/.claude/projects/-other-agents-tree-cand-1/s.jsonl",
+             f"cat /root/.claude/projects/{own}-cand-1/s.jsonl",
+             "ls ~/.claude/projects/"]
+    call(world, record, stream_json([
+        tool_result(f"Output too large. Full output saved to: {persisted}", persistedOutputPath=persisted)])
+        + "".join(f"echo '{line}'\n" for line in lines))
+    assert [(h["line"], h["pattern"]) for h in prepare.scan(records, world.solution)] == [
+        (5, "other sessions' files"), (6, "other sessions' files"), (7, "other sessions' files")]
+
+
 def test_scan_patterns_match_home_aliases_without_overriding_a_unit_home(world):
     home = world.tmp / "home"
     main, runtime = home / "main", home / "runtime"
