@@ -6,7 +6,9 @@ thinking-token and command-list events left out. The session had the account's c
 events: the session, then two one-turn continuations woken by its own background tasks; three cumulative results).
 The second fixture is the first init event of CLI 2.1.330 in a Claude unit under the kit's isolation (managed
 settings and environment), captured on 2026-11-22 with the sandbox's network namespace unshared, so the CLI made
-no request; its identifiers are replaced the same way. No provider is called.
+no request; its identifiers are replaced the same way. Without the network the CLI cannot list claude.ai connectors
+at all, so its empty `mcp_servers` does not show that the managed settings keep them out: that evidence is the
+`claude mcp list` check in `experiments/seed_set/programs/README.md`. No provider is called.
 """
 
 import json

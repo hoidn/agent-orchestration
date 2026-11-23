@@ -21,8 +21,9 @@
   skill named `<source>:<skill>` (a plugin's or the account's) or a plugin that is not `@builtin`; a clean
   session under `sandbox.CLAUDE_SETTINGS` lists none (fixture `claude-2.1.330-isolated-init.json`). The account's
   synced skills appeared only in the continuations' init events of the first paid run, not in its first one, so
-  the skill rule may miss them; the tool allowlist and the session audit's rule on MCP logs outside the session
-  store do not depend on when the CLI lists what. The kit reads a call's stream only after it ends, so a breach
+  the skill rule may miss them. Connectors still `pending` at the first init event list no `mcp__*` tool there
+  (2.1.327 fixture); the `mcp_servers` rule catches them, and the session audit's rule on MCP logs outside the
+  session store does not depend on when the CLI lists what. The kit reads a call's stream only after it ends, so a breach
   is an incident of the settled unit, not a refusal before the session's first request.
 - `disable_resume`: the harness's resume scripts carry no reservation and no call cap; the study never resumes,
   so they are replaced by a script that refuses.

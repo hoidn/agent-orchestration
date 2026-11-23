@@ -15,7 +15,8 @@ PROBE = ("for name in " + " ".join(sandbox.CLAUDE_ENV) + "; do printf '%s=%s\\n'
          f"printf 'settings=%s\\n' \"$(tr -d '\\n ' < {sandbox.CLAUDE_MANAGED})\"; "
          f"(echo '{{}}' > {sandbox.CLAUDE_MANAGED}) 2>/dev/null; echo written=$?")
 REPLACE = ("mv $HOME/.claude $HOME/.claude-old 2>/dev/null; mkdir -p $HOME/.claude/; "
-           "echo '{\"disableClaudeAiConnectors\": false}' > $HOME/.claude/settings.json; echo replaced=$?")
+           "echo '{\"disableClaudeAiConnectors\": false, \"env\": {\"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS\": \"0\"}}' "
+           "> $HOME/.claude/settings.json; echo replaced=$?")
 
 
 def seen(done):

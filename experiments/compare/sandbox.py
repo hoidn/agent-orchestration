@@ -37,15 +37,18 @@ CLAUDE_MODELS = (SONNET, HAIKU)  # a unit's one bound Claude model is one of the
 # account, or wake a session after its answer, with the background runs of Bash, so that one call is one
 # session. Which tools to remove is a policy: change it here.
 CLAUDE_MANAGED = '/etc/claude-code/managed-settings.json'
+CLAUDE_ENV = {"ENABLE_CLAUDEAI_MCP_SERVERS": "false", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+              "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "CLAUDE_CODE_DISABLE_CRON": "1"}
+# CLAUDE_ENV is also the managed `env`, so a session's own ~/.claude/settings.json `env` cannot override it for the
+# next call of a multi-call arm; allowManagedMcpServersOnly keeps out an MCP server a session plants in its home.
 CLAUDE_SETTINGS = {
+    "env": CLAUDE_ENV, "allowManagedMcpServersOnly": True,
     "disableClaudeAiConnectors": True, "syncClaudeAiSkills": False, "syncClaudeAiPlugins": False,
     "autoMemoryEnabled": False, "enableArtifact": False,
     "permissions": {"deny": ["mcp__*", "ListMcpResourcesTool", "ReadMcpResourceTool", "ReadMcpResourceDirTool",
                              "Artifact", "ArtifactCheck", "ArtifactComments", "ArtifactData", "Agent", "Task",
                              "Workflow", "SendMessage", "ListAgents", "RemoteTrigger", "PushNotification",
                              "DesignSync", "Monitor", "CronCreate", "CronDelete", "CronList", "ScheduleWakeup"]}}
-CLAUDE_ENV = {"ENABLE_CLAUDEAI_MCP_SERVERS": "false", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
-              "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "CLAUDE_CODE_DISABLE_CRON": "1"}
 # The tools a clean session's init event may list: the 25 built-in tools of CLI 2.1.327's first init event in the
 # study's first paid run (tests/experiments/fixtures/seed_set/claude-2.1.327-direct-stream.jsonl), less the
 # denied ones. Any other tool is an isolation breach (seed_set.units.isolation_breach), so a CLI update that adds a
@@ -305,6 +308,9 @@ def _pipe(text):
     reader, writer = os.pipe()
     try:
         os.write(writer, text.encode())
+    except BaseException:
+        os.close(reader)
+        raise
     finally:
         os.close(writer)
     return reader
