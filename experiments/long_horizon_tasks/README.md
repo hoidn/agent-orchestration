@@ -153,7 +153,7 @@ The CLI is never run on the host. There the no-provider stubs stay first on `PAT
 | `stub_api.py` | The stand-in API: canned replies and faults by scenario. It binds only loopback or a unix socket |
 | `record.sh`, `relay-compose.yaml`, `harbor_patient.py`, `allowlist_probe.py` | One recording through the relay route, and the allowlist probe |
 | `cut_fixture.py` | Cuts committed fixtures (stream side and request side) from the local recordings |
-| `fixtures/`, `fixtures/requests/`, `fixtures/traces/`, `fixtures/after-limit/` | The committed cuts (see RECORDINGS.md, "Fixtures") |
+| `fixtures/`, `fixtures/requests/`, `fixtures/traces/`, `fixtures/after-limit/`, `fixtures/live-probe/` | The committed cuts (see RECORDINGS.md, "Fixtures") |
 | `recordings.json` | SHA-256 of every raw recording file kept in the local cache |
 | `price_rule.json`, `price_check.py` | The per-request price rule, and its check against the public archives |
 | `tasks.json` | The 16 tasks' package digests, their pinned images (digests, sizes) and withholding results, the overlay digest and the oracle evidence |
@@ -249,7 +249,7 @@ behind the passthrough's rehearsal switch and spends nothing.
 | --- | --- |
 | `passthrough.py` | The one host process that holds the subscription token (D4, route B): listens on the relay's unix socket; refuses in the one 403 form anything outside the recorded request shape; one request in flight per slot; rebuilds the request with three header values set (`authorization`, `host`, `accept-encoding: identity`); checks every byte back to the client and every log row for the token's forms; meters by the price rule; records closed starts and stops in its state directory |
 | `make_allowlist.py` | Builds `request_allowlist.json` (the passthrough's allowlist) from the token-mode shapes of `fixtures/requests/t2a-*.json` and their recorded key sets; `--check` fails when the committed file differs, so rerun it when the fixtures change |
-| `token_scan.py` | Finds the token by the passthrough's fingerprint, in plain, hex, base64 and UTF-16LE forms (path, offset and form only); `canary` plants every form and checks the file set. It finds whole copies only: not a part of the token, not compressed, encrypted or escaped, and not base64 wrapped at 76 columns |
+| `token_scan.py` | Finds the token by the passthrough's fingerprint, in plain, hex, base64 and UTF-16LE forms (path, offset and form only); `canary` plants every form and checks the file set. It finds whole copies only: not a part of the token, not compressed, encrypted or escaped, and not base64 wrapped at 76 columns. Exit 2 (incomplete) for any entry it cannot read, except an entry inside a walked directory that is gone when it is read (`vanished <path>`, counted on the last line; ruling LH-R3); a named path that is gone is still incomplete |
 | `live_probe.sh` | The live probe of Task 4, items 1 to 4: three sessions through the relay and the passthrough, the stop rule, the runtime check, the file-set scan and `probe.json` |
 
 Tests (no container, no network, no CLI; the upstream is `stub_api.py`):

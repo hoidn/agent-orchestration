@@ -8,6 +8,7 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.prompts import PromptCatalog as _PromptCatalog
 
 if TYPE_CHECKING:
     from orchestrator.workflow_lisp.compiler_session import (
@@ -28,9 +29,16 @@ if TYPE_CHECKING:
         ProcedureSignature,
         TypedProcedureDef,
     )
-    from orchestrator.workflow_lisp.prompts import PromptCatalog
+    from orchestrator.workflow_lisp.prompts import PromptCatalog, ResolvedPromptDef
     from orchestrator.workflow_lisp.typecheck_context import LoopTypecheckContext
     from orchestrator.workflow_lisp.workflows import WorkflowSignature
+
+
+def _labelled_prompt_catalog(label: str) -> _PromptCatalog:
+    """A real catalog, since the elaborator reads the catalog of every list head (the prompt head rule), whose
+    content differs by `label`, so that the equality checks below tell one catalog from another. No head in
+    these tests resolves `label`."""
+    return _PromptCatalog(definitions_by_name={f"%{label}-catalog": cast("ResolvedPromptDef", object())})
 
 
 def _write_module(path: Path, source: str) -> None:
@@ -166,11 +174,11 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
     outer_procedure_resolver = cast("NameResolver", object())
     outer_function_resolver = cast("NameResolver", object())
     outer_workflow_resolver = cast("NameResolver", object())
-    outer_prompt_catalog = cast("PromptCatalog", object())
+    outer_prompt_catalog = _labelled_prompt_catalog("outer")
     inner_procedure_resolver = cast("NameResolver", object())
     inner_function_resolver = cast("NameResolver", object())
     inner_workflow_resolver = cast("NameResolver", object())
-    inner_prompt_catalog = cast("PromptCatalog", object())
+    inner_prompt_catalog = _labelled_prompt_catalog("inner")
     state.procedure_name_resolver = cast("NameResolver", object())
     state.function_name_resolver = cast("NameResolver", object())
     state.workflow_name_resolver = cast("NameResolver", object())
@@ -183,7 +191,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
     state.let_proc_depth = 2
     state.guidance_example = True
     state.target_dsl_version = "2.40"
-    state.prompt_catalog = cast("PromptCatalog", object())
+    state.prompt_catalog = _labelled_prompt_catalog("baseline")
     baseline = state.__dict__.copy()
 
     def syntax(source: str) -> SyntaxNode:

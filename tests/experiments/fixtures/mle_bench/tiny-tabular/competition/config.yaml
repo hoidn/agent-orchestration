@@ -1,0 +1,16 @@
+id: tiny-tabular
+name: Tiny Tabular
+competition_type: simple
+awards_medals: true
+prizes: null
+description: mlebench/competitions/tiny-tabular/description.md
+
+dataset:
+  answers: tiny-tabular/prepared/private/answers.csv
+  sample_submission: tiny-tabular/prepared/public/sample_submission.csv
+
+grader:
+  name: roc-auc
+  grade_fn: mlebench.competitions.tiny-tabular.grade:grade
+
+preparer: mlebench.competitions.tiny-tabular.prepare:prepare

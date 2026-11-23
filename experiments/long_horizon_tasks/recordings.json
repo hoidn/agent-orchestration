@@ -1406,6 +1406,123 @@
     "t2a-pt-token-first/jobs/2026-11-14__16-01-17/recording-task__8KpzQ3W/result.json": "e67fc1f6cd4911fa9d7301456a6804295d320fd8c7434491f7379619ede03d86",
     "t2a-pt-token-first/stub.jsonl": "55a89dbf6a06bb19222fd6fffae30c248e69e7378020a26fbe066bfc44491294"
    }
+  },
+  {
+   "name": "live-probe-low",
+   "source": "local: the live probe of 2026-11-17 (plan Task 4) via live_probe.sh at kit commit 4e193695, the vendor through the relay and the passthrough on the owner's subscription, AUTH=token, effort low",
+   "harbor_args": "--agent claude-code --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ak max_budget_usd=0.1 --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "live-probe/low/containers/recording-task__9tkhsgn__env_harbor-docker-egress-control-sidecar_1.environ": "92a3948348633b38ca0390effa55286dca2dcfa2089007b8eb6bc90e03387184",
+    "live-probe/low/containers/recording-task__9tkhsgn__env_harbor-docker-egress-control-sidecar_1.inspect.json": "60e159254cebc2eb934217456a524c7742908eaa1dbc2c2b569e7ef8d75a12d7",
+    "live-probe/low/containers/recording-task__9tkhsgn__env_main_1.environ": "9836b885e9f46f5b32251b5daff13fdbb325bb7b6317b31d95b6bfd0eacde551",
+    "live-probe/low/containers/recording-task__9tkhsgn__env_main_1.inspect.json": "c5c61c2548f4c90655fc9ddff7e9880ef7ee82be1875be21f77c82f5fcb80bfb",
+    "live-probe/low/containers/recording-task__9tkhsgn__env_relay_1.environ": "04520d77e183759dd5c628feed1f65f76dc234c54a892be005d6ec034ca29347",
+    "live-probe/low/containers/recording-task__9tkhsgn__env_relay_1.inspect.json": "47fbd57b8ae1eb7a37708a2b7640a3252c7ab1bb65f0118098ea067f0d9d47c3",
+    "live-probe/low/egress-recording-task__9tkhsgn__env_harbor-docker-egress-control-sidecar_1.log": "5cb40a7e4e0fa7d5cdc67470876d480ed156f80d9852a1431d8134ffdd4ba903",
+    "live-probe/low/harbor.out": "bb26779c81ab5bce112ba21baf992ea0fa9ddca9b5244d80c35a18eb424d574a",
+    "live-probe/low/jobs/2026-11-17__00-54-44/config.json": "12acc0b9f659a7c6008be4fbbc20116d2336b3e20a1c581d8383bc784bc68308",
+    "live-probe/low/jobs/2026-11-17__00-54-44/job.log": "420fa2de2b1e122ff7fb275d25a4efc57c01dfed21afc6d98d49409638197db7",
+    "live-probe/low/jobs/2026-11-17__00-54-44/lock.json": "d39d9c8cc40976ddfeeba24eaaa2bc16f40444f08cb0b61c8d929565351f19db",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/agent/claude-code.txt": "fb5caf75c7f927da76ec0b1bc1f6d22a419f1b42eb3be9d0adb15440e1729fcf",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/agent/sessions/.claude.json": "7505dcad6f85aad19c32b6e7e2063c89bc26ee7908ef461e4ed8fae53ed0804d",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/agent/sessions/backups/.claude.json.backup.1794905836995": "24bc39eaac879fbcb4eb5b4c76ca3e2b574100f9af17a1b1f00c3fefac4ed481",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/agent/sessions/plugins/store/cc-plugin-agents-md_builtin-b049b47b3618.json": "a1241006de4e0d3d5ef13e5b6f0cfe9a744ad858dae106b3c0c58b006b0e4b61",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/agent/sessions/projects/-app/<session id>.jsonl": "d03f8ce4e7e9def8db6a7a1f79296ded883a0a319cdc4e2f6829c22d8840c47e",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/agent/trajectory.json": "a7dee03b84a0de03a08987db8c204f177111a9796d03d617153ec8813c60361d",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/artifacts/manifest.json": "5c1c96b4b99bc1ca0e359bb4931b77957d0d730e47938cbc0d1145a9e690b711",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/config.json": "6c673bd1fb0622261b2215f5fab00a9b699aaf9d5842b1af449ab6a84e7d3e06",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/lock.json": "4d808028946978d24feabec7d4e3eaed3287c55578440ccb02919f489e44fc4b",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/result.json": "af0cb7ab843f35d8f44a171e0f3dc2042c3817440a01a34ae13ade3d2ef102ca",
+    "live-probe/low/jobs/2026-11-17__00-54-44/recording-task__9TkhSGN/trial.log": "420fa2de2b1e122ff7fb275d25a4efc57c01dfed21afc6d98d49409638197db7",
+    "live-probe/low/jobs/2026-11-17__00-54-44/result.json": "d623f46e22756fdff3c7cf761dcb601c8a518aebe3bc202fa7db6bd7ea5e7c70",
+    "live-probe/low/rc": "de6a5eaae3a2e67b4f86282eaa161bd3838145cf6c64a05407d24b5fe0668911",
+    "live-probe/low/runtime-scan.txt": "9b09345de62265bfed6a2c00214b1960057764265298fcfd5f51bd7ba363d7ae"
+   }
+  },
+  {
+   "name": "live-probe-medium",
+   "source": "local: the live probe of 2026-11-17 (plan Task 4) via live_probe.sh at kit commit 4e193695, the vendor through the relay and the passthrough on the owner's subscription, AUTH=token, effort medium",
+   "harbor_args": "--agent claude-code --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ak max_budget_usd=0.1 --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort medium",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "live-probe/medium/containers/recording-task__cyduqy3__env_harbor-docker-egress-control-sidecar_1.environ": "c2d1f959aac5bd85d54c2a2c4e29e5fcdaba89960e252f4dc60f04b1afd2f6ad",
+    "live-probe/medium/containers/recording-task__cyduqy3__env_harbor-docker-egress-control-sidecar_1.inspect.json": "c6911140ba78971d31e1b15fdef8ea266640a6488b7b17197f7e6cbd5a77d425",
+    "live-probe/medium/containers/recording-task__cyduqy3__env_main_1.environ": "cbae65bf7caaf86b473ae55a458cd86447d7a0c514c69eb2407f8cceed0477cc",
+    "live-probe/medium/containers/recording-task__cyduqy3__env_main_1.inspect.json": "e7ab63be2f1dfff5d62c06d058a65405107df2718d5bdc7b5dc77d38f5fe7604",
+    "live-probe/medium/containers/recording-task__cyduqy3__env_relay_1.environ": "5402c2d59b6860ba140206c83b24e62f051a0c7cd8871ee281aa09003ed51ccb",
+    "live-probe/medium/containers/recording-task__cyduqy3__env_relay_1.inspect.json": "af7fc0eb84d93d6f807d8b2ad1f61f0a77e1f7e4cd47d5b5922b78413e3f93e8",
+    "live-probe/medium/egress-recording-task__cyduqy3__env_harbor-docker-egress-control-sidecar_1.log": "f525cd444a82b7a28b6cb441adcc8995f76cf7986b06097d615b5e1b84d3cc64",
+    "live-probe/medium/harbor.out": "45bc76a2d34298c6d29ea387bacc8b590a60c98c019e3f87309720ad20cf5a5c",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/config.json": "481e9c576dd779c0d3612a04968650e89d3306d1829167136cf23ef97ec9fc0f",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/job.log": "a5d716251355ba088d6c5705f4be86ad2d4f95913a82c2effc000ca49e7fce96",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/lock.json": "9a35ff6306bd3ed3ba11d24b219f748f0c5a35dd4eb504edd9d7f12ed7993bc7",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/agent/claude-code.txt": "905aa9c472c20869c670a8d5c057d16b4cea5fec531bce5ba56df8b3230f4845",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/agent/sessions/.claude.json": "5eb138a30c840b5c80f0e96a7b141e3031e2ee71c0fc2c4445f650055966ab74",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/agent/sessions/backups/.claude.json.backup.1794906058479": "eb09ea1caa13a1f064e85c772c878de263eab1d5272bc047a38beab122ea48bc",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/agent/sessions/plugins/store/cc-plugin-agents-md_builtin-b049b47b3618.json": "0d0041bfd0ef82dd293b6318efb95707ecd7b913380adc9b503a89e1d3a524e9",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/agent/sessions/projects/-app/<session id>.jsonl": "420790635f497cf99dd2ef7232662a94fb1f51443fc3ecbaced613e2267ea0f9",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/agent/trajectory.json": "e5c87edea0a3131a1bf1b0b38c95e2b0ba268cbc331b87a3d43e513d9cca83fe",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/artifacts/manifest.json": "5c1c96b4b99bc1ca0e359bb4931b77957d0d730e47938cbc0d1145a9e690b711",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/config.json": "eae069bb452687e5533aaf84f972a7bf93169f83c9bd3e9ff7667d938139209e",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/lock.json": "8089962c5754630b1678ec6bc051b9acd025a6baa9160092568c857595b875d4",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/result.json": "95a53a08e6b5f33d2a760b80b1623f02b344e7984cbffde7acf85a97099cc837",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/recording-task__CyDuQy3/trial.log": "a5d716251355ba088d6c5705f4be86ad2d4f95913a82c2effc000ca49e7fce96",
+    "live-probe/medium/jobs/2026-11-17__00-58-33/result.json": "76d44b0d5234d7e06c5f07cee885fc6349736177525923f6da64a103a5afa773",
+    "live-probe/medium/rc": "de6a5eaae3a2e67b4f86282eaa161bd3838145cf6c64a05407d24b5fe0668911",
+    "live-probe/medium/runtime-scan.txt": "9b09345de62265bfed6a2c00214b1960057764265298fcfd5f51bd7ba363d7ae"
+   }
+  },
+  {
+   "name": "live-probe-high",
+   "source": "local: the live probe of 2026-11-17 (plan Task 4) via live_probe.sh at kit commit 4e193695, the vendor through the relay and the passthrough on the owner's subscription, AUTH=token, effort high",
+   "harbor_args": "--agent claude-code --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ak max_budget_usd=0.1 --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort high",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "live-probe/high/containers/recording-task__g82wt4m__env_harbor-docker-egress-control-sidecar_1.environ": "e214e4c3144d2ce87daef5a9d1b09c2c0bd07a38a7e67ebde5f2425e7315ebbd",
+    "live-probe/high/containers/recording-task__g82wt4m__env_harbor-docker-egress-control-sidecar_1.inspect.json": "7867ed552d92a19a4ddb74784665233aa365068dcb8a759b5a864392c4b26f81",
+    "live-probe/high/containers/recording-task__g82wt4m__env_main_1.environ": "d90f9bab5ecb3bf8d74233d6fbd93bb0f90f4181b8d7cba4cff1f7a0ec2e8e2d",
+    "live-probe/high/containers/recording-task__g82wt4m__env_main_1.inspect.json": "ba16b44096092e685415798c5610acc08c283f45d1c40a688b54eb72e8140c03",
+    "live-probe/high/containers/recording-task__g82wt4m__env_relay_1.environ": "b53f42da5d5366e58526ca2d995baa39eeb37f8b50b9e67202f21851be5cb669",
+    "live-probe/high/containers/recording-task__g82wt4m__env_relay_1.inspect.json": "5206a2dd10147c33040c35f5d649758b0a680422a3de041b1dc533bc2252d241",
+    "live-probe/high/egress-recording-task__g82wt4m__env_harbor-docker-egress-control-sidecar_1.log": "95231752febee58ba7ed2c95d048b938f93985b8a55f82fc18e3fe6af7b15337",
+    "live-probe/high/harbor.out": "efec9ce34b557f954a90ffedf71779ef179ab46f58dd4608492357b843665c6a",
+    "live-probe/high/jobs/2026-11-17__01-02-16/config.json": "fab80f4b93e4d88034e9dc129fae5abf8bcb0de8da53b913252594ef8d9ff447",
+    "live-probe/high/jobs/2026-11-17__01-02-16/job.log": "7e19eb70d1aecf7d8afcc9780226e5710241f8691762efbf25ed476d601dc395",
+    "live-probe/high/jobs/2026-11-17__01-02-16/lock.json": "fc2711d9bf55476175cb2a6af2b42a8b7fab37221e538026b219b0eccb14a974",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/agent/claude-code.txt": "d8dad5d4690d4b88804e2d08806bf927bcfa51164e5297ead9cb5d080263ec64",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/agent/sessions/.claude.json": "443516ade1fb15987f05c0f85eef97069716eaa7709dca8b2f05d808a21c1f75",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/agent/sessions/backups/.claude.json.backup.1794906279759": "daa0d1da95e268adefe35d1feec9686bfc5f0abaaf236cafeff7e2d092c09bf7",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/agent/sessions/plugins/store/cc-plugin-agents-md_builtin-b049b47b3618.json": "f502f79e0f4f146f75e60d661252bf5ccd97b205ab1c636259d5a107622dd45a",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/agent/sessions/projects/-app/<session id>.jsonl": "295c197486fa331e444b320271f4bca3f52373a6b38292e5d77d42b21489ecd4",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/agent/trajectory.json": "f964b9a197406e8356ca308ef2de4777e0ae17e48f518d516920f51e0e79353f",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/artifacts/manifest.json": "5c1c96b4b99bc1ca0e359bb4931b77957d0d730e47938cbc0d1145a9e690b711",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/config.json": "684eaead070eb57ea3c4520ee075f43af7826371d5dd0de1d7e36be66d4e459a",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/lock.json": "b7a0400becd3762a0b394bb4287f39328f4c01e518d3d2efd5f701a153e8e34a",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/result.json": "5350ebac29f3d1917a4d84934075edb28e0d1808bae504ae3e181d964c0323ec",
+    "live-probe/high/jobs/2026-11-17__01-02-16/recording-task__g82Wt4m/trial.log": "7e19eb70d1aecf7d8afcc9780226e5710241f8691762efbf25ed476d601dc395",
+    "live-probe/high/jobs/2026-11-17__01-02-16/result.json": "f1e2b5692cb0931b517e5ec5224ff92e15ccd81ca3654f46184bb75b1153eed1",
+    "live-probe/high/rc": "de6a5eaae3a2e67b4f86282eaa161bd3838145cf6c64a05407d24b5fe0668911",
+    "live-probe/high/runtime-scan.txt": "9b09345de62265bfed6a2c00214b1960057764265298fcfd5f51bd7ba363d7ae"
+   }
+  },
+  {
+   "name": "live-probe",
+   "source": "local: the live probe of 2026-11-17 (plan Task 4) via live_probe.sh at kit commit 4e193695, the vendor through the relay and the passthrough on the owner's subscription: the probe's verdict and file-set scan, and the passthrough's request log and tranche events, which live_probe.sh leaves in its state directory ($HOME/.local/state/lh-probe/passthrough, outside $LH/recordings)",
+   "harbor_args": null,
+   "cli_version": null,
+   "harness_exception": null,
+   "files_sha256": {
+    "live-probe/file-set-scan.txt": "fd8380d40a8ee34c773494b22993412c97c132a62b157ea3742ac101c04253ec",
+    "live-probe/probe.json": "2fb7c71c199369028a67926ac1ebcc9d0da9b5069c042be9c7cf0d04302af1f5"
+   },
+   "state_sha256": {
+    "$HOME/.local/state/lh-probe/passthrough/requests.jsonl": "f4b6046bde0b3fcbaa91dce6301d9a9ba627075dbe4f45e0fabdc524138f5746",
+    "$HOME/.local/state/lh-probe/passthrough/tranche.jsonl": "ab5e7140dd0433d45f416c2b39c9255822f25d6233152ef710123929452eea48"
+   }
   }
  ]
 }

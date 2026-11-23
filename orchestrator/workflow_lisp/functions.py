@@ -1627,7 +1627,10 @@ def _clone_function_expr(
     form_path: tuple[str, ...],
     expansion_stack: ExpansionStack,
 ) -> ExprNode:
-    if isinstance(expr, NameExpr | LiteralExpr | EnumMemberExpr | ProcRefLiteralExpr):
+    if isinstance(expr, NameExpr):
+        return replace(expr, span=span, form_path=form_path, expansion_stack=expansion_stack,
+                       authored_span=expr.authored_span or expr.span)
+    if isinstance(expr, LiteralExpr | EnumMemberExpr | ProcRefLiteralExpr):
         return replace(expr, span=span, form_path=form_path, expansion_stack=expansion_stack)
     if isinstance(expr, FieldAccessExpr):
         return replace(
@@ -2243,7 +2246,15 @@ def _find_purity_violation(
         if violation is not None or expr.terminal_state_expr is None:
             return violation
         return _find_purity_violation(expr.terminal_state_expr, allow_procedure_calls=allow_procedure_calls)
+    if isinstance(expr, PromptApplicationExpr):  # a prompt value is pure; typecheck refuses it outside `:prompt`
+        return _first_fill_violation(expr, allow_procedure_calls=allow_procedure_calls)
     return f"unsupported expression container {type(expr).__name__}"
+
+
+def _first_fill_violation(application: PromptApplicationExpr, *, allow_procedure_calls: bool) -> str | None:
+    violations = (_find_purity_violation(fill.value_expr, allow_procedure_calls=allow_procedure_calls)
+                  for fill in application.fills)
+    return next((violation for violation in violations if violation is not None), None)
 
 
 def _elaborate_function_definition(form: SyntaxNode) -> FunctionDef:

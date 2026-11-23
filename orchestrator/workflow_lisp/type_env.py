@@ -344,6 +344,17 @@ class ListTypeRef:
 
 
 @dataclass(frozen=True)
+class PromptTypeRef:
+    """`Prompt[T]`: a fully applied prompt whose provider call returns `item_type_ref`.
+
+    The type of a `defproc` parameter only (`prompt_values.py`); a compile-time value, never transported.
+    """
+
+    name: str
+    item_type_ref: "TypeRef"
+
+
+@dataclass(frozen=True)
 class MapTypeRef:
     """One resolved map type reference."""
 
@@ -365,6 +376,7 @@ TypeRef = (
     | OptionalTypeRef
     | ListTypeRef
     | MapTypeRef
+    | PromptTypeRef
 )
 
 
@@ -716,7 +728,9 @@ class FrontendTypeEnvironment:
         expansion_stack: tuple[object, ...] = (),
         local_type_params: frozenset[str] = frozenset(),
         session_state: TypecheckSessionState | None = None,
+        prompt_parameter: bool = False,
     ) -> TypeRef:
+        """Resolve one authored type; `prompt_parameter` admits `Prompt[T]`, the type of a `defproc` parameter."""
         return self._resolve_inline_type(
             name,
             type_refs=self._type_refs,
@@ -729,6 +743,7 @@ class FrontendTypeEnvironment:
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
             session_state=session_state,
+            prompt_parameter=prompt_parameter,
         )
 
     def resolve_constructor_type(self, expr, **resolve_kwargs) -> TypeRef:
@@ -908,6 +923,7 @@ class FrontendTypeEnvironment:
         expansion_stack: tuple[object, ...] = (),
         local_type_params: frozenset[str] = frozenset(),
         session_state: TypecheckSessionState | None = None,
+        prompt_parameter: bool = False,
     ) -> TypeRef:
         if name.startswith("%loop-state.") and session_state is not None:
             from .loop_state import register_known_carrier_type
@@ -951,6 +967,7 @@ class FrontendTypeEnvironment:
             form_path=form_path,
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
+            prompt_parameter=prompt_parameter,
         )
 
 
@@ -966,6 +983,7 @@ def _resolve_parsed_type_expr(
     form_path: tuple[str, ...],
     expansion_stack: tuple[object, ...],
     local_type_params: frozenset[str],
+    prompt_parameter: bool = False,
 ) -> TypeRef:
     if isinstance(parsed, NamedTypeExpr):
         from .generic_unions import is_generic_union_template, reject_unapplied_generic_union
@@ -1000,6 +1018,7 @@ def _resolve_parsed_type_expr(
             form_path=form_path,
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
+            prompt_parameter=prompt_parameter,
         )
     if isinstance(parsed, OptionalTypeExpr):
         item_type_ref = _resolve_parsed_type_expr(
@@ -1208,10 +1227,16 @@ def _resolve_applied_type_expr(
     form_path: tuple[str, ...],
     expansion_stack: tuple[object, ...],
     local_type_params: frozenset[str],
+    prompt_parameter: bool = False,
 ) -> TypeRef:
-    """Resolve `Head[Arg ...]` against a generic union declaration."""
+    """Resolve `Head[Arg ...]` against a generic union declaration, or `Prompt[T]`.
+
+    `prompt_parameter` is true only for the whole type of a `defproc` parameter: a nested `Prompt[...]`
+    is resolved without it, so it refuses.
+    """
 
     from .generic_unions import resolve_generic_union_application
+    from .prompt_values import names_builtin_prompt, resolve_prompt_type
 
     scope = {
         "type_refs": type_refs,
@@ -1223,10 +1248,15 @@ def _resolve_applied_type_expr(
         "expansion_stack": expansion_stack,
         "local_type_params": local_type_params,
     }
+    resolve_arg = lambda arg: _resolve_parsed_type_expr(arg, authored_name=_render_type_expr(arg), **scope)  # noqa: E731
+    if names_builtin_prompt(parsed.head, type_refs=type_refs, import_scope=import_scope,
+                            local_type_params=local_type_params):
+        return resolve_prompt_type(parsed, admitted=prompt_parameter, resolve_arg=resolve_arg, span=span,
+                                   form_path=form_path, expansion_stack=expansion_stack)
     return resolve_generic_union_application(
         parsed,
         head_ref=_resolve_named_type(parsed.head, **scope),
-        resolve_arg=lambda arg: _resolve_parsed_type_expr(arg, authored_name=_render_type_expr(arg), **scope),
+        resolve_arg=resolve_arg,
         span=span,
         form_path=form_path,
         expansion_stack=expansion_stack,
@@ -1306,7 +1336,8 @@ def _render_type_expr(parsed: ParsedTypeExpr) -> str:
 
 
 def render_type_ref(type_ref: TypeRef) -> str:
-    if isinstance(type_ref, (PrimitiveTypeRef, PathTypeRef, RecordTypeRef, UnionTypeRef, OptionalTypeRef, ListTypeRef, MapTypeRef)):
+    if isinstance(type_ref, (PrimitiveTypeRef, PathTypeRef, RecordTypeRef, UnionTypeRef, OptionalTypeRef, ListTypeRef,
+                             MapTypeRef, PromptTypeRef)):
         return type_ref.name
     if isinstance(type_ref, VariantCaseTypeRef):
         return type_ref.union_name

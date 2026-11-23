@@ -20,6 +20,7 @@ from orchestrator.workflow_lisp.diagnostics import (
     records_defect_provenance,
 )
 from orchestrator.workflow_lisp.procedures import _procedure_signature_local_type_bindings
+from orchestrator.workflow_lisp.prompt_values import refusing_provider_values
 from orchestrator.workflow_lisp.type_env import (
     PrimitiveTypeRef,
     ProcRefTypeRef,
@@ -4530,7 +4531,7 @@ def build_closed_program(typed: Any, *, builder: Builder | None = None) -> Close
 
     entry_span = getattr(getattr(typed.entry, "definition", None), "span", None)
     path = Path(entry_span.start.path) if entry_span is not None else Path(typed.entry_dir)
-    with compiler_defect_boundary(path):
+    with compiler_defect_boundary(path), refusing_provider_values(typed):
         try:
             # Construction and preflight belong to the same boundary as
             # translation: retained-state defects must be located uniformly.
