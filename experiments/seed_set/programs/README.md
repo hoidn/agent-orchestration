@@ -78,6 +78,14 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   holds and prints each path (review 3 X5). The agent under test can read its unit's copy during its call; a copy it
   makes under another name, or text it writes into its output or patch, is not removed. The route is an open owner
   decision (coordinator ruling R7), and the freeze waits for it: see the kit's [README](../README.md).
+- The isolation of Claude sessions (the harness's `sandbox.CLAUDE_SETTINGS`, mounted as the sandbox's managed
+  settings, and `sandbox.CLAUDE_ENV`) binds the CLI sessions the kit launches. An agent can start its own CLI with
+  the copied credential (R7). Inside the sandbox the managed settings bind that CLI too, and
+  `--setting-sources` cannot drop the managed level: there, `claude mcp list` run with
+  `ENABLE_CLAUDEAI_MCP_SERVERS=true --setting-sources project` lists no claude.ai connector, while the same sandbox
+  without the managed file lists them (CLI 2.1.330, 2026-11-22). Its environment is the agent's own, and a
+  connector it did reach would very likely leave an MCP log outside the session store, which the session audit
+  flags.
 - A unit's whole process tree, its provider calls' own sessions and sandboxes included, dies with its launcher
   however the launcher ends (`../reaper.py`). The unit's command runs as the guard's child from its first instant;
   the guard is a child subreaper, so what a root shell that died leaves behind is killed when the command ends; a

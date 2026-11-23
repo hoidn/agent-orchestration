@@ -28,6 +28,33 @@ POLICY = ('ORC_ALLOWED_CODEX_MODELS', 'ORC_ALLOWED_CLAUDE_MODELS', 'ORC_SINGLE_C
 CLAUDE_BINDING = '/.compare-claude-model'  # the model guard's read-only Claude binding (shim/model-guard)
 SONNET, HAIKU = 'claude-sonnet-5-5', 'claude-haiku-5-5'
 CLAUDE_MODELS = (SONNET, HAIKU)  # a unit's one bound Claude model is one of these exact IDs
+# Every Claude process in a unit's sandbox, an agent's or a judge's session or a CLI the agent starts itself, runs
+# under these managed settings (CLAUDE_MANAGED, mounted read-only from memory, never read back from the writable
+# home; above user, project, local and --settings values) and this environment. Keys as documented for CLI 2.1.330
+# (code.claude.com/docs/en/managed-settings, /settings, /mcp#disable-claude-ai-connectors, /permissions,
+# /env-vars). They keep out the account's claude.ai connectors, skills and plugins and any MCP or Artifact tool,
+# turn auto memory and scheduled tasks off, and remove the tools that start other agents or sessions, act on the
+# account, or wake a session after its answer, with the background runs of Bash, so that one call is one
+# session. Which tools to remove is a policy: change it here.
+CLAUDE_MANAGED = '/etc/claude-code/managed-settings.json'
+CLAUDE_ENV = {"ENABLE_CLAUDEAI_MCP_SERVERS": "false", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+              "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "CLAUDE_CODE_DISABLE_CRON": "1"}
+# CLAUDE_ENV is also the managed `env`, so a session's own ~/.claude/settings.json `env` cannot override it for the
+# next call of a multi-call arm; allowManagedMcpServersOnly keeps out an MCP server a session plants in its home.
+CLAUDE_SETTINGS = {
+    "env": CLAUDE_ENV, "allowManagedMcpServersOnly": True,
+    "disableClaudeAiConnectors": True, "syncClaudeAiSkills": False, "syncClaudeAiPlugins": False,
+    "autoMemoryEnabled": False, "enableArtifact": False,
+    "permissions": {"deny": ["mcp__*", "ListMcpResourcesTool", "ReadMcpResourceTool", "ReadMcpResourceDirTool",
+                             "Artifact", "ArtifactCheck", "ArtifactComments", "ArtifactData", "Agent", "Task",
+                             "Workflow", "SendMessage", "ListAgents", "RemoteTrigger", "PushNotification",
+                             "DesignSync", "Monitor", "CronCreate", "CronDelete", "CronList", "ScheduleWakeup"]}}
+# The tools a clean session's init event may list: the 25 built-in tools of CLI 2.1.327's first init event in the
+# study's first paid run (tests/experiments/fixtures/seed_set/claude-2.1.327-direct-stream.jsonl), less the
+# denied ones. Any other tool is an isolation breach (seed_set.units.isolation_breach), so a CLI update that adds a
+# built-in tool shows as an incident until the list is renewed with the CLI pin at the next freeze (intended).
+CLAUDE_TOOLS = frozenset(('Bash', 'Edit', 'EnterWorktree', 'ExitWorktree', 'NotebookEdit', 'Read', 'ReportFindings',
+                          'Skill', 'TaskStop', 'ToolSearch', 'WebFetch', 'WebSearch', 'Write'))
 BROAD = frozenset(('/', '/home', '/root', '/etc', '/mnt', '/srv', '/opt', '/run', '/var', '/tmp'))
 DEPENDENCY_FIELDS = frozenset(('codex', 'claude', 'readonly', 'path', 'environment', 'catalog', 'skills'))
 UNIT_FIELDS = frozenset(('tree', 'records', 'home', 'home_path', 'clones', 'providers', 'result_root', 'claude_model'))
@@ -276,6 +303,19 @@ def _publish_result(result, parent, staged):
             os.unlink(temporary, dir_fd=parent)
 
 
+def _pipe(text):
+    """A pipe's read end holding `text`, for bubblewrap's --ro-bind-data (a file nothing in the sandbox can write)."""
+    reader, writer = os.pipe()
+    try:
+        os.write(writer, text.encode())
+    except BaseException:
+        os.close(reader)
+        raise
+    finally:
+        os.close(writer)
+    return reader
+
+
 def launch(name, argv, environment=None, *, call=None):
     """Run the guarded native CLI inside its prepared positive mount boundary."""
     environment = os.environ if environment is None else environment
@@ -314,7 +354,7 @@ def launch(name, argv, environment=None, *, call=None):
         if call is not None:
             _write(call / 'publication-error.json', {'native_exit': None, 'error': str(error)})
         raise
-    binding = None
+    binding = managed = None
     try:
         # --disable-userns: no nested user namespace, so the candidate cannot mount over the binding or the guard
         # whatever the host's user-namespace policy (bubblewrap >= 0.8).
@@ -342,11 +382,7 @@ def launch(name, argv, environment=None, *, call=None):
                 args += ['--ro-bind', str(path), str(path)]
         args += ['--bind', str(tree), str(tree), '--bind', str(tree / 'tmp'), '/tmp']
         # The candidate can neither edit the guard nor rebind the declared Claude model.
-        binding, writer = os.pipe()
-        try:
-            os.write(writer, claude_model.encode())
-        finally:
-            os.close(writer)
+        binding = _pipe(claude_model)
         args += ['--ro-bind', str(tree / '.model-guard'), str(tree / '.model-guard'),
                  '--ro-bind-data', str(binding), CLAUDE_BINDING]
         if staging is not None:
@@ -360,6 +396,9 @@ def launch(name, argv, environment=None, *, call=None):
             args += ['--tmpfs', str(GUEST_HOME / '.claude'), '--ro-bind', '/dev/null', str(GUEST_HOME / '.claude.json')]
             if data.get('claude'):
                 args += ['--ro-bind', '/dev/null', data['claude']]
+        else:
+            managed = _pipe(json.dumps(CLAUDE_SETTINGS))
+            args += ['--ro-bind-data', str(managed), CLAUDE_MANAGED]
         for name_ in ('.bashrc', '.profile', '.bash_profile', '.bash_login'):
             args += ['--ro-bind', '/dev/null', str(GUEST_HOME / name_)]
         native_env = {key: environment[key] for key in data.get('environment', []) if key in environment}
@@ -369,6 +408,8 @@ def launch(name, argv, environment=None, *, call=None):
         native_env.update({key: environment[key] for key in POLICY if key in environment})
         if no_claude:
             native_env['ORC_ALLOWED_CLAUDE_MODELS'] = ''
+        else:
+            native_env.update(CLAUDE_ENV)
         for provider in data['providers']:
             if provider != 'claude' or not no_claude:
                 native_env.update({key: environment[key] for key in AUTH[provider] if key in environment})
@@ -387,7 +428,7 @@ def launch(name, argv, environment=None, *, call=None):
             with (call / 'publication-error.json').open('x') as pending:
                 json.dump({'pending': True, 'native_exit': None}, pending)
         status = subprocess.run(args, env=environment, close_fds=True,
-                                pass_fds=(() if staged is None else (staged,)) + (binding,)).returncode
+                                pass_fds=tuple(fd for fd in (staged, binding, managed) if fd is not None)).returncode
         if staging is not None:
             _write(call / 'native-exit.json', {'native_exit': status})
         if staging is not None:
@@ -407,7 +448,7 @@ def launch(name, argv, environment=None, *, call=None):
                 return 70
         return status
     finally:
-        for descriptor in (parent, staged, binding):
+        for descriptor in (parent, staged, binding, managed):
             if descriptor is not None:
                 try:
                     os.close(descriptor)

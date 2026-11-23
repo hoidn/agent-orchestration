@@ -72,6 +72,12 @@ private storage, once. Resume preserves native atomic credential refreshes.
 Configuration uses the public native catalog, file credential storage and the
 declared public tmux skill plus native system skills; host plugins, hooks,
 memories, startup files and identity-bearing model caches are not copied.
+Every Claude launch also mounts `sandbox.CLAUDE_SETTINGS` read-only from memory as the sandbox's managed settings
+(`/etc/claude-code/managed-settings.json`, above every user, project and `--settings` value) and sets
+`sandbox.CLAUDE_ENV`: no claude.ai connectors, synced skills or plugins, no MCP server but managed ones, no MCP,
+Artifact, agent or wake-up tool, no auto memory, scheduled tasks or background Bash. A session's writes to its
+home cannot change them for a later call. `sandbox.CLAUDE_TOOLS` is the tool list a clean session's init event
+shows; callers such as the seed-set kit treat any other tool as an incident.
 No-Claude preparation excludes Claude credentials and executables; tightening a
 generic unit later also hides its private Claude projection. Tightening is allowed
 only while the unit is idle, with no active or concurrent launches; the caller
