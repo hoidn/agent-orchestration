@@ -1882,14 +1882,15 @@ def file_set(ctx):
 
 
 def _scan_verdict(code, match, incomplete):
-    """A scan's stop: a match, or a scan that could not finish (open ruling: read as a stop, since it cannot show
-    that nothing leaked)."""
-    return {1: match, 2: incomplete}.get(code)
+    """A scan's stop: a match (1), or a scan that could not finish (open ruling: read as a stop, since it cannot
+    show that nothing leaked): 2, and any other exit but 0, such as a scanner killed by a signal (negative)."""
+    return None if code == 0 else match if code == 1 else incomplete
 
 
 def _worst(codes):
-    """The scans' joint exit: a match anywhere (1) before an incomplete scan anywhere (2), else 0 (Task 8 B1)."""
-    return 1 if 1 in codes else max(codes, default=0)
+    """The scans' joint exit: a match anywhere (1) before an incomplete scan anywhere (2: any other exit but 0,
+    a signal's included), else 0 (Task 8 B1)."""
+    return 1 if 1 in codes else 2 if any(codes) else 0
 
 
 def _read_logged(attempt_dir, name, verb, code):
@@ -2366,7 +2367,9 @@ class Tranche:
         """(the head of the queue, None), or (None, why nothing starts: the schedule is done, or a person's row is
         awaited). A failed smoke is written as a stop, which the gate then reads."""
         left = queue(self.root, self.plan)
-        if left and not self.round_read(left[0]["round"] - 1):
+        if left and left[0]["round"] > 1 and not self.round_read(left[0]["round"] - 1):
+            return None, None
+        if not starts_gate(self.root, time.time())["open"]:  # closed during a read (a signal, a stop): no start
             return None, None
         if not left:
             return None, self.end("schedule", "the schedule is done")
@@ -2380,14 +2383,17 @@ class Tranche:
     def round_read(self, rnd):
         """D4, every round's read: token_scan.py over the whole file set once round `rnd` has ended (or the tranche
         ends inside it), before the next round starts or end.json is written. True when it was read clean (now or before; a resume after a stop reads it
-        again), or `rnd` is 0; False while the round's last attempts run, or when the read matched or could not
-        finish: a stop, written as the teardown's scan writes it."""
+        again); False while the round's last attempts run, or when the read matched or could not finish (its
+        time limit included): a stop, written as the teardown's scan writes it. Round 0: an end before any attempt."""
         events = _jsonl(self.root / "passthrough" / "tranche.jsonl")
-        if rnd < 1 or any(e.get("event") == "round_scan" and e["round"] >= rnd and e["exit"] == 0 for e in events):
+        if any(e.get("event") == "round_scan" and e["round"] >= rnd and e["exit"] == 0 for e in events):
             return True
         if self.workers:
             return False
-        code = token_scan(self.ctx, *file_set(self.ctx))
+        try:
+            code = token_scan(self.ctx, *file_set(self.ctx))
+        except subprocess.TimeoutExpired:
+            code = 2
         tranche_event(self.root, "round_scan", round=rnd, exit=code)
         found = _scan_verdict(code, TOKEN_MATCH, TOKEN_INCOMPLETE)
         if found:

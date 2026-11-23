@@ -343,7 +343,10 @@ every end of the tranche (the schedule done, the ceiling, the 240 starts) before
 passthrough's log and output file), `$LH/recordings`, the repository's main worktree and the checkout the launcher
 runs from (git's common directory names the first), and `~/.claude/projects`. A checkout that is not a git worktree
 of the main repository (a clone) hides the main worktree, and the read is then incomplete. The next round, and the
-end, wait for the attempts in flight to end. A match or an incomplete read is a stop, as at teardown; the read's exit is the tranche's
+end, wait for the attempts in flight to end. The main worktree is read whole, other sessions' trees inside it
+(`.claude/worktrees`, `.worktrees`, `.tmp`) included, so a file there that cannot be read makes the read incomplete
+and stops the tranche: keep the main checkout's tree readable while a tranche runs. A scanner that dies (a signal)
+or passes its three-hour limit is an incomplete read too. A match or an incomplete read is a stop, as at teardown; the read's exit is the tranche's
 `round_scan` event, and a resume after its stop reads the file set again.
 
 To end a pause or a stop, a person writes the ledger row that D5 asks for and then runs `ladder.py resume`. A stop

@@ -2861,6 +2861,89 @@ def test_an_end_by_the_ceiling_in_the_middle_of_a_round_reads_the_whole_file_set
         0, [(1, 1 if planted else 0)], [cause] if cause else [], 1, None if planted else "ceiling")
 
 
+def _round_scans(r):
+    return [(e["round"], e["exit"]) for e in r.events() if e["event"] == "round_scan"]
+
+
+def _no_room(r):
+    """The live probe's stand-in usage takes the whole ceiling: no reservation fits, the tranche ends at once."""
+    criterion = r.kit.ladder.criterion(r.kit.ladder.Ctx(r.kit.env()))
+    (r.kit.reh / "probe").mkdir()
+    (r.kit.reh / "probe" / "requests.jsonl").write_text(json.dumps({"usd": criterion["ceiling"]["total_usd"]}) + "\n")
+
+
+def _end_by(r):
+    end = r.root / "end.json"
+    return json.loads(end.read_text())["by"] if end.exists() else None
+
+
+KILLED_SCANNER = """import os, runpy, signal, sys
+from pathlib import Path
+paths = sys.argv[4:]  # scan --fingerprint FILE PATH...
+attempt_dir = len(paths) == 1 and Path(paths[0]).parent.name == "slots"  # the teardown's scan of its attempt
+if (len(paths) > 1) if {whole!r} else attempt_dir:
+    os.kill(os.getpid(), signal.SIGKILL)  # exit -9
+runpy.run_path({real!r}, run_name="__main__")
+"""
+
+
+@pytest.mark.parametrize("whole", [True, False], ids=["file-set-read", "teardown-scan"])
+def test_a_scanner_killed_by_a_signal_is_an_incomplete_scan_and_a_stop_never_clean(rig, whole):
+    """The kit copy's token_scan.py is a stand-in that SIGKILLs itself (exit -9) on the whole file set's read (here
+    at an end before any attempt) or on the teardown's scan of the attempt's directory, else runs the real one."""
+    r = rig()
+    (r.kit.kit / "token_scan.py").write_text(KILLED_SCANNER.format(whole=whole, real=str(KIT / "token_scan.py")))
+    _manifest(r.kit.repo, "write")
+    r.label = hashlib.sha256((r.kit.kit / "manifest.json").read_bytes()).hexdigest()
+    if whole:
+        _no_room(r)
+    r.launch()
+    assert ([e["reason"] for e in r.events() if e["event"] == "stop"], _round_scans(r)[:1] if whole else None,
+            _end_by(r)) == (["an incomplete scan of token_scan.py"], [(0, -9)] if whole else None, None)
+
+
+def test_an_end_before_any_attempt_reads_the_whole_file_set_before_end_json(rig):
+    r = rig()
+    _no_room(r)
+    r.launch()
+    assert (_round_scans(r), _end_by(r), r.attempts()) == ([(0, 0)], "ceiling", [])
+
+
+@pytest.mark.parametrize("planted", [False, True], ids=["clean", "match"])
+def test_an_end_by_the_schedule_done_reads_the_whole_file_set_before_end_json(rig, planted):
+    """A schedule of one round: its end is the schedule's, and the read gates end.json."""
+    r = rig(edit=lambda doc: (_fast(doc), doc["schedule"].update(rounds=1)))
+    if planted:
+        (r.short / "home" / ".claude" / "projects" / "s.jsonl").write_text(f"x {r.canary} y\n")
+    code, last = _through_round_one(r)
+    assert (code, last, _round_scans(r), _end_by(r)) == (
+        (0, "stop: a match of token_scan.py", [(1, 1)], None) if planted
+        else (0, "the schedule is done", [(1, 0)], "schedule"))
+
+
+def test_a_resume_after_a_file_set_read_s_stop_reads_the_file_set_again(rig):
+    r = rig()
+    planted = r.short / "home" / ".claude" / "projects" / "s.jsonl"
+    planted.write_text(f"x {r.canary} y\n")
+    _through_round_one(r)
+    planted.unlink()
+    r.ledger("Ruling", "resume: a match of token_scan.py: the stand-in copy was removed")
+    subprocess.run([sys.executable, "-I", str(r.kit.kit / "ladder.py"), "resume", "--date", "2026-11-20"],
+                   cwd=r.kit.repo, env=r.kit.env(), check=True, capture_output=True, timeout=WAIT)
+    code, out, err = r.launch()
+    assert (code, out.strip().splitlines()[-1], _round_scans(r)) == (
+        0, "waiting for the round-one read", [(1, 1), (1, 0)])
+
+
+def test_a_round_scan_row_that_is_not_clean_never_counts_as_read_after_a_crash_before_its_stop(rig):
+    """A launcher that died after writing the read's row (exit 1) and before its stop row: the next launch reads
+    the file set again at the round's end, and the earlier row stands for nothing."""
+    r = rig()
+    ladder.tranche_event(r.root, "round_scan", round=1, exit=1)
+    code, last = _through_round_one(r)
+    assert (code, last, _round_scans(r)) == (0, "waiting for the round-one read", [(1, 1), (1, 0)])
+
+
 def test_a_failed_smoke_stops_the_tranche_and_its_start_is_a_stop_never_scored(rig):
     """D7.1: a person reads the smoke's checks and writes the Smoke read row; on `fail` the launcher stops the tranche
     and gives the smoke's start the cause the readout reads, "a failed smoke check"."""
