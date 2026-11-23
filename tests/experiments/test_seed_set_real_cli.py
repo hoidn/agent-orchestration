@@ -4,7 +4,9 @@ The fixture is cut from that run's one call (the smoke's `direct` arm on Haiku, 
 with every identifier replaced by a placeholder of the same shape, long strings shortened and the CLI's
 thinking-token and command-list events left out. The session had the account's claude.ai connectors (three init
 events: the session, then two one-turn continuations woken by its own background tasks; three cumulative results).
-No provider is called.
+The second fixture is the first init event of CLI 2.1.330 in a Claude unit under the kit's isolation (managed
+settings and environment), captured on 2026-11-22 with the sandbox's network namespace unshared, so the CLI made
+no request; its identifiers are replaced the same way. No provider is called.
 """
 
 import json
@@ -15,7 +17,9 @@ from experiments.seed_set import rules, spend, units
 from orchestrator.providers.pricing import load_price_table
 
 REPO = Path(__file__).resolve().parents[2]
-STREAM = Path(__file__).with_name("fixtures") / "seed_set" / "claude-2.1.327-direct-stream.jsonl"
+FIXTURES = Path(__file__).with_name("fixtures") / "seed_set"
+STREAM = FIXTURES / "claude-2.1.327-direct-stream.jsonl"
+CLEAN_INIT = json.loads((FIXTURES / "claude-2.1.330-isolated-init.json").read_text())
 ARGV = ["-p", "--output-format", "stream-json", "--verbose", "--model", spend.HAIKU, "--effort", "medium",
         "--permission-mode", "bypassPermissions"]
 CONNECTORS = ["claude.ai Claude Docs", "claude.ai Google Slides", "claude.ai Google Drive"]
@@ -25,12 +29,13 @@ def events():
     return [json.loads(line) for line in STREAM.read_text().splitlines()]
 
 
+def init(event):
+    return (event.get("type"), event.get("subtype")) == ("system", "init")
+
+
 def isolated(event):
-    """An init event as the recorded one less what came from the account: connectors, their tools, synced skills."""
-    if (event.get("type"), event.get("subtype")) != ("system", "init"):
-        return event
-    return event | {"tools": [t for t in event["tools"] if not t.startswith("mcp__")], "mcp_servers": [],
-                    "skills": [s for s in event["skills"] if ":" not in s]}
+    """The recorded stream's events, each init event replaced by the isolated CLI's clean one."""
+    return CLEAN_INIT if init(event) else event
 
 
 def recorded_call(root, stream=None):
@@ -49,17 +54,36 @@ def hits(records, home):
     return scan.find_hits(records, home.parent / "tree", 0, home, compiled, expected_claude_model=spend.HAIKU)
 
 
-def test_the_recorded_session_is_an_isolation_breach_naming_the_account_connectors(tmp_path):
-    reason = units.isolation_breach(recorded_call(tmp_path))
-    assert reason is not None and all(name in reason for name in CONNECTORS), reason
+def test_the_recorded_session_is_an_isolation_breach(tmp_path):
+    assert units.isolation_breach(recorded_call(tmp_path)) is not None
 
 
-def test_a_session_with_only_the_clis_built_in_tools_skills_plugins_and_agents_is_no_breach(tmp_path):
+def test_the_recorded_first_init_event_lists_the_connectors_and_the_denied_tools_as_foreign():
+    found = units.foreign(next(e for e in events() if init(e)))
+    assert {*CONNECTORS, "Task", "Monitor", "RemoteTrigger"} <= set(found), found
+
+
+def test_the_isolated_clis_init_event_lists_nothing_foreign():
+    assert units.foreign(CLEAN_INIT) == []
+
+
+def test_a_built_in_tool_outside_the_allowlist_is_foreign():
+    assert units.foreign(CLEAN_INIT | {"tools": [*CLEAN_INIT["tools"], "NewTool"]}) == ["NewTool"]
+
+
+def test_a_session_with_the_isolated_clis_init_events_is_no_breach(tmp_path):
     assert units.isolation_breach(recorded_call(tmp_path, [isolated(e) for e in events()])) is None
 
 
-def test_the_clis_init_events_are_no_scan_hit(tmp_path):
+def test_the_clis_auto_memory_path_in_its_init_events_is_no_scan_hit(tmp_path):
     assert hits(recorded_call(tmp_path / "records"), tmp_path / "home") == []
+
+
+def test_the_rest_of_an_init_event_is_still_scanned(tmp_path):
+    home = tmp_path / "home"
+    moved = CLEAN_INIT | {"cwd": str(home.parent / "main" / "cand-1")}
+    assert [hit["pattern"] for hit in hits(recorded_call(tmp_path / "records", [moved]), home)] == [
+        "main checkout prefix"]
 
 
 def test_an_agent_naming_another_sessions_store_is_still_a_scan_hit(tmp_path):

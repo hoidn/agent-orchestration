@@ -1,6 +1,7 @@
 """Every Claude session of a unit, a candidate's or either Claude judge's, starts with the isolation switches
-(`sandbox.CLAUDE_SETTINGS` as its read-only user settings, `sandbox.CLAUDE_ENV` in its environment): the real
-shims and sandbox with a scripted CLI, never a provider call."""
+(`sandbox.CLAUDE_SETTINGS` as the sandbox's read-only managed settings, `sandbox.CLAUDE_ENV` in its environment),
+and nothing a session does to its home changes what the next launch mounts: the real shims and sandbox with a
+scripted CLI, never a provider call."""
 
 import json
 from pathlib import Path
@@ -11,8 +12,10 @@ from experiments.compare import pool, sandbox
 from tests.experiments.compare_harness_support import call, skip_without_sandbox, start, world  # noqa: F401
 
 PROBE = ("for name in " + " ".join(sandbox.CLAUDE_ENV) + "; do printf '%s=%s\\n' $name \"$(printenv $name)\"; done; "
-         "printf 'settings=%s\\n' \"$(tr -d '\\n ' < $HOME/.claude/settings.json)\"; "
-         "(echo '{}' > $HOME/.claude/settings.json) 2>/dev/null; echo written=$?")
+         f"printf 'settings=%s\\n' \"$(tr -d '\\n ' < {sandbox.CLAUDE_MANAGED})\"; "
+         f"(echo '{{}}' > {sandbox.CLAUDE_MANAGED}) 2>/dev/null; echo written=$?")
+REPLACE = ("mv $HOME/.claude $HOME/.claude-old 2>/dev/null; mkdir -p $HOME/.claude/; "
+           "echo '{\"disableClaudeAiConnectors\": false}' > $HOME/.claude/settings.json; echo replaced=$?")
 
 
 def seen(done):
@@ -28,6 +31,14 @@ EXPECTED = {**sandbox.CLAUDE_ENV, "settings": sandbox.CLAUDE_SETTINGS, "written"
 def test_a_candidates_claude_session_starts_isolated(world):
     skip_without_sandbox()
     _, record = start(world, "direct_task")
+    assert seen(call(world, record, PROBE)) == EXPECTED
+
+
+def test_a_session_that_replaces_its_homes_settings_does_not_change_what_the_next_launch_mounts(world):
+    skip_without_sandbox()
+    _, record = start(world, "direct_task")
+    done = call(world, record, REPLACE)
+    assert (done.returncode, "replaced=0" in done.stdout) == (0, True), done.stdout + done.stderr
     assert seen(call(world, record, PROBE)) == EXPECTED
 
 

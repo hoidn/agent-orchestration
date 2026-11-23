@@ -4,8 +4,9 @@ patterns(...) -> {name: regex}; find_hits(calls_root, tree, since, home, pattern
 "pattern", "text"}]. The same scan serves an agent run (calls_root = its records directory, tree = its
 agents' tree) and a judge (calls_root = its records under the pool, tree = its working directory).
 
-Sources: the shims' calls/<n>/stdout.txt and stderr.txt under calls_root, all but the Claude CLI's own
-`system/init` events (`cli_init`: its auto-memory path names .claude/projects on every run); the Claude CLI's session
+Sources: the shims' calls/<n>/stdout.txt and stderr.txt under calls_root, the Claude CLI's own `system/init`
+events without the paths the CLI fills in itself (`scanned`: its auto-memory path names .claude/projects on
+every run); the Claude CLI's session
 files (~/.claude/projects/<slug>, the slug being the path with every non-alphanumeric character as "-")
 for the tree and every directory under it, tool_use inputs only; codex rollouts
 (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl) modified since `since` whose session cwd lies in the
@@ -130,24 +131,28 @@ def sources(calls_root, tree, since, home):
     """(file, line number, text) for every recorded output and structured agent action."""
     for path in sorted(calls_root.glob("calls/*/std*.txt")):
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
-            if not cli_init(line):
-                yield path, number, line
+            yield path, number, scanned(line)
     for path in claude_sessions(tree, home):
         yield from json_actions(path, claude_actions)
     for path in codex_sessions(tree, since, home):
         yield from json_actions(path, codex_actions)
 
 
-def cli_init(line):
-    """Whether a stdout line is the Claude CLI's own `system/init` event: the session's settings (tools, cwd, its
-    auto-memory path under .claude/projects), printed before any request, never an agent's text or action."""
+CLI_PATHS = ("memory_paths", "messaging_socket_path")  # init event fields holding the CLI's own paths
+
+
+def scanned(line):
+    """A stdout line as the scan reads it: the Claude CLI's `system/init` event without `CLI_PATHS` (its
+    auto-memory directory under .claude/projects, its messaging socket), which no agent writes; else the line."""
     if '"init"' not in line:
-        return False
+        return line
     try:
         event = json.loads(line)
     except ValueError:
-        return False
-    return isinstance(event, dict) and event.get("type") == "system" and event.get("subtype") == "init"
+        return line
+    if not (isinstance(event, dict) and event.get("type") == "system" and event.get("subtype") == "init"):
+        return line
+    return json.dumps({key: value for key, value in event.items() if key not in CLI_PATHS}, ensure_ascii=False)
 
 
 def claude_sessions(tree, home):
