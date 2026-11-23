@@ -6,8 +6,9 @@ simple workflows that do at least as well as one direct call, as seeds for a lat
 set, the thresholds, the budget, the stop rules and the ledger. This page only routes. Its commands are for this
 machine and are not copyable examples.
 
-**Nothing is spent.** The smoke and the calibration tranches are the only authorized spend (`AGENTS.md`,
-"Experiment rules"); the seed evaluation needs a new owner approval. Every call uses the owner's subscription.
+**Spend so far: one `claude-haiku-5-5` call, priced USD 0.0323** (the first smoke, stopped on an isolation
+incident). The smoke and the calibration tranches, and one second smoke the owner approved on 2026-11-23, are the
+only authorized spend (`AGENTS.md`, "Experiment rules"); the seed evaluation needs a new owner approval. Every call uses the owner's subscription.
 
 ## Where to read
 
@@ -21,24 +22,23 @@ machine and are not copyable examples.
 | The task packages and the difficulty ladder | `build_tasks.py`, `tiers.py`, `tasks.jsonl`, `tasks/` |
 | The anchors' stability record | `anchors.py`, `anchor_stability.json`, and the section below |
 
-## Owed before the first paid call
+## Owed before the second smoke
 
-In the ledger's order (row of 2026-11-15, "The kit is on `main`"):
+The first freeze (on `592ed731`), the 20-task rehearsal (ruling R12), the allowance (ruling R13) and the first
+smoke's spend row are done; that smoke stopped after its first run (plan ledger, rows of 2026-11-17 and
+2026-11-18). In the ledger's order:
 
-1. **The allowance** (owner decision, still open): the hours and shares of the owner's usage the study may take,
-   and the meter-reading protocol. The first paid call waits for it; the freeze and the rehearsal do not. The
-   other three decisions were answered on 2026-11-17 (plan ledger, rulings R9 and R10): the credential route
-   stays as built (below); paid extra usage is off for the account; a slot cut by a usage limit runs again only
-   inside its cap.
-2. **The freeze on the merged commit** (recorded on `592ed731`, plan ledger row of 2026-11-17)**:** the runtime worktree, the anchors' stability run on that code,
-   `judge-calibration.json`, the price table read again, `criterion.json` with its `spend` and `sha256` blocks,
-   `study.py record-freeze`, and the hashes in the ledger. `judge-seeds.json` is not part of the freeze: it names
-   the judge the calibration selects (plan Step 1f), so it is written after the calibration. The freeze pins the
-   Claude CLI's path and version (`spend.cli` in `criterion.json`), so a CLI self-update before the first start
-   means recording the freeze again.
-3. **The 20-task rehearsal** on the frozen code (run on 2026-11-17, plan ledger ruling R12).
-4. **The tranche's spend row** in the ledger.
-5. **The smoke.**
+1. **The isolation fix merged:** every Claude session of a unit runs under the harness's managed settings
+   (`experiments/compare/sandbox.py`, `CLAUDE_SETTINGS` and `CLAUDE_ENV`), and an init event listing a tool,
+   server, skill or plugin outside a clean session's is an incident ([programs/README.md](programs/README.md)).
+2. **The freeze recorded again on the merged commit:** the runtime worktree, the anchors' stability run on that
+   code, `judge-calibration.json`, the price table read again, `criterion.json` with its `spend` and `sha256`
+   blocks and the CLI pin renewed (`spend.cli`), `study.py record-freeze`, and the hashes in the ledger. A
+   stop in the spend ledger is final, so the stopped smoke's ledger is kept as an archive copy and the new freeze
+   starts a fresh one (plan ledger). `judge-seeds.json` is not part of the freeze: it names the judge the
+   calibration selects (plan Step 1f). A CLI self-update before the first start means recording the freeze again.
+3. **The tranche's spend row** in the ledger, with the meter reading ruling R13 asks for.
+4. **The smoke.**
 
 ## The credential route
 

@@ -3,9 +3,11 @@
 **Status: Plan; third revision (2026-11-13), after owner decision 18 (subscription only) and the
 no-spend probes of Task 2; independently reviewed and accepted by the coordinator on 2026-11-13
 (`96adb33d`). In execution: Tasks 1 to 8 and the second oracle pass are done, and the ladder
-runs the 15 tasks that qualify unchanged (D1). Not yet run: the live probe, the freeze, the
-smoke, the pilot and the ladder. Nothing is spent and the subscription has not been used; the
-[ledger](#ledger) holds each step.** The kit's
+runs the 15 tasks that qualify unchanged (D1). The live probe (Task 4) ran on 2026-11-17: 3 requests,
+priced USD 0.0017, taken as passed (ruling LH-R2). Owed before the ladder's freeze: the round's
+whole-file-set read of D4 and the probe's setup-timeout multiplier (in review), and which meter
+governs the token (read again at the smoke slot's first request). Not yet run: the freeze, the
+smoke, the pilot and the ladder. The [ledger](#ledger) holds each step.** The kit's
 [README](../../experiments/long_horizon_tasks/README.md) says how it is operated. This
 page
 turns the staging of

@@ -1,9 +1,11 @@
 # Seed-Set Calibration Plan
 
 **Status: Plan; the kit is on `main` (`09068ec8`, 2026-11-15; entry point
-[`experiments/seed_set/README.md`](../../experiments/seed_set/README.md)) after five review rounds; nothing spent.** The freeze is
-recorded on `592ed731` and the 20-task rehearsal has run (ledger rows of 2026-11-17). Owed before the first paid
-call, in the [ledger](#ledger)'s order: the owner's allowance decision, the tranche's spend row, then the smoke. This page plans the scaled-down research step
+[`experiments/seed_set/README.md`](../../experiments/seed_set/README.md)) after five review rounds.** The first smoke stopped after one `claude-haiku-5-5` call (priced USD 0.0323) on an
+isolation incident: the session loaded the account's claude.ai connectors (ledger row of 2026-11-18). The owner
+approved a second smoke on 2026-11-23. Owed before it, in the [ledger](#ledger)'s order: the isolation fix
+reviewed and merged, the anchors re-run on the merged code, the freeze recorded again with the CLI pin renewed,
+the tranche's spend row with a fresh meter reading, then the smoke. This page plans the scaled-down research step
 the owner set on 2026-11-11: calibrate a small task set and a judge, then find
 two to four simple workflow programs that run reliably and do at least as well
 as one direct call at acceptable cost, and package them as seeds for a later
