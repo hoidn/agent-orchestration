@@ -37,7 +37,9 @@ a relaunch), and runs with `COMPARE_MAX_CALLS` at its reservation and `COMPARE_C
 the harness's resume scripts are disabled (the study never resumes). Candidate code runs on the host only behind
 `host.guarded`. A forbidden-model answer, three contaminated tasks or too many incidents record a stop. The spend
 ledger is `~/.local/state/seed-set/spend-ledger.jsonl` whatever the paths given. Scan hits are adjudicated by hand
-(`prepare.py scan --verdict`); a pool that cannot be summarized (a failed judge, a wrong rating count, a task
+(`prepare.py scan --verdict`); `pool` refuses before building anything, with no incident, while a run it would pool
+has hits and no verdict, naming each such run's command, so the operator adjudicates and runs `pool` again. A pool
+that cannot be summarized (a failed judge, a wrong rating count, a task
 without a usable run) is recorded as an incident and costs only its task.
 
 A usage limit (coordinator rulings R1 and R2, 2026-11-14) is neither an incident nor an observation. The unit it
@@ -473,19 +475,35 @@ def pool_to_build(study, task, kind):
     return out
 
 
+def runs_to_pool(study, task):
+    """The task's collected, scanned runs that are neither incidents nor cut by a usage limit."""
+    return [path.parent for path in study_runs(study) if (facts := load(path))["task"] == task
+            and "scan_hits" in facts and "incident" not in facts and "cut" not in facts]
+
+
+def require_verdicts(runs):
+    """Refuse before any pool is built (and with no incident) while a run has scan hits and no verdict, so the operator
+    adjudicates and runs `pool` again. Model-policy hits need no verdict: the pool excludes that run."""
+    pending = [run for run in runs if (found := load(run / "record.json").get("scan") or {}).get("hits")
+               and found.get("verdict") is None and not scan.model_policy(found["hits"])]
+    if pending:
+        raise SystemExit("scan hits and no verdict; adjudicate each run, then run pool again:\n" + "\n".join(
+            f"  prepare.py scan --run {run} --verdict contaminated|cleared --reason TEXT" for run in pending))
+
+
 @exclusive
 def build_pools(study, tranche, kind, tasks):
     """One pool per task from its collected, scanned runs that are not incidents; both anchors join the batch."""
     probe_only(tranche)
     require_tasks(study, tranche, tasks, kind)
     load_criterion(study)
-    for task in dict.fromkeys(tasks):
+    pooled = {task: runs_to_pool(study, task) for task in dict.fromkeys(tasks)}
+    require_verdicts([run for runs in pooled.values() for run in runs])
+    for task, runs in pooled.items():
         out = pool_to_build(study, task, kind)
         rules.require_free(study, study.pools)
         if len(live_pools(study)) >= MAX_POOLS:
             raise SystemExit(f"two pools still hold clones ({live_pools(study)}); summarize one first")
-        runs = [path.parent for path in study_runs(study) if (facts := load(path))["task"] == task
-                and "scan_hits" in facts and "incident" not in facts and "cut" not in facts]
         out.parent.mkdir(parents=True, exist_ok=True)
         try:  # each judge on the study's own metered providers file (the harness's binds the plain template)
             pooling.pool(task_dir(study, task), study.criterion, out,

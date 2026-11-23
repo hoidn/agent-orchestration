@@ -24,6 +24,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from experiments.compare import prepare
 from experiments.compare.repos import sha256_file
 from experiments.seed_set import forms, host, layout, probing, rules, spend, study, units
 from tests.experiments.compare_harness_support import (
@@ -452,6 +453,29 @@ def test_offline_judge_cut_by_a_usage_limit_rebuilds_the_pool_once_from_the_same
         7, True, [(H, "first"), (H, "first.2"), (S, "first.2")], False)
     with pytest.raises(SystemExit, match="built once"):
         study.build_pools(s, "calibration", "first", [task])
+
+
+def test_offline_pool_refuses_scan_hits_without_a_verdict_before_building_and_builds_after_adjudication(
+        world, monkeypatch):
+    """A forgotten adjudication stops `pool` with the command to run; it writes no incident, so the task's pool is
+    built once the operator has adjudicated."""
+    s, task = world.study, "a0a0a0a0a0"
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    study.candidates(s, "calibration", "direct", [task])
+    study.candidates(s, "calibration", "direct_sonnet", [task])
+    run = study.study_runs(s)[0].parent
+    record = json.loads((run / "record.json").read_text())
+    hit = {"file": "calls/1/stdout.txt", "line": 1, "pattern": "github.com", "text": "see github.com/x"}
+    (run / "record.json").write_text(json.dumps(record | {"scan": record["scan"] | {"hits": [hit]}}))
+    with pytest.raises(SystemExit, match=re.escape(f"prepare.py scan --run {run} --verdict")):
+        study.build_pools(s, "calibration", "first", [task])
+    assert (layout.current_pool(s, task, "first").exists(), (s.results / "pools" / f"{task}-first").exists()) == (
+        False, False)
+    prepare.adjudicate(run, "cleared", "a benign mention")
+    study.build_pools(s, "calibration", "first", [task])
+    assert (layout.current_pool(s, task, "first") / "records" / "mapping.json").exists()
 
 
 def test_offline_a_judge_call_with_paid_extra_usage_that_ended_normally_keeps_its_judgment(world, monkeypatch):
