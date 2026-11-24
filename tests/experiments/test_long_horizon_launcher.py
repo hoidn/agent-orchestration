@@ -2142,8 +2142,12 @@ class Rig:
     """A kit copy in rehearsal mode with its passthrough (rehearsal switch, in front of stub_api.py), the stand-in
     harness and podman, allowance inputs, a reading and the pilot's figures; `launch()` runs `ladder.py launch`."""
 
-    def __init__(self, short, plan=(), edit=_fast, stand_ins=None, figures=True, scenario="normal", stub_args=()):
+    def __init__(self, short, plan=(), edit=_fast, stand_ins=None, figures=True, scenario="normal", stub_args=(),
+                 linked=True):
         self.kit = kit = Kit(short, edit=edit)
+        if linked:  # D4: the checkout the launcher runs from is a git worktree of the main repository (short/main)
+            shutil.move(kit.repo, short / "main")
+            _git(short / "main", "worktree", "add", "-q", "--detach", str(kit.repo))
         values = {**STAND_INS, "tasks.overlay_digests": {t: kit.ladder.overlay_digest(HOSTS) for t in TASKS},
                   "schedule.order.hash": kit.ladder.ORDER_HASH, **(stand_ins or {})}
         (kit.reh / "stand_ins.json").write_text(json.dumps(values))
@@ -2152,6 +2156,8 @@ class Rig:
         (kit.reh / "host").mkdir()
         (kit.reh / "host" / "loadavg").write_text("1.0 1.0 1.0 1/1 1\n")  # a quiet host, by stand-in
         (kit.reh / "host" / "free_gb").write_text("100")  # and room on its disk
+        (short / "home" / ".claude" / "projects").mkdir(parents=True)  # D4's file set: the agents' transcripts
+        (self.lh / "recordings").mkdir()  # and the recordings directory
         (self.lh / "standin" / "plan.json").write_text(json.dumps(list(plan)))
         now = time.time()
         rows = [{"kind": "inputs", "at": now - 120, "f_week": 10, "f_five": 10, "hours": ["daily 00:00-24:00"],
@@ -2792,6 +2798,150 @@ def test_the_whole_schedule_ends_inside_both_caps_and_a_usage_limit_in_its_middl
         [(0, "waiting for the smoke read"), (0, "waiting for the pilot's ledger row"),
          (0, "waiting for the round-one read"), (0, "the schedule is done")], [], cut["id"], True, None, 46, 46, [],
         True, True, True, True, "schedule", 46)
+
+
+def _through_round_one(r):
+    """The smoke, the pilot and round 1 with their reads written; the last launch's (exit, last line of stdout)."""
+    for what, cell in (("Smoke read", f"{r.label} pass"), ("Pilot read", f"{r.label} read"), (None, None)):
+        code, out, err = r.launch(timeout=WAIT * 5)
+        if what:
+            r.ledger(what, cell)
+    return code, out.strip().splitlines()[-1]
+
+
+@pytest.mark.parametrize("change, cause", [
+    (None, None),
+    (lambda r: r.short / "home" / ".claude" / "projects" / "-a-project" / "s.jsonl", "a match of token_scan.py"),
+    (lambda r: r.lh / "recordings" / "live-probe" / "x.log", "a match of token_scan.py"),
+    (lambda r: r.kit.repo / "notes" / "x.txt", "a match of token_scan.py"),
+    (lambda r: r.root / "kept.txt", "a match of token_scan.py"),
+    ("no recordings", "an incomplete scan of token_scan.py"),
+    ("not a worktree", "an incomplete scan of token_scan.py")],
+    ids=["clean", "transcripts", "recordings", "checkout", "state", "missing-recordings", "checkout-not-a-worktree"])
+def test_a_round_s_end_reads_the_whole_file_set_before_the_next_round_and_a_match_or_an_incomplete_read_stops(
+        rig, change, cause):
+    """D4, every round's read: after round 1's last attempt, before round 2 or the round-one read, token_scan.py
+    reads the launcher's state, the recordings, the checkout and the agents' transcripts; a canary planted in any of
+    them, or a named path that is missing, stops the tranche, as at teardown. A checkout that is not a git worktree
+    of the main repository hides the main worktree: the read is incomplete."""
+    r = rig(linked=change != "not a worktree")
+    if change == "no recordings":
+        (r.lh / "recordings").rmdir()
+    elif callable(change):
+        planted = change(r)
+        planted.parent.mkdir(parents=True, exist_ok=True)
+        planted.write_text(f"x {r.canary} y\n")
+    code, last = _through_round_one(r)
+    rounds = [(e["round"], e["exit"]) for e in r.events() if e["event"] == "round_scan"]
+    stops = [e["reason"] for e in r.events() if e["event"] == "stop"]
+    assert (code, rounds, stops, last, {a["round"] for a in r.attempts()}) == (
+        0, [(1, {None: 0, "a match of token_scan.py": 1}.get(cause, 2))], [cause] if cause else [],
+        "waiting for the round-one read" if cause is None else f"stop: {cause}", {1})
+
+
+@pytest.mark.parametrize("planted, cause", [(False, None), (True, "a match of token_scan.py")], ids=["clean", "match"])
+def test_an_end_by_the_ceiling_in_the_middle_of_a_round_reads_the_whole_file_set_before_end_json(rig, planted, cause):
+    """D4: every tranche end reads the whole file set first. The live probe's stand-in usage leaves room for the
+    smoke's reservation only, so the pilot's does not fit: the tranche ends by the ceiling inside round 1."""
+    r = rig()
+    criterion = r.kit.ladder.criterion(r.kit.ladder.Ctx(r.kit.env()))
+    smoke = r.kit.ladder.cap(criterion, "gsea-proteomics") + criterion["ceiling"]["reservation"]["margin_usd"]
+    (r.kit.reh / "probe").mkdir()
+    (r.kit.reh / "probe" / "requests.jsonl").write_text(
+        json.dumps({"usd": criterion["ceiling"]["total_usd"] - smoke}) + "\n")
+    if planted:
+        (r.short / "home" / ".claude" / "projects" / "s.jsonl").write_text(f"x {r.canary} y\n")
+    r.launch()
+    r.ledger("Smoke read", f"{r.label} pass")
+    code, out, err = r.launch()
+    end = r.root / "end.json"
+    assert (code, [(e["round"], e["exit"]) for e in r.events() if e["event"] == "round_scan"],
+            [e["reason"] for e in r.events() if e["event"] == "stop"], len(r.attempts()),
+            json.loads(end.read_text())["by"] if end.exists() else None) == (
+        0, [(1, 1 if planted else 0)], [cause] if cause else [], 1, None if planted else "ceiling")
+
+
+def _round_scans(r):
+    return [(e["round"], e["exit"]) for e in r.events() if e["event"] == "round_scan"]
+
+
+def _no_room(r):
+    """The live probe's stand-in usage takes the whole ceiling: no reservation fits, the tranche ends at once."""
+    criterion = r.kit.ladder.criterion(r.kit.ladder.Ctx(r.kit.env()))
+    (r.kit.reh / "probe").mkdir()
+    (r.kit.reh / "probe" / "requests.jsonl").write_text(json.dumps({"usd": criterion["ceiling"]["total_usd"]}) + "\n")
+
+
+def _end_by(r):
+    end = r.root / "end.json"
+    return json.loads(end.read_text())["by"] if end.exists() else None
+
+
+KILLED_SCANNER = """import os, runpy, signal, sys
+from pathlib import Path
+paths = sys.argv[4:]  # scan --fingerprint FILE PATH...
+attempt_dir = len(paths) == 1 and Path(paths[0]).parent.name == "slots"  # the teardown's scan of its attempt
+if (len(paths) > 1) if {whole!r} else attempt_dir:
+    os.kill(os.getpid(), signal.SIGKILL)  # exit -9
+runpy.run_path({real!r}, run_name="__main__")
+"""
+
+
+@pytest.mark.parametrize("whole", [True, False], ids=["file-set-read", "teardown-scan"])
+def test_a_scanner_killed_by_a_signal_is_an_incomplete_scan_and_a_stop_never_clean(rig, whole):
+    """The kit copy's token_scan.py is a stand-in that SIGKILLs itself (exit -9) on the whole file set's read (here
+    at an end before any attempt) or on the teardown's scan of the attempt's directory, else runs the real one."""
+    r = rig()
+    (r.kit.kit / "token_scan.py").write_text(KILLED_SCANNER.format(whole=whole, real=str(KIT / "token_scan.py")))
+    _manifest(r.kit.repo, "write")
+    r.label = hashlib.sha256((r.kit.kit / "manifest.json").read_bytes()).hexdigest()
+    if whole:
+        _no_room(r)
+    r.launch()
+    assert ([e["reason"] for e in r.events() if e["event"] == "stop"], _round_scans(r)[:1] if whole else None,
+            _end_by(r)) == (["an incomplete scan of token_scan.py"], [(0, -9)] if whole else None, None)
+
+
+def test_an_end_before_any_attempt_reads_the_whole_file_set_before_end_json(rig):
+    r = rig()
+    _no_room(r)
+    r.launch()
+    assert (_round_scans(r), _end_by(r), r.attempts()) == ([(0, 0)], "ceiling", [])
+
+
+@pytest.mark.parametrize("planted", [False, True], ids=["clean", "match"])
+def test_an_end_by_the_schedule_done_reads_the_whole_file_set_before_end_json(rig, planted):
+    """A schedule of one round: its end is the schedule's, and the read gates end.json."""
+    r = rig(edit=lambda doc: (_fast(doc), doc["schedule"].update(rounds=1)))
+    if planted:
+        (r.short / "home" / ".claude" / "projects" / "s.jsonl").write_text(f"x {r.canary} y\n")
+    code, last = _through_round_one(r)
+    assert (code, last, _round_scans(r), _end_by(r)) == (
+        (0, "stop: a match of token_scan.py", [(1, 1)], None) if planted
+        else (0, "the schedule is done", [(1, 0)], "schedule"))
+
+
+def test_a_resume_after_a_file_set_read_s_stop_reads_the_file_set_again(rig):
+    r = rig()
+    planted = r.short / "home" / ".claude" / "projects" / "s.jsonl"
+    planted.write_text(f"x {r.canary} y\n")
+    _through_round_one(r)
+    planted.unlink()
+    r.ledger("Ruling", "resume: a match of token_scan.py: the stand-in copy was removed")
+    subprocess.run([sys.executable, "-I", str(r.kit.kit / "ladder.py"), "resume", "--date", "2026-11-20"],
+                   cwd=r.kit.repo, env=r.kit.env(), check=True, capture_output=True, timeout=WAIT)
+    code, out, err = r.launch()
+    assert (code, out.strip().splitlines()[-1], _round_scans(r)) == (
+        0, "waiting for the round-one read", [(1, 1), (1, 0)])
+
+
+def test_a_round_scan_row_that_is_not_clean_never_counts_as_read_after_a_crash_before_its_stop(rig):
+    """A launcher that died after writing the read's row (exit 1) and before its stop row: the next launch reads
+    the file set again at the round's end, and the earlier row stands for nothing."""
+    r = rig()
+    ladder.tranche_event(r.root, "round_scan", round=1, exit=1)
+    code, last = _through_round_one(r)
+    assert (code, last, _round_scans(r)) == (0, "waiting for the round-one read", [(1, 1), (1, 0)])
 
 
 def test_a_failed_smoke_stops_the_tranche_and_its_start_is_a_stop_never_scored(rig):

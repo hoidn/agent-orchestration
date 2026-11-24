@@ -1867,15 +1867,30 @@ def token_scan(ctx, *paths, stdin=None):
     return subprocess.run(command, stdin=stdin, capture_output=True, timeout=3 * 3600, check=False).returncode
 
 
+def file_set(ctx):
+    """D4's file set, which every round's read scans whole: the launcher's state (the attempts' harness job
+    directories and egress logs, the passthrough's log and output file), the recordings directory, the repository's
+    main worktree and this checkout (the detached checkout of a live launch; one path when they are the same), and
+    the agents' transcript directory of this user. The checkout must be a git worktree of the main repository (D4
+    names both); when git names no main worktree apart from it (a clone, or no git), the main worktree's place is a
+    path that does not exist, so the read is incomplete, a stop (coordinator ruling), never silently narrower."""
+    common = _git("rev-parse", "--path-format=absolute", "--git-common-dir")
+    worktree = Path(common).parent if common else None
+    if worktree is None or worktree.resolve() == ROOT.resolve():
+        worktree = ROOT / "<the main worktree: git names none apart from this checkout>"
+    return [ctx.root, ctx.lh / "recordings", worktree, ROOT, ctx.home / ".claude" / "projects"]
+
+
 def _scan_verdict(code, match, incomplete):
-    """A scan's stop: a match, or a scan that could not finish (open ruling: read as a stop, since it cannot show
-    that nothing leaked)."""
-    return {1: match, 2: incomplete}.get(code)
+    """A scan's stop: a match (1), or a scan that could not finish (open ruling: read as a stop, since it cannot
+    show that nothing leaked): 2, and any other exit but 0, such as a scanner killed by a signal (negative)."""
+    return None if code == 0 else match if code == 1 else incomplete
 
 
 def _worst(codes):
-    """The scans' joint exit: a match anywhere (1) before an incomplete scan anywhere (2), else 0 (Task 8 B1)."""
-    return 1 if 1 in codes else max(codes, default=0)
+    """The scans' joint exit: a match anywhere (1) before an incomplete scan anywhere (2: any other exit but 0,
+    a signal's included), else 0 (Task 8 B1)."""
+    return 1 if 1 in codes else 2 if any(codes) else 0
 
 
 def _read_logged(attempt_dir, name, verb, code):
@@ -2352,6 +2367,10 @@ class Tranche:
         """(the head of the queue, None), or (None, why nothing starts: the schedule is done, or a person's row is
         awaited). A failed smoke is written as a stop, which the gate then reads."""
         left = queue(self.root, self.plan)
+        if left and left[0]["round"] > 1 and not self.round_read(left[0]["round"] - 1):
+            return None, None
+        if not starts_gate(self.root, time.time())["open"]:  # closed during a read (a signal, a stop): no start
+            return None, None
         if not left:
             return None, self.end("schedule", "the schedule is done")
         why = hold(left[0], *ledger_labels(self.ctx))
@@ -2360,6 +2379,26 @@ class Tranche:
             self.stop(why)
             return None, None
         return (left[0], None) if why is None else (None, why)
+
+    def round_read(self, rnd):
+        """D4, every round's read: token_scan.py over the whole file set once round `rnd` has ended (or the tranche
+        ends inside it), before the next round starts or end.json is written. True when it was read clean (now or before; a resume after a stop reads it
+        again); False while the round's last attempts run, or when the read matched or could not finish (its
+        time limit included): a stop, written as the teardown's scan writes it. Round 0: an end before any attempt."""
+        events = _jsonl(self.root / "passthrough" / "tranche.jsonl")
+        if any(e.get("event") == "round_scan" and e["round"] >= rnd and e["exit"] == 0 for e in events):
+            return True
+        if self.workers:
+            return False
+        try:
+            code = token_scan(self.ctx, *file_set(self.ctx))
+        except subprocess.TimeoutExpired:
+            code = 2
+        tranche_event(self.root, "round_scan", round=rnd, exit=code)
+        found = _scan_verdict(code, TOKEN_MATCH, TOKEN_INCOMPLETE)
+        if found:
+            tranche_event(self.root, "stop", reason=found, round=rnd)
+        return found is None
 
     def passthrough_ok(self):
         """The passthrough answers (else a pause) in this launch's mode (else a stop; Task 8 M3)."""
@@ -2426,9 +2465,14 @@ class Tranche:
         return True
 
     def end(self, by, cause):
-        """The tranche's end, recorded once nothing is in flight: the schedule done, the ceiling, the 240."""
-        if not self.workers:
-            _write_json(self.root / "end.json", {"by": by, "cause": None, "why": cause})
+        """The tranche's end, recorded once nothing is in flight and the whole file set of the last round reached
+        is read clean (D4; coordinator ruling: whatever ended it): the schedule done, the ceiling, the 240. None
+        while that read is not clean: its stop is then the loop's next answer."""
+        if self.workers:
+            return cause
+        if not self.round_read(max((a["round"] for a in attempts(self.root)), default=0)):
+            return None
+        _write_json(self.root / "end.json", {"by": by, "cause": None, "why": cause})
         return cause
 
     def on_signal(self, *_):

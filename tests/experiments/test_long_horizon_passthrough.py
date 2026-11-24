@@ -1232,6 +1232,7 @@ FAKE_HARNESS = r'''#!{python}
 import http.client, json, os, pathlib, socket, sys, time
 args = sys.argv[1:]
 effort, jobs = args[args.index("--effort") + 1], pathlib.Path(args[args.index("-o") + 1])
+(jobs.parent / "harness-args.json").write_text(json.dumps(args))  # the harness command, for the tests to read
 agent = jobs / "2026-11-14__00-00-00" / "recording-task__AbCdEf1" / "agent"
 (agent / "sessions" / "projects" / "-app").mkdir(parents=True)
 podman = pathlib.Path(sys.argv[0]).parents[2] / "podman"  # $LH/podman: the stand-in podman's containers, networks
@@ -1365,6 +1366,18 @@ def test_the_live_probe_against_the_stub_passes_and_records_each_session_and_run
         0, True, [], ["low", "medium", "high"], [2, 2, 2], [1000, 1000, 1000], ["canary: pass", "exit 0"],
         ["recording-task__abcdef1__env_harbor-docker-egress-control-sidecar_1"] * 2
         + ["recording-task__abcdef1__env_main_1"] * 2, (3, True))
+
+
+def test_the_live_probe_gives_the_harness_the_ladder_s_agent_setup_timeout_multiplier(probe):
+    """The ladder passes harness.agent_setup_timeout_multiplier to harbor; the probe's sessions use the same."""
+    probe(LH_PROBE_SPEND_AUTHORIZED="yes")
+    want = str(json.loads((KIT / "ladder.json").read_text())["harness"]["agent_setup_timeout_multiplier"])
+    given = []
+    for effort in ("low", "medium", "high"):
+        args = json.loads((probe.lh / "recordings" / "live-probe" / effort / "harness-args.json").read_text())
+        given.append(args[args.index("--agent-setup-timeout-multiplier") + 1]
+                     if "--agent-setup-timeout-multiplier" in args else None)
+    assert given == [want] * 3
 
 
 def test_the_live_probe_removes_every_container_and_network_of_each_session(probe):

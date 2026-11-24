@@ -198,7 +198,8 @@ session() {  # session EFFORT: one harness trial with its own slot and fake toke
     "$LH/hvenv/bin/python" -I "$HERE/harbor_patient.py" run --path "$TASK" --agent claude-code -m "anthropic/$MODEL" \
     --base-url "http://$RELAY" --skip-credential-checks --ak version=$CLI_VERSION --ak disallowed_tools=$DENY \
     --ak max_budget_usd=$CLI_BUDGET --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --effort "$effort" \
-    --disable-verification --agent-timeout-multiplier 0.05 --max-retries 0 --ek keep_containers=true --env podman \
+    --disable-verification --agent-setup-timeout-multiplier 3 --agent-timeout-multiplier 0.05 --max-retries 0 \
+    --ek keep_containers=true --env podman \
     -n 1 -o "$dir/jobs" -q -y --extra-docker-compose "$LH/logs/limits-compose.yaml" \
     --extra-docker-compose "$HERE/relay-compose.yaml" > "$dir/harbor.out" 2>&1 &
   HARBOR=$!
