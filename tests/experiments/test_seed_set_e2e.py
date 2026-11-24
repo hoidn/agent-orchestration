@@ -24,7 +24,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from experiments.compare import prepare
+from experiments.compare import pool as pooling, prepare
 from experiments.compare.repos import sha256_file
 from experiments.seed_set import forms, host, layout, probing, rules, spend, study, units
 from tests.experiments.compare_harness_support import (
@@ -476,6 +476,44 @@ def test_offline_pool_refuses_scan_hits_without_a_verdict_before_building_and_bu
     prepare.adjudicate(run, "cleared", "a benign mention")
     study.build_pools(s, "calibration", "first", [task])
     assert (layout.current_pool(s, task, "first") / "records" / "mapping.json").exists()
+
+
+def test_offline_summarize_refuses_judge_hits_without_a_verdict_and_summarizes_after_adjudication(world, monkeypatch):
+    """A judge's forgotten adjudication stops `summarize` with the command to run, before any incident or result."""
+    s, task = world.study, "a0a0a0a0a0"
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    study.candidates(s, "calibration", "direct", [task])
+    study.candidates(s, "calibration", "direct_sonnet", [task])
+    study.build_pools(s, "calibration", "first", [task])
+    study.judge(s, "calibration", "first", [task])
+    out = layout.current_pool(s, task, "first")
+    path = out / "records" / "judges" / H / "scan.json"
+    found = json.loads(path.read_text())
+    hit = {"file": "calls/1/stdout.txt", "line": 1, "pattern": "github.com", "text": "see github.com/x"}
+    path.write_text(json.dumps(found | {"hits": [hit]}))
+    with pytest.raises(SystemExit, match=re.escape(f"prepare.py scan --pool {out} --judge {H} --verdict")):
+        study.summarize_pools(s, "first", [task])
+    assert ((s.results / "pools" / f"{task}-first").exists(), (out / "clones").exists()) == (False, True)
+    pooling.adjudicate_judge(out, H, "cleared", "a benign mention")
+    study.summarize_pools(s, "first", [task])
+    assert (s.results / "pools" / f"{task}-first" / "results.json").exists()
+
+
+def test_offline_smoke_check_refuses_scan_hits_without_a_verdict_and_records_nothing(world, monkeypatch):
+    """A forgotten adjudication stops `smoke-check` before it records a pass or a fail in the ledger."""
+    s = world.study
+    monkeypatch.setenv(spend.AUTHORIZATION, "smoke")
+    study.candidates(s, "smoke", "direct", [SMOKE])
+    run = study.study_runs(s)[0].parent
+    record = json.loads((run / "record.json").read_text())
+    hit = {"file": "calls/1/stdout.txt", "line": 1, "pattern": "github.com", "text": "see github.com/x"}
+    (run / "record.json").write_text(json.dumps(record | {"scan": record["scan"] | {"hits": [hit]}}))
+    ledger = s.ledger.read_bytes()
+    with pytest.raises(SystemExit, match=re.escape(f"prepare.py scan --run {run} --verdict")):
+        rules.smoke_check(s)
+    assert s.ledger.read_bytes() == ledger
 
 
 def test_offline_a_judge_call_with_paid_extra_usage_that_ended_normally_keeps_its_judgment(world, monkeypatch):

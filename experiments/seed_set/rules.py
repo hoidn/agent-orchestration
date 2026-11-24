@@ -33,6 +33,7 @@ import tempfile
 from pathlib import Path
 
 from experiments.compare.repos import git, load, runtime_commit, sha256_file
+from experiments.compare.scan import model_policy
 from experiments.seed_set import anchors, gates, layout, ladder, spend, units
 from experiments.seed_set.layout import CHOSEN, PLANNED, WIDTH, study_runs, tranche_tasks
 from orchestrator.providers.pricing import FIELDS, load_price_table
@@ -339,6 +340,32 @@ def tokens(records):
     return (consumption.get("claude") or {}).get("tokens") if isinstance(consumption, dict) else "unavailable"
 
 
+def unadjudicated(found):
+    """Whether a scan record (a run's `scan`, a judge's scan.json) holds hits and no verdict. Model-policy hits need
+    none: that run or judge is excluded anyway."""
+    return bool(found and found.get("hits") and found.get("verdict") is None and not model_policy(found["hits"]))
+
+
+def run_scan_command(run):
+    """The adjudication command of a run whose scan awaits a verdict, or None."""
+    record = Path(run) / "record.json"
+    return f"prepare.py scan --run {run}" if record.is_file() and unadjudicated(load(record).get("scan")) else None
+
+
+def judge_scan_command(pool, judge):
+    """The adjudication command of a judge whose scan awaits a verdict, or None."""
+    path = Path(pool) / "records" / "judges" / judge / "scan.json"
+    return f"prepare.py scan --pool {pool} --judge {judge}" if path.is_file() and unadjudicated(load(path)) else None
+
+
+def refuse_unadjudicated(commands, step):
+    """Stop `step` before it writes anything while a scan awaits its verdict, so a forgotten adjudication leaves no
+    permanent record (an incident, a smoke result): the operator adjudicates and runs `step` again."""
+    if commands := [command for command in commands if command]:
+        raise SystemExit(f"scan hits and no verdict; adjudicate each, then run {step} again:\n" + "\n".join(
+            f"  {command} --verdict contaminated|cleared --reason TEXT" for command in commands))
+
+
 def smoke_units(study, task):
     """(name, records, model, effort, facts) of every smoke unit: the runs and the pool's judges."""
     found = [(f"{facts['arm']}", path.parent, facts["model"], facts["effort"], facts)
@@ -356,6 +383,8 @@ def smoke_check(study):
     hold no second smoke: a stop for the owner)."""
     (task,) = tranche_tasks(study, "smoke")
     found = smoke_units(study, task)
+    refuse_unadjudicated([judge_scan_command(r.parents[2], r.name) if name.startswith("judge") else run_scan_command(r)
+                          for name, r, _, _, _ in found], "smoke-check")
     runs = [f for name, _, _, _, f in found if not name.startswith("judge")]
     results_path = study.results / "pools" / f"{task}-first" / "results.json"
     results = load(results_path) if results_path.is_file() else {"clones": {}, "excluded_judges": {"pool": "missing"}}
