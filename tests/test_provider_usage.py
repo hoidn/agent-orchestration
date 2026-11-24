@@ -137,7 +137,7 @@ def test_price_table_long_context_tiers_name_four_rates_above_a_threshold():
     assert {model: (set(tier) - {"above_input_tokens"}, tier["above_input_tokens"]) for model, tier in tiers.items()} == {
         "claude-haiku-5-5": ({"input", "output", "cache_read", "cache_write"}, 100_000),
         **{model: ({"input", "output", "cache_read", "cache_write"}, 272_000)
-           for model in ("gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")}}
+           for model in ("gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-luna")}}
 
 
 def test_price_table_rejects_a_malformed_long_context_tier():

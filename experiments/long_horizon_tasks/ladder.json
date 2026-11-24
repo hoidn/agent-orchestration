@@ -131,7 +131,7 @@
   "rule_file": "price_rule.json",
   "check": "price_check.py",
   "table": {"path": "orchestrator/providers/price_table.json",
-            "sha256": "77a237c6934a5ff1663a347c2d3757e52f576ac4752d8456facfd227cf52452b"},
+            "sha256": "41f32e59ee88828b03a8f2e80907f04dc59ff2cb8431eedc268e2aa943182230"},
   "cache_write_5m_per_million_usd": 0.125,
   "rule": "orchestrator/providers/price_table.json at the frozen commit, by SHA-256, gives every rate but the five-minute write, which the criterion adds (D4).",
   "per_request": "one row per message id; every rate times the multiplier above the threshold of prompt tokens (input + cache read + cache write) of that request; each cache write at its own lifetime's rate",
