@@ -6,10 +6,9 @@ simple workflows that do at least as well as one direct call, as seeds for a lat
 set, the thresholds, the budget, the stop rules and the ledger. This page only routes. Its commands are for this
 machine and are not copyable examples.
 
-**Spend so far: 9 calls, priced USD 1.0225** (7 `claude-haiku-5-5`, 2 `claude-sonnet-5-5`): the first smoke
-stopped after one call on an isolation incident, and the second ran its 8 calls and failed its check on scanner
-false positives (plan ledger, rows of 2026-11-18 and 2026-11-23). No smoke has passed and no calibration call is
-made. The smoke and the calibration tranches, and a smoke repeated on the owner's word after an apparatus failure,
+**Spend so far: 20 calls, priced USD 2.54 settled** (three smokes and the first step of the ladder probe; plan
+ledger, rows of 2026-11-18 and 2026-11-23). The third smoke passed its check on 2026-11-23; the ladder probe is
+under way and no calibration call is made. The smoke and the calibration tranches, and a smoke repeated on the owner's word after an apparatus failure,
 are the only authorized spend (`AGENTS.md`, "Experiment rules"); the seed evaluation needs a new owner approval. Every call uses the owner's subscription.
 
 ## Where to read
