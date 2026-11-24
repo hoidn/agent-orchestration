@@ -465,7 +465,7 @@ def scan_judge(out, judge, solution, home=None):
     expected = judge if judge in contamination.CODEX_MODELS else "gpt-5.6-terra"
     claude = judge if judge in sandbox.CLAUDE_MODELS else sandbox.SONNET
     hits = contamination.find_hits(calls_root, workdir, mapping["created_at"], home, compiled,
-                                   expected_codex_model=expected, expected_claude_model=claude)
+                                   expected_codex_model=expected, expected_claude_model=claude, own_roots=[out])
     dump(calls_root / "scan.json", {"solution": solution, "hits": hits, "verdict": None,
                                     "calls": len(list((calls_root / "calls").glob("*")))})
     for hit in hits:

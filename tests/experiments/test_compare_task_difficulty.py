@@ -212,7 +212,7 @@ def test_judge_command_and_scan_bind_the_exact_judge_model(world, monkeypatch, j
     observed = []
     monkeypatch.setattr(scan, 'find_hits', lambda *args, **kwargs: observed.append(kwargs) or [])
     pool.scan_judge(out, judge, 'f' * 40)
-    assert observed == [{'expected_codex_model': judge, 'expected_claude_model': 'claude-sonnet-5-5'}]
+    assert observed == [{'expected_codex_model': judge, 'expected_claude_model': 'claude-sonnet-5-5', 'own_roots': [out]}]
 
 
 def test_shim_hands_off_codex_opt_in_and_nested_calls_keep_exact_policy(world, monkeypatch):

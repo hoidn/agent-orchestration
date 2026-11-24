@@ -172,14 +172,22 @@ def test_judges_run_behind_the_shims_from_their_own_directory_and_state(pooled, 
         home, ["--state-dir", home + "/state"], ["resume", "R1", "--state-dir", home + "/state"])
 
 
-def judge_session(pooled, world, judge, command):
-    """A Claude CLI session file of the judge's working directory holding one shell action."""
+def judge_session(pooled, world, judge, *commands):
+    """A Claude CLI session file of the judge's working directory holding one shell action per command."""
     home = str(pooled.out / "judges" / pooled.mapping["judges"][judge]["dir"])
     session_home = Path(pooled.mapping["judges"][judge]["sandbox"]["home"])
     project = session_home / ".claude" / "projects" / "".join(c if c.isalnum() else "-" for c in home)
     project.mkdir(parents=True)
-    (project / "s.jsonl").write_text(json.dumps({"type": "assistant", "message": {"content": [
-        {"type": "tool_use", "input": {"command": command}}]}}) + "\n")
+    (project / "s.jsonl").write_text("".join(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "input": {"command": command}}]}}) + "\n" for command in commands))
+
+
+def test_judge_scan_counts_the_solution_prefix_but_not_inside_its_own_pool_path(pooled, world):
+    """The real case: a seed-set pool lives at <pools>/<task id>/<kind>, and the task id is the solution's prefix."""
+    solution = str(pooled.out)[-7:] + "0" * 33
+    judge_session(pooled, world, "judge-a", f"cd {pooled.out}/clones && ls", f"git show {solution[:7]}")
+    hits = pooling.scan_judge(pooled.out, "judge-a", solution)
+    assert [(h["line"], h["pattern"]) for h in hits] == [(2, "solution hash")]
 
 
 def test_judge_scan_finds_the_pool_records_and_other_judges(pooled, world):

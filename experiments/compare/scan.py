@@ -20,7 +20,7 @@ seven characters; any mention of other sessions' transcripts or tmux sockets (.c
 their recorded private-home backing; historical callers retain their original home. Paths
 match as typed: absolute, or under ~, $HOME or ${HOME} (R23).
 
-Two exemptions keep the repository's own text and the CLI's own files from reading as reach:
+Three exemptions keep the repository's own text and the unit's own paths from reading as reach:
 - The main checkout prefix is not matched in what the agent's tools printed: the tool results of a Claude
   stream-json `user` row in the shims' stdout (its tool_result blocks and its `tool_use_result`), as session
   files already contribute tool_use inputs only. The sandbox mounts no main checkout, so a tool result names it
@@ -30,6 +30,10 @@ Two exemptions keep the repository's own text and the CLI's own files from readi
 - "other sessions' files" does not count the unit's own Claude project folders (where the CLI persists large tool
   output): `.claude/projects/<the tree's slug>[-...]` under its own home, written as the guest home, the backing
   home, ~, $HOME or ${HOME}. Another slug, another home and a bare `.claude/projects` remain hits.
+- The solution hash is not matched inside the unit's own roots passed as `own_roots` (a judge's pool root): a
+  seed-set pool lives at <pools>/<task id>/<kind> and the task id is the solution's first ten characters. Limit:
+  the prefix inside such a path is never counted, and a judge naming a path above the root (<pools>/<task id>)
+  still is. A candidate's paths (agents/<random>, records/<arm>/run-<k>) carry no task id, so it passes none.
 
 Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1 and an
 explicitly bound Claude run or judge Haiku (expected_claude_model). Any other answering model is a hit. Read actual
@@ -50,6 +54,7 @@ except ImportError:  # run as a script
 
 MAIN = "main checkout prefix"
 OTHER_SESSIONS = "other sessions' files"
+SOLUTION = "solution hash"
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
 FORBIDDEN_MODEL = "Forbidden model"
@@ -75,7 +80,7 @@ def patterns(*, main, runtime, solution, home, others=(), roots=()):
              "frozen checkout": spelled(runtime, home) + BOUNDARY,
              "records layout": rf"records/(?:{ARMS})/run-\d+\b", "pool record files": POOL_FILES,
              "github.com": r"github\.com", "gh": r"(?<![\w./-])gh\s", "git fetch": r"git\s+fetch",
-             "solution hash": re.escape(solution[:7]),
+             SOLUTION: re.escape(solution[:7]),
              OTHER_SESSIONS: r"\.claude/projects|\.codex/(?:sessions|history)|claude-tmux-sockets"}
     for name, path in roots:
         bounded = spelled(path, home) + BOUNDARY
@@ -221,15 +226,17 @@ def refuse_publication_errors(calls_root):
 
 
 def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="gpt-5.6-terra",
-              expected_claude_model=sandbox.SONNET):
+              expected_claude_model=sandbox.SONNET, own_roots=()):
     refuse_publication_errors(calls_root)
     if expected_codex_model not in CODEX_MODELS:
         raise SystemExit("expected Codex model must be an exact known Codex ID")
     if expected_claude_model not in sandbox.CLAUDE_MODELS:
         raise SystemExit("expected Claude model must be the exact Sonnet or Haiku ID")
     hits, own = [], own_projects(tree, home)
+    roots = re.compile("|".join(spelled(root, home) + BOUNDARY for root in own_roots) or r"(?!)")
     for path, number, text in sources(Path(calls_root), Path(tree), since, Path(home)):
-        subjects = {MAIN: without_tool_output(text), OTHER_SESSIONS: own.sub(" ", text)}
+        subjects = {MAIN: without_tool_output(text), OTHER_SESSIONS: own.sub(" ", text),
+                    SOLUTION: roots.sub(" ", text)}
         for name, pattern in compiled.items():
             subject = subjects.get(name, text)
             found = re.search(pattern, subject)

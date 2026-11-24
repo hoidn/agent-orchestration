@@ -347,7 +347,7 @@ Each unit has its own native home; the harness also guards instrumented CLI rout
 
    A path also matches when it is written under `~`, `$HOME` or `${HOME}`.
 
-   Two exemptions (the docstring of `scan.py` states them and their limit):
+   Three exemptions (the docstring of `scan.py` states them and their limits):
    - The main checkout's prefix is not matched in what the agent's tools printed (the tool results
      of a Claude stream-json `user` row in the shims' stdout). The sandbox mounts no main checkout,
      so such a result names it only as repository text in the clone, many documents name it, or
@@ -356,6 +356,9 @@ Each unit has its own native home; the harness also guards instrumented CLI rout
    - Another session's files do not include the unit's own Claude project folder, where the CLI
      saves large tool output: `.claude/projects/<the tree's slug>[-...]` under the unit's own home
      (`/home/compare`, its backing home, `~`, `$HOME`, `${HOME}`). Any other slug or home is a hit.
+   - A judge's solution-hash pattern is not matched inside its own pool's path: a seed-set pool lives
+     at `<pools>/<task id>/<kind>`, and the task id is the solution's first ten characters. The prefix
+     anywhere else, a path above the pool root included, is a hit. Candidates' paths carry no task id.
 
    For a run with hits, the controller reads them and records a verdict. `pool` refuses a run
    with hits and no verdict, excludes contaminated runs (listed with the reason) and includes
