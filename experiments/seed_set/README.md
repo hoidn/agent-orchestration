@@ -81,7 +81,7 @@ refresh before the expiry, such as a new login by the owner, still ends the unit
 A Codex unit's guard (`units.require_login(..., provider="codex")`, ruling L-R3 of the
 [Luna plan](../../docs/plans/2026-11-23-gpt-6-luna-third-tier-plan.md)) reads from the Codex login file
 (`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) only whether `OPENAI_API_KEY` is set, whether it is a
-ChatGPT login (`auth_mode` absent or `chatgpt`, with `tokens.access_token`), and the access token's JWT `exp` claim,
+ChatGPT login (`auth_mode` exactly `chatgpt`, with `tokens.access_token`), and the access token's JWT `exp` claim,
 decoded and not verified. It refuses an API key, a login that is not ChatGPT's, a token whose expiry cannot be read,
 and one that does not outlive the unit by the same bound. `study.py login-expiry --provider codex` prints that
 expiry. The arms are all Claude today; a later task passes the provider in.
@@ -98,9 +98,12 @@ recorded limit answer or by paid extra usage is reopened only by `study.py resum
 the owner's meter reading. `not-a-limit` refuses both; it serves a pause flagged "unrecognised limit shape" whose
 raw result shows no limit.
 A Codex call's limit is read from its own error lines (a limit wording, status 429) and from the last
-`rate_limits` snapshot of the unit's session records (a used-up window names the reset); no Codex limit answer is
-recorded yet, so each such pause is flagged "unrecognised limit shape". A snapshot with `credits.has_credits` true
-pauses as paid extra usage.
+`rate_limits` snapshot of its own session record, matched by thread id (a used-up window names the reset); no
+Codex limit answer is recorded yet, so each such pause is flagged "unrecognised limit shape". Credits held
+(`credits.has_credits`) with a limit reached pause as paid credits; credits held without one record a stop, since
+a Luna tranche runs with credits off, and the call is scored as it ended. A Codex call is priced at ordinary rates
+from its summed turn, so a request above 272K input tokens is under-priced; the Luna smoke's ledger row must state
+this.
 The plan ("Changes since review 2", usage limits) and [programs/README.md](programs/README.md) hold the detail.
 
 ## The anchors' record and what it does not show

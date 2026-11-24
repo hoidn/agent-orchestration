@@ -283,6 +283,7 @@ def test_the_smoke_calls_for_bisection_above_15_minutes_or_half_a_dollar(tmp_pat
         (home / ".claude" / "projects" / "p" / "s.jsonl").write_text(json.dumps({"costUSD": cost}) + "\n")
     (tmp_path / "calls" / "1").mkdir(parents=True)
     (tmp_path / "calls" / "1" / "prompt.txt").write_text("p")
+    (tmp_path / "calls" / "1" / "provider.txt").write_text("claude\n")
     (tmp_path / "record.json").write_text(json.dumps({"wall_clock_sec": wall, "sandbox": {"home": str(home)}}))
     assert rules.bisect_from_start([({}, tmp_path)])["bisect"] is bisect
 

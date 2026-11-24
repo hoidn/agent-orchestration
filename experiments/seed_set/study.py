@@ -375,7 +375,10 @@ def settle_price(study, unit, calls_root, tranche, model):
 def pause_on_limit(study, calls_root, unit, home=None):
     """The unit's usage limit (`units.usage_limit`, flagged when its shape is not the recorded one; a Codex call's
     also read from the session records in the unit's private `home`) or None; its `pause` event, which closes every
-    start at once, is recorded once per unit."""
+    start at once, is recorded once per unit. A credit balance those records show (`units.credit_balance`) is no
+    limit: it records a stop (`rules.stop`), so no further start is reserved, and the unit is scored as it ended."""
+    if home and (why := units.credit_balance(home)):
+        rules.stop(study, f"{unit}: {why}; a Luna tranche runs with credits off")
     limit = units.usage_limit(calls_root, home=home)
     if limit and not any(row.get("event") == "pause" and row.get("unit") == unit for row in spend.rows(study.ledger)):
         spend.record(study.ledger, "pause", unit=unit, **limit)
@@ -409,11 +412,11 @@ def not_a_limit(study, unit, reason):
     aside, an incident when it failed with a provider error, else what its outcome says (a natural failure scores
     0). The decision and the reason go to the ledger, and that pause no longer closes starts; nothing runs again
     (a unit that is not cut has no re-run). Taken only while the pause is open, and never for a pause whose rule
-    is a shape the kit knows is a real limit (`units.RECORDED`, `units.PAID`; final scoped check n10). A unit not
+    is a shape the kit knows is a real limit (`units.RECORDED`, `units.PAID_RULES`; final scoped check n10). A unit not
     yet settled refuses with the way out (`spend.UNSETTLED`)."""
     if not reason.strip():
         raise SystemExit("not-a-limit needs the operator's reason: what the raw result shows")
-    if (rule := spend.limit_pause(spend.rows(study.ledger), unit)["rule"]) in (units.RECORDED, units.PAID):
+    if (rule := spend.limit_pause(spend.rows(study.ledger), unit)["rule"]) in (units.RECORDED, *units.PAID_RULES):
         raise SystemExit(f"{unit} was paused by {rule}, a shape the kit knows is a real limit: not-a-limit cannot "
                          "withdraw it; `resume-after-limit` after the reset, with the owner's meter reading")
     path, calls_root = unit_files(unit)

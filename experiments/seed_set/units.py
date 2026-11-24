@@ -13,9 +13,10 @@
 - A Codex call (the shim's `provider.txt` says `CODEX`) is read from its `exec --json` events: success is a completed
   turn; its `error`, `turn.failed` and `error`-item messages are its error lines, each an incident when it did not
   succeed; a limit is read from those lines (429, a limit wording) and from the last `rate_limits` snapshot of the
-  unit's rollouts (a used-up window names the reset; `credits.has_credits` true is `PAID`). No Codex limit answer
-  is recorded yet, so every Codex rule but `PAID` is flagged `UNRECOGNISED`. Its session audit is
-  `audit_rollouts`, its allowlist `CODEX_ITEMS` and `CODEX_TOOLS`.
+  call's own rollout (matched by `thread_id`; a used-up window names the reset; credits held with a limit reached is
+  `CODEX_PAID`, credits held without one is `credit_balance`, a stop). No Codex limit answer is recorded yet, so
+  every Codex rule but `CODEX_PAID` is flagged `UNRECOGNISED`. Its session audit is `audit_rollouts` (its caller
+  chooses it), its allowlist `CODEX_ITEMS`.
 - `audit_sessions`: every Claude session file anywhere in the unit's private home (each unit has its own home,
   so all of them belong to the unit). A session outside the unit tree's project store, more top-level sessions
   than physical calls, or an answer by another model fails the unit. Not seen: sessions written into the unit
@@ -81,15 +82,16 @@ PROVIDER_ERRORS = re.compile(
     r"\b(?:429|529|401|403)\b|rate.?limit|overloaded|unauthori[sz]ed|authenticat|invalid (?:api|x-api)"
     r"[ -]key|oauth|credit balance|quota|api error|connection error|econnreset|etimedout|eai_again|"
     r"refused by COMPARE_MAX_CALLS|" + "|".join(LIMIT_WORDINGS), re.I)
-CODEX = "codex"  # a call's provider as the shim records it (`calls/<n>/provider.txt`); any other is the Claude CLI
+CODEX = "codex"  # a call's provider as the shim records it (`calls/<n>/provider.txt`, "claude" or "codex")
 # The `item.*` types a Codex call's `exec --json` output may carry (an allowlist, like `sandbox.CLAUDE_TOOLS`: an MCP
 # tool call, a web search, a sub-agent's or collaboration item, an error item, or a type a CLI update added is a
 # finding). Chosen from the types the harness's own Codex reader accepts (`session_transport`) plus the plan list;
 # the paid Luna smoke corrects it from evidence.
 CODEX_ITEMS = frozenset(("agent_message", "reasoning", "command_execution", "file_change", "todo_list"))
-# The tools a Codex rollout's `additional_tools` rows may name (none admitted beyond the built-in set).
-CODEX_TOOLS = frozenset(("shell", "exec_command", "write_stdin", "apply_patch", "update_plan"))
 CODEX_REACHED = "a Codex session record whose rate_limits show a limit reached, in a call that did not succeed"
+CODEX_PAID = "paid credits: a Codex session record with a credit balance held and a limit reached"
+CODEX_CREDITS = "the ChatGPT account holds a credit balance (a Codex session record's rate_limits.credits.has_credits)"
+PAID_RULES = (PAID, CODEX_PAID)  # paid extra usage: pauses even a call that ended normally, which stays scored
 EXPIRY_MARGIN_SEC = 900  # a unit's preparation before its launch, and the CLI refreshing ahead of expiry (R16)
 REFUSAL = """#!/bin/sh
 echo "seed-set: $0 is disabled: the study never resumes a unit (a resume has no reservation and no call cap)" >&2
@@ -165,7 +167,8 @@ def codex_login_expiry(path):
     """The Codex form of `login_expiry` (ruling L-R3): from the Codex CLI's `auth.json` (`OPENAI_API_KEY`, `auth_mode`,
     `tokens.access_token`) only whether an API key is set, whether it is a ChatGPT login, and the access token's JWT
     `exp` claim (the payload segment decoded, not verified). Refuses (SystemExit) an unreadable file, an API key, a
-    login that is not ChatGPT's (an `auth_mode` other than "chatgpt", no `tokens.access_token`), and a token whose
+    login that is not ChatGPT's (an `auth_mode` that is not exactly "chatgpt", missing included, or no
+    `tokens.access_token`), and a token whose
     expiry cannot be read. No message holds a token or any other value of the file."""
     try:
         login = json.loads(path.read_text())
@@ -177,7 +180,7 @@ def codex_login_expiry(path):
         raise SystemExit(f"{path}: the Codex login holds an API key (OPENAI_API_KEY); the study runs on the ChatGPT "
                          "subscription login only, with no API key; no unit starts")
     tokens = login.get("tokens")
-    if login.get("auth_mode", "chatgpt") != "chatgpt" or not isinstance(tokens, dict) or not tokens.get("access_token"):
+    if login.get("auth_mode") != "chatgpt" or not isinstance(tokens, dict) or not tokens.get("access_token"):
         raise SystemExit(f"{path}: not a ChatGPT login (auth_mode chatgpt with tokens.access_token); no unit starts")
     try:
         return clock_time(jwt_claims(tokens["access_token"])["exp"])
@@ -253,9 +256,16 @@ def physical_calls(records):
 
 
 def provider(call):
-    """The CLI the shim recorded for a call (`provider.txt`: "claude" or `CODEX`); "claude" when it recorded none."""
+    """The CLI the shim recorded for a call (`provider.txt`: "claude" or `CODEX`). The shim writes it first, before
+    the call's argv and prompt, so a call directory without it never reached a provider ("claude": nothing to
+    read); a physical call (a prompt) without it, or a file naming another CLI, refuses (SystemExit)."""
     path = call / "provider.txt"
-    return (path.read_text().strip() if path.is_file() else "") or "claude"
+    if not path.is_file() and not (call / "prompt.txt").is_file():
+        return "claude"
+    name = path.read_text().strip() if path.is_file() else None
+    if name not in ("claude", CODEX):
+        raise SystemExit(f"{call}: the shim's provider record is {name!r}, not claude or codex; nothing is read")
+    return name
 
 
 def provider_incident(records):
@@ -290,14 +300,15 @@ def usage_limit(records, cutting=False, home=None):
     names it and only `resume-after-limit` reopens (review 4 M1). With `cutting`, only a limit that cuts its unit:
     paid extra usage on a call that ended normally is passed over (that call is an observation, and only pauses;
     coordinator ruling on fix round 4). A Codex call (`codex_limit_rule`) also reads the last `rate_limits` snapshot of
-    the rollouts in the unit's private home `home`, when given; its used-up windows name the reset."""
-    found, snapshot = [], rate_limits(home) if home else {}
+    its own rollout in the unit's private home `home`, when given (`call_snapshot`); its used-up windows name the
+    reset. `PAID_RULES` are the paid-usage rules."""
+    found, by_thread = [], threads(home) if home else {}
     for call in calls(records):
         events, codex = stream_events(call / "stdout.txt"), provider(call) == CODEX
-        rule = codex_limit_rule(call, events, snapshot) if codex else limit_rule(call, events)
-        if rule and not (cutting and rule == PAID and succeeded(events, provider(call))):
-            found.append(codex_limit_facts(call, rule, snapshot) if codex else limit_facts(call, events, rule))
-    paid = [] if cutting else [facts for facts in found if facts["rule"] == PAID]
+        rule = codex_limit_rule(call, events, by_thread) if codex else limit_rule(call, events)
+        if rule and not (cutting and rule in PAID_RULES and succeeded(events, provider(call))):
+            found.append(codex_limit_facts(call, events, rule, by_thread) if codex else limit_facts(call, events, rule))
+    paid = [] if cutting else [facts for facts in found if facts["rule"] in PAID_RULES]
     return next(iter(paid + found), None)
 
 
@@ -311,13 +322,13 @@ def limit_facts(call, events, rule):
             "text": str(text)[:300], "raw": str(call)} | ({} if rule in (RECORDED, PAID) else {"flag": UNRECOGNISED})
 
 
-def codex_limit_facts(call, rule, snapshot):
-    """`limit_facts` of a Codex call: the reset from the session record's snapshot (`window_reset`), the text its
-    first limit line, else its last error line."""
+def codex_limit_facts(call, events, rule, by_thread):
+    """`limit_facts` of a Codex call: the reset from its own session record's snapshot (`window_reset`), the text
+    its first limit line, else its last error line."""
     lines = [line for _, line in call_errors(call)]
     text = next(limit_lines(call), None) or (lines[-1] if lines else "")
-    return {"call": call.name, "rule": rule, "reset": window_reset(snapshot), "text": str(text)[:300],
-            "raw": str(call)} | ({} if rule == PAID else {"flag": UNRECOGNISED})
+    return {"call": call.name, "rule": rule, "reset": window_reset(call_snapshot(events, by_thread)),
+            "text": str(text)[:300], "raw": str(call)} | ({} if rule == CODEX_PAID else {"flag": UNRECOGNISED})
 
 
 def older_reset(call):
@@ -345,14 +356,16 @@ def limit_rule(call, events):
     return WORDING if worded_failure(call, events, statuses) else None
 
 
-def codex_limit_rule(call, events, snapshot):
-    """A Codex call's limit rule, each but `PAID` flagged `UNRECOGNISED` (no recorded Codex limit answer exists yet):
-    `PAID` when the session record's `rate_limits.credits.has_credits` is true (the account would draw on paid
-    credits; the plan's default requires them off), whether or not the call succeeded; else, for a call that did
-    not succeed, `CODEX_REACHED` when the snapshot shows a limit reached (`reached`), `STATUS_429` for an error line
-    naming status 429, `WORDING` for one in a limit wording; else None."""
-    if (snapshot.get("credits") or {}).get("has_credits") is True:
-        return PAID
+def codex_limit_rule(call, events, by_thread):
+    """A Codex call's limit rule, read with the snapshot of its own rollout (`call_snapshot`), each but `CODEX_PAID`
+    flagged `UNRECOGNISED` (no recorded Codex limit answer exists yet): `CODEX_PAID` when credits are held
+    (`held`) and a limit is reached (`reached`), whether or not the call succeeded; else, for a call that did not
+    succeed, `CODEX_REACHED` when a limit is reached, `STATUS_429` for an error line naming status 429, `WORDING` for
+    one in a limit wording; else None. Credits held without a reached limit are no limit: `credit_balance` stops the
+    tranche, and the call is scored as what it is."""
+    snapshot = call_snapshot(events, by_thread)
+    if held(snapshot) and reached(snapshot):
+        return CODEX_PAID
     if succeeded(events, CODEX):
         return None
     if reached(snapshot):
@@ -368,17 +381,48 @@ def rollouts(home):
     return sorted((path for path in Path(home).rglob("rollout-*.jsonl") if path.is_file()), key=lambda path: path.name)
 
 
-def rate_limits(home):
-    """The last `rate_limits` object of the `token_count` events in the rollouts under `home`, or {}. A line cut
-    mid-write is skipped."""
-    found = {}
-    for path in rollouts(home):
-        for line in path.read_text(errors="replace").splitlines():
-            payload = json_object(line).get("payload")
-            if isinstance(payload, dict) and payload.get("type") == "token_count" and isinstance(
-                    payload.get("rate_limits"), dict):
-                found = payload["rate_limits"]
-    return found
+def rollout_id(path):
+    """The session id a rollout's first row (`session_meta.payload.id`) names, or None."""
+    with path.open(errors="replace") as handle:
+        payload = json_object(handle.readline()).get("payload")
+    return payload.get("id") if isinstance(payload, dict) else None
+
+
+def threads(home):
+    """{session id: rollout} of the rollouts under `home`."""
+    return {rollout_id(path): path for path in rollouts(home)}
+
+
+def call_thread(events):
+    """The `thread_id` of a Codex call's `thread.started` event, or None."""
+    return next((e["thread_id"] for e in events if e.get("type") == "thread.started" and e.get("thread_id")), None)
+
+
+def call_snapshot(events, by_thread):
+    """The last `rate_limits` snapshot of the call's own rollout (matched by `call_thread`), or {}."""
+    path = by_thread.get(call_thread(events))
+    return next(iter(reversed(list(snapshots(path)))), {}) if path else {}
+
+
+def snapshots(path):
+    """The `rate_limits` objects of a rollout's `token_count` events, in order; a line cut mid-write is skipped."""
+    for line in path.read_text(errors="replace").splitlines():
+        payload = json_object(line).get("payload")
+        if isinstance(payload, dict) and payload.get("type") == "token_count" and isinstance(
+                payload.get("rate_limits"), dict):
+            yield payload["rate_limits"]
+
+
+def held(snapshot):
+    """Whether a `rate_limits` snapshot shows a credit balance held (`credits.has_credits` true)."""
+    credits = snapshot.get("credits")
+    return isinstance(credits, dict) and credits.get("has_credits") is True
+
+
+def credit_balance(home):
+    """`CODEX_CREDITS` when any `rate_limits` snapshot of a rollout under `home` shows credits held, else None. The
+    plan's default requires credits off on the ChatGPT account: the study stops the tranche (`rules.stop`)."""
+    return CODEX_CREDITS if any(held(snapshot) for path in rollouts(home) for snapshot in snapshots(path)) else None
 
 
 def used_up(snapshot):
@@ -506,12 +550,10 @@ def _session(path):
     return isinstance(row, dict) and ("sessionId" in row or row.get("type") in ("assistant", "user", "summary"))
 
 
-def audit_sessions(home, tree, made, model, provider="claude", effort=None):
-    """(failure reason or None, policy hit or None, session files) for one unit's private home; for a Codex unit
-    (`provider` `CODEX`) `audit_rollouts`, with the arm's declared `effort`."""
-    if provider == CODEX:
-        return audit_rollouts(home, tree, made, model, effort)
-    sessions =sorted(path for path in Path(home).rglob("*.jsonl") if _session(path))
+def audit_sessions(home, tree, made, model):
+    """(failure reason or None, policy hit or None, session files) for one unit's private home (a Claude unit; a
+    Codex unit's is `audit_rollouts`, which its caller chooses)."""
+    sessions = sorted(path for path in Path(home).rglob("*.jsonl") if _session(path))
     projects = Path(home) / ".claude" / "projects"
     slug = re.sub(r"[^A-Za-z0-9]", "-", str(tree))
     scoped = [p for p in sessions if p.is_relative_to(projects) and len(p.relative_to(projects).parts) >= 2
@@ -531,11 +573,12 @@ def audit_sessions(home, tree, made, model, provider="claude", effort=None):
     return None, None, sessions
 
 
-def audit_rollouts(home, tree, made, model, effort):
-    """`audit_sessions` for a Codex unit, over every rollout under its private home (`rollouts`): a `turn_context`
-    model other than `model` is a policy hit (`scan.model_hits`); a `turn_context` effort other than `effort`, a
-    session whose `session_meta` working directory is not under `tree`, more rollouts than `made` calls, or a tool
-    outside `CODEX_TOOLS` in an `additional_tools` row fails the unit."""
+def audit_rollouts(home, tree, records, made, model, effort):
+    """`audit_sessions` for a Codex unit, over every rollout under its private home (`rollouts`), the only record
+    of a Codex call's model and effort: a `turn_context` model other than `model` is a policy hit
+    (`scan.model_hits`); a session whose `session_meta` working directory is not under `tree`, one without a
+    `turn_context` or with one that does not name the model and `effort`, more rollouts than `made` calls, or a
+    call of `records` with a completed turn and no rollout of its `thread_id` fails the unit (`rollout_reason`)."""
     paths = rollouts(home)
     try:
         hits = list(scan.model_hits(paths, model))  # SystemExit on a line that is not JSON
@@ -543,46 +586,49 @@ def audit_rollouts(home, tree, made, model, effort):
         return f"unreadable session: {error}", None, paths
     if policy := scan.model_policy(hits):
         return f"a session answered by another model: {hits[0]['text']}", policy, paths
-    return rollout_reason(paths, tree, made, effort), None, paths
+    return rollout_reason(paths, tree, records, made, effort), None, paths
 
 
-def rollout_reason(paths, tree, made, effort):
+def rollout_reason(paths, tree, records, made, effort):
     """Why a Codex unit's readable rollouts fail `audit_rollouts` beyond the model, or None."""
-    rows = [json_object(line) for path in paths for line in path.read_text(errors="replace").splitlines()]
     if outside := [str(path) for path in paths if not Path(scan.codex_cwd(path)).is_relative_to(tree)]:
         return f"sessions outside the unit tree: {outside}"
-    if efforts := other_efforts(rows, effort):
-        return f"a session at another effort than {effort}: {efforts}"
+    if unnamed := [str(path) for path in paths if not named_contexts(path, effort)]:
+        return f"sessions without a turn_context naming the model and effort {effort}: {unnamed}"
     if len(paths) > made:
         return f"{len(paths)} sessions for {made} recorded calls"
-    if tools := sorted({name for row in rows for name in additional_tools(row) if name not in CODEX_TOOLS}):
-        return f"a session was given {tools[:5]} ({len(tools)} in all)"
+    if unmatched := unmatched_calls(records, {rollout_id(path) for path in paths}):
+        return f"calls {unmatched} completed a turn with no session record of their thread"
     return None
 
 
-def other_efforts(rows, effort):
-    """The `turn_context` efforts of rollout rows other than `effort`, sorted."""
+def named_contexts(path, effort):
+    """Whether a rollout has a `turn_context` and each names a model and `effort`."""
+    rows = [json_object(line) for line in path.read_text(errors="replace").splitlines()]
     contexts = [row.get("payload") for row in rows if row.get("type") == "turn_context"]
-    return sorted({str(context.get("effort")) for context in contexts
-                   if isinstance(context, dict) and context.get("effort") != effort})
+    return bool(contexts) and all(isinstance(context, dict) and isinstance(context.get("model"), str)
+                                  and context.get("effort") == effort for context in contexts)
 
 
-def additional_tools(row):
-    """The tool names an `additional_tools` list of a rollout row (at its top or in its payload) names: strings, or
-    objects' `name`."""
-    payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
-    listed = row.get("additional_tools") or payload.get("additional_tools")
-    return [str(tool.get("name") if isinstance(tool, dict) else tool) for tool in listed] if isinstance(
-        listed, list) else []
+def unmatched_calls(records, ids):
+    """The Codex calls of `records` whose output has a `turn.completed` and whose `thread_id` is not in `ids`."""
+    found = []
+    for call in calls(records):
+        events = stream_events(call / "stdout.txt") if provider(call) == CODEX else []
+        if any(e.get("type") == "turn.completed" for e in events) and call_thread(events) not in ids:
+            found.append(call.name)
+    return found
 
 
 def isolation_breach(records):
     """Why a unit's sessions were not isolated (the first `system/init` event of its calls that lists one, or of a
-    Codex call, which prints no init event, its `item.*` types outside `CODEX_ITEMS`), or None."""
+    Codex call, which prints no init event, its `item.*` types outside `CODEX_ITEMS`, an `error` item named as one),
+    or None."""
     for call in calls(records):
         events = stream_events(call / "stdout.txt")
         if provider(call) == CODEX and (found := sorted(codex_items(events) - CODEX_ITEMS)):
-            return f"call {call.name}: the session was given {found[:5]} ({len(found)} in all)"
+            note = " (an error item: the CLI's own message, for the paid smoke to judge)" if "error" in found else ""
+            return f"call {call.name}: the session was given {found[:5]} ({len(found)} in all){note}"
         for event in events:
             if (event.get("type"), event.get("subtype")) == ("system", "init") and (found := foreign(event)):
                 return f"call {call.name}: the session was given {found[:5]} ({len(found)} in all)"
@@ -614,7 +660,9 @@ def priced(records, table, per_call, model=None):
     worst case, and is listed in `missing`. A call the shim refused (no prompt) reached no provider and costs
     nothing. A Codex call is priced from its last `turn.completed` usage (`exec --json`) as the unit's declared
     `model`, at the ordinary rates (Codex reports no cost; one row sums the turn's requests); without `model`, or
-    without a completed turn (a killed or failed call), at `per_call`."""
+    without a completed turn (a killed or failed call), at `per_call`. Codex usage is priced at the ordinary rates
+    from the summed turn, so a request above 272K input tokens is under-priced; the Luna smoke's ledger row must
+    state this."""
     found, missing = {}, []
     for call in calls(records):
         if not (call / "prompt.txt").is_file():
