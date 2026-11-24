@@ -93,7 +93,7 @@ def test_private_auth_is_copied_once_and_native_atomic_refresh_survives_next_cal
     source.chmod(0o600)
     _, record = start(world, 'direct_task')
     private = Path(record['sandbox']['home']) / '.codex/auth.json'
-    assert private.read_bytes() == source.read_bytes()
+    assert json.loads(private.read_text()) == json.loads(source.read_text())  # re-serialized: copy_codex_login
     script = '''python3 - <<'PY'
 import os
 from pathlib import Path
