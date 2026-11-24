@@ -69,8 +69,10 @@ backing, without searching other homes.
 
 Preparation copies only the required credential file into mode-0600 writable
 private storage, once. The Codex login's copy carries an empty `tokens.refresh_token`
-(`sandbox.copy_codex_login`; Codex refresh tokens are single use, and Codex 0.171.0
-refuses a login file without the key), so a unit cannot refresh it; a Claude
+(`sandbox.codex_login`; Codex refresh tokens are single use, and Codex 0.171.0
+refuses a login file without the key) and a null `OPENAI_API_KEY`, so a unit cannot
+refresh it; a login that is not an object whose `tokens` holds `refresh_token`, or
+that carries an API key, refuses the preparation before the home exists. A Claude
 credential copy is unchanged, and resume preserves its native atomic refreshes.
 Configuration uses the public native catalog (`codex debug models --bundled` of
 the pinned Codex 0.171.0, `sandbox.CATALOG`), file credential storage and the

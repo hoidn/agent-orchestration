@@ -63,6 +63,14 @@ def commit(repo, files, message):
     return git(repo, "rev-parse", "HEAD")
 
 
+def synthetic_codex_login(account):
+    """JSON text of a hand-made ChatGPT-mode Codex login (invented values only) whose `tokens.account_id` is
+    `account`; `sandbox.codex_login` admits it and blanks its refresh token."""
+    return json.dumps({"auth_mode": "chatgpt", "OPENAI_API_KEY": None,
+                       "tokens": {"id_token": "invented-id-token", "access_token": "invented-access-token",
+                                  "refresh_token": "invented-refresh-token", "account_id": account}}) + "\n"
+
+
 def write_test_sandbox_config(fakebin, path, *, readonly_files=(), environment_names=()):
     """Start from discovered OS/catalog/skill dependencies, then admit exact test fakes and inputs."""
     declaration = sandbox.dependencies({"PATH": "", "HOME": str(Path.home())})

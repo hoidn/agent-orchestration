@@ -179,17 +179,35 @@ def refuse_main_mounts(main, readonly):
                              "mount a path elsewhere")
 
 
-def copy_codex_login(source, destination):
-    """The unit's copy of a Codex login, mode 600, without its refresh token (ruling L-R3 of plan
-    2026-11-23-gpt-6-luna-third-tier): Codex refresh tokens are single use, so a unit that refreshed its copy would
-    log the owner out. `tokens.refresh_token` stays as an empty string because Codex 0.171.0 refuses a login file
-    without the key (Z0); every other field is kept. The source is only read, and no value is printed."""
-    login = json.loads(Path(source).read_text())
-    if isinstance(login.get('tokens'), dict) and 'refresh_token' in login['tokens']:
-        login['tokens']['refresh_token'] = ''
-    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-    with os.fdopen(descriptor, 'w') as stream:
-        json.dump(login, stream)
+def codex_login(source):
+    """The bytes of a unit's copy of the Codex login at `source` (ruling L-R3 of plan 2026-11-23-gpt-6-luna-third-tier):
+    every field but an empty `tokens.refresh_token` and a null `OPENAI_API_KEY`. Codex refresh tokens are single use,
+    so a unit that refreshed its copy would log the owner out; the key stays because Codex 0.171.0 refuses a login
+    file without it (Z0). Fails closed (ValueError naming the problem, never a value) on a file that is not a JSON
+    object, whose `tokens` is not an object holding `refresh_token`, or that carries an API key."""
+    try:
+        login = json.loads(Path(source).read_text())
+    except ValueError:
+        raise ValueError(f'{source}: the Codex login is not JSON; nothing copied') from None
+    tokens = login.get('tokens') if isinstance(login, dict) else None
+    if not isinstance(tokens, dict) or 'refresh_token' not in tokens:
+        raise ValueError(f'{source}: the Codex login has no tokens object with a refresh_token key; nothing copied')
+    if login.get('OPENAI_API_KEY'):
+        raise ValueError(f'{source}: the Codex login carries an API key; nothing copied')
+    tokens['refresh_token'], login['OPENAI_API_KEY'] = '', None
+    return json.dumps(login).encode()
+
+
+def _credentials(selected, environment):
+    """{path under the unit home: bytes} of the selected providers' login files, read (and the Codex login checked)
+    before the home is made, so a refused login leaves nothing behind."""
+    source_home = Path(environment.get('HOME') or Path.home())
+    sources = {'codex': (Path(environment.get('CODEX_HOME') or source_home / '.codex') / 'auth.json',
+                         '.codex/auth.json', codex_login),
+               'claude': (Path(environment.get('CLAUDE_CONFIG_DIR') or source_home / '.claude') / '.credentials.json',
+                          '.claude/.credentials.json', lambda path: path.read_bytes())}
+    return {relative: read(source) for source, relative, read in (sources[name] for name in selected)
+            if source.is_file()}
 
 
 def _copy_skills(skills, native):
@@ -220,6 +238,8 @@ def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment
         refuse_main_mounts(main, data['readonly'])
     if homes.is_relative_to(tree) or homes.is_relative_to(records):
         raise ValueError('private homes must stay outside candidate and public records trees')
+    selected = _providers(providers, data, environment)
+    credentials = _credentials(selected, environment)
     homes.mkdir(parents=True, exist_ok=True, mode=0o700)
     homes.chmod(0o700)
     home = homes / secrets.token_hex(16)
@@ -237,22 +257,16 @@ def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment
         '[memories]\ngenerate_memories = false\nuse_memories = false\n[history]\npersistence = "none"\n'
         '[agents]\nenabled = false\n[cloud.skills]\nenabled = false\n')
     _copy_skills(data.get('skills', []), native)
-    selected = _providers(providers, data, environment)
     bin_dir = home / '.compare-bin'
     bin_dir.mkdir()
     for provider in selected:
         (bin_dir / provider).symlink_to(data[provider])
-    source_home = Path(environment.get('HOME') or Path.home())
-    credentials = {'codex': (Path(environment.get('CODEX_HOME') or source_home / '.codex') / 'auth.json', native / 'auth.json',
-                             copy_codex_login),
-                   'claude': (Path(environment.get('CLAUDE_CONFIG_DIR') or source_home / '.claude') / '.credentials.json',
-                              home / '.claude/.credentials.json', shutil.copyfile)}
-    for name in selected:
-        source, destination, copy = credentials[name]
-        if source.is_file():
-            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            copy(source, destination)
-            destination.chmod(0o600)
+    for relative, content in credentials.items():
+        destination = home / relative
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        with os.fdopen(descriptor, 'wb') as stream:
+            stream.write(content)
     if 'claude' in selected:
         (home / '.claude.json').write_text('{"hasCompletedOnboarding":true}\n')
     data.update(tree=str(tree), records=str(records), home=str(home), home_path=str(GUEST_HOME),

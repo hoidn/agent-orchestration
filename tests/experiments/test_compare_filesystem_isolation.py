@@ -9,7 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from tests.experiments.compare_harness_support import call, git, skip_without_sandbox, start, world  # noqa: F401
+from tests.experiments.compare_harness_support import (call, git, skip_without_sandbox, start,  # noqa: F401
+                                                       synthetic_codex_login, world)
 from tests.experiments.orc_structural_search_support import world as structural_world  # noqa: F401
 from tests.experiments.test_orc_structural_search_scoring import evaluations as structural_evaluations  # noqa: F401
 from tests.agent_session_shims import closed_path
@@ -89,11 +90,11 @@ def test_historical_records_keep_the_explicit_original_home(tmp_path):
 def test_private_auth_is_copied_once_and_native_atomic_refresh_survives_next_call(world):
     source = world.empty_home / '.codex/auth.json'
     source.parent.mkdir()
-    source.write_text('{"synthetic_generation":1}\n')
+    source.write_text(synthetic_codex_login('generation-1'))
     source.chmod(0o600)
     _, record = start(world, 'direct_task')
     private = Path(record['sandbox']['home']) / '.codex/auth.json'
-    assert json.loads(private.read_text()) == json.loads(source.read_text())  # re-serialized: copy_codex_login
+    assert json.loads(private.read_text())['tokens']['account_id'] == 'generation-1'
     script = '''python3 - <<'PY'
 import os
 from pathlib import Path
@@ -421,7 +422,7 @@ def test_effective_preparation_environment_selects_private_auth_and_dependencies
     source = world.outside / 'selected-controller-home'
     (source / '.codex').mkdir(parents=True)
     (source / '.claude').mkdir()
-    (source / '.codex/auth.json').write_text('{"synthetic_auth":"selected-private-auth"}\n')
+    (source / '.codex/auth.json').write_text(synthetic_codex_login('selected-private-auth'))
     (source / '.claude/.credentials.json').write_text('must not project Claude\n')
     dependencies = json.loads(Path(os.environ['COMPARE_SANDBOX']).read_text())
     dependencies['environment'].append('FAKE_SELECTED_ENVIRONMENT')
@@ -442,7 +443,7 @@ def test_effective_preparation_environment_selects_private_auth_and_dependencies
         pool.write_score_inputs(out, mapping, 'synthetic intent', world.runtime, environment=environment)
         metadata = mapping['judges']['judge-a']['sandbox']
     home = Path(metadata['home'])
-    assert json.loads((home / '.codex/auth.json').read_text()) == {'synthetic_auth': 'selected-private-auth'}
+    assert json.loads((home / '.codex/auth.json').read_text())['tokens']['account_id'] == 'selected-private-auth'
     assert not (home / '.claude/.credentials.json').exists()
     snapshot = Path(metadata['declaration']).read_text()
     assert 'FAKE_SELECTED_ENVIRONMENT' in json.loads(snapshot)['environment']
@@ -478,7 +479,7 @@ def selected_environment(world):
     source = world.outside / 'entrypoint-controller-home'
     (source / '.codex').mkdir(parents=True)
     (source / '.claude').mkdir()
-    (source / '.codex/auth.json').write_text('{"synthetic":"entrypoint-auth"}\n')
+    (source / '.codex/auth.json').write_text(synthetic_codex_login('entrypoint-auth'))
     (source / '.claude/.credentials.json').write_text('{"synthetic":"entrypoint-auth"}\n')
     dependencies = json.loads(world.sandbox_config.read_text())
     dependencies['environment'].append('FAKE_ENTRYPOINT_ENVIRONMENT')
@@ -493,8 +494,10 @@ def selected_environment(world):
 
 def assert_selected_private_projection(metadata):
     home = Path(metadata['home'])
-    credentials = [path for path in (home / '.codex/auth.json', home / '.claude/.credentials.json') if path.exists()]
-    assert credentials and all(json.loads(path.read_text()) == {'synthetic': 'entrypoint-auth'} for path in credentials)
+    codex, claude = home / '.codex/auth.json', home / '.claude/.credentials.json'
+    seen = [json.loads(codex.read_text())['tokens']['account_id']] if codex.exists() else []
+    seen += [json.loads(claude.read_text())['synthetic']] if claude.exists() else []
+    assert seen and set(seen) == {'entrypoint-auth'}
     declaration = json.loads(Path(metadata['declaration']).read_text())
     assert 'FAKE_ENTRYPOINT_ENVIRONMENT' in declaration['environment']
 

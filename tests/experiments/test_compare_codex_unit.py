@@ -69,18 +69,58 @@ def test_a_unit_run_without_skills_copies_none(world):
     assert (declaration["skills"], (Path(record["sandbox"]["home"]) / ".codex/skills").exists()) == ([], False)
 
 
-def test_the_units_codex_login_keeps_every_field_but_the_refresh_token(world):
+def _login_at(world, text):
     source = world.empty_home / ".codex/auth.json"
     source.parent.mkdir()
-    source.write_text(json.dumps(LOGIN))
+    source.write_text(text)
+    return source
+
+
+def test_the_units_codex_login_keeps_every_field_but_the_refresh_token(world):
+    _login_at(world, json.dumps(LOGIN))
     copy = _unit(world) / ".codex/auth.json"
     expected = {**LOGIN, "tokens": {**LOGIN["tokens"], "refresh_token": ""}}
     assert (json.loads(copy.read_text()), copy.stat().st_mode & 0o777) == (expected, 0o600)
 
 
-def test_copying_the_codex_login_leaves_the_source_byte_identical(tmp_path):
-    source = tmp_path / "auth.json"
-    source.write_text(json.dumps(LOGIN, indent=1))
+def test_the_units_codex_login_copy_carries_a_null_api_key(world):
+    _login_at(world, json.dumps({**LOGIN, "OPENAI_API_KEY": ""}))
+    assert json.loads((_unit(world) / ".codex/auth.json").read_text())["OPENAI_API_KEY"] is None
+
+
+def test_preparing_a_unit_leaves_the_codex_login_byte_identical(world):
+    source = _login_at(world, json.dumps(LOGIN, indent=1))
     before = source.read_bytes()
-    sandbox.copy_codex_login(source, tmp_path / "copy.json")
+    _unit(world)
     assert source.read_bytes() == before
+
+
+UNEXPECTED = {"tokens not an object": json.dumps({**LOGIN, "tokens": "invented-refresh-token"}),
+              "no refresh_token key": json.dumps({**LOGIN, "tokens": {"refresh": "invented-refresh-token",
+                                                                      "access_token": "invented-access-token"}}),
+              "an API key": json.dumps({**LOGIN, "OPENAI_API_KEY": "invented-api-key"}),
+              "not an object": json.dumps(["invented-refresh-token"]),
+              "not JSON": "invented-refresh-token {"}
+
+
+def _refusal(world, text):
+    _login_at(world, text)
+    with pytest.raises(ValueError, match="nothing copied") as refused:
+        _unit(world)
+    return str(refused.value)
+
+
+@pytest.mark.parametrize("text", UNEXPECTED.values(), ids=UNEXPECTED)
+def test_an_unexpected_codex_login_refuses_the_unit(world, text):
+    assert _refusal(world, text)
+
+
+@pytest.mark.parametrize("text", UNEXPECTED.values(), ids=UNEXPECTED)
+def test_a_refused_codex_login_leaves_no_unit_home(world, text):
+    _refusal(world, text)
+    assert not (world.outside / "homes").exists()
+
+
+@pytest.mark.parametrize("text", UNEXPECTED.values(), ids=UNEXPECTED)
+def test_a_codex_login_refusal_names_no_value_from_the_file(world, text):
+    assert "invented" not in _refusal(world, text)
