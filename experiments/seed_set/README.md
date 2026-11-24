@@ -78,6 +78,14 @@ too. After a refusal nothing is reserved; start again once the owner's own sessi
 login. `study.py login-expiry` prints `expires <ISO time>, in <N> minutes` without opening anything else. A
 refresh before the expiry, such as a new login by the owner, still ends the units in flight as incidents.
 
+A Codex unit's guard (`units.require_login(..., provider="codex")`, ruling L-R3 of the
+[Luna plan](../../docs/plans/2026-11-23-gpt-6-luna-third-tier-plan.md)) reads from the Codex login file
+(`$CODEX_HOME/auth.json`, default `~/.codex/auth.json`) only whether `OPENAI_API_KEY` is set, whether it is a
+ChatGPT login (`auth_mode` absent or `chatgpt`, with `tokens.access_token`), and the access token's JWT `exp` claim,
+decoded and not verified. It refuses an API key, a login that is not ChatGPT's, a token whose expiry cannot be read,
+and one that does not outlive the unit by the same bound. `study.py login-expiry --provider codex` prints that
+expiry. The arms are all Claude today; a later task passes the provider in.
+
 The long-horizon kit's route,
 where one host process holds the token and no copy enters a unit
 ([its README](../long_horizon_tasks/README.md)), would be a kit change with its own tests, review and rehearsal.
@@ -89,6 +97,10 @@ too; if that call ended normally its result is kept, and if it did not its unit 
 recorded limit answer or by paid extra usage is reopened only by `study.py resume-after-limit`, with the reset and
 the owner's meter reading. `not-a-limit` refuses both; it serves a pause flagged "unrecognised limit shape" whose
 raw result shows no limit.
+A Codex call's limit is read from its own error lines (a limit wording, status 429) and from the last
+`rate_limits` snapshot of the unit's session records (a used-up window names the reset); no Codex limit answer is
+recorded yet, so each such pause is flagged "unrecognised limit shape". A snapshot with `credits.has_credits` true
+pauses as paid extra usage.
 The plan ("Changes since review 2", usage limits) and [programs/README.md](programs/README.md) hold the detail.
 
 ## The anchors' record and what it does not show

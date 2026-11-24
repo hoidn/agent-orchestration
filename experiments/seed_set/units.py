@@ -10,6 +10,12 @@
   neither an incident nor an observation (coordinator ruling R1, 2026-11-14): starts close, and its slot runs
   again once. Paid extra usage (`PAID`) pauses the same way; a call that ended normally stays an observation, and
   one that did not cuts its unit (coordinator ruling on fix round 4).
+- A Codex call (the shim's `provider.txt` says `CODEX`) is read from its `exec --json` events: success is a completed
+  turn; its `error`, `turn.failed` and `error`-item messages are its error lines, each an incident when it did not
+  succeed; a limit is read from those lines (429, a limit wording) and from the last `rate_limits` snapshot of the
+  unit's rollouts (a used-up window names the reset; `credits.has_credits` true is `PAID`). No Codex limit answer
+  is recorded yet, so every Codex rule but `PAID` is flagged `UNRECOGNISED`. Its session audit is
+  `audit_rollouts`, its allowlist `CODEX_ITEMS` and `CODEX_TOOLS`.
 - `audit_sessions`: every Claude session file anywhere in the unit's private home (each unit has its own home,
   so all of them belong to the unit). A session outside the unit tree's project store, more top-level sessions
   than physical calls, or an answer by another model fails the unit. Not seen: sessions written into the unit
@@ -31,12 +37,14 @@
   (coordinator ruling R4); `cap_command` passes the unit's worst case to the runtime as `--max-cost-usd`.
 - `login_expiry`, `require_login`: the access token's expiry, the only thing read from the login file a unit
   copies, and the refusal of a unit's start unless the token outlives the unit's wall-clock limit plus
-  `EXPIRY_MARGIN_SEC` (coordinator ruling R16).
+  `EXPIRY_MARGIN_SEC` (coordinator ruling R16). For Codex (`codex_login_expiry`, ruling L-R3) also whether the file
+  holds an API key or is not a ChatGPT login, either of which refuses.
 - `remove_tree`: a unit's tree removed, read-only directories its agent's own tests left included, no link
   followed and nothing outside its root touched; it reports a tree it cannot remove instead of raising, so the
   settlement is not lost (ruling R16).
 """
 
+import base64
 import json
 import os
 import re
@@ -73,6 +81,15 @@ PROVIDER_ERRORS = re.compile(
     r"\b(?:429|529|401|403)\b|rate.?limit|overloaded|unauthori[sz]ed|authenticat|invalid (?:api|x-api)"
     r"[ -]key|oauth|credit balance|quota|api error|connection error|econnreset|etimedout|eai_again|"
     r"refused by COMPARE_MAX_CALLS|" + "|".join(LIMIT_WORDINGS), re.I)
+CODEX = "codex"  # a call's provider as the shim records it (`calls/<n>/provider.txt`); any other is the Claude CLI
+# The `item.*` types a Codex call's `exec --json` output may carry (an allowlist, like `sandbox.CLAUDE_TOOLS`: an MCP
+# tool call, a web search, a sub-agent's or collaboration item, an error item, or a type a CLI update added is a
+# finding). Chosen from the types the harness's own Codex reader accepts (`session_transport`) plus the plan list;
+# the paid Luna smoke corrects it from evidence.
+CODEX_ITEMS = frozenset(("agent_message", "reasoning", "command_execution", "file_change", "todo_list"))
+# The tools a Codex rollout's `additional_tools` rows may name (none admitted beyond the built-in set).
+CODEX_TOOLS = frozenset(("shell", "exec_command", "write_stdin", "apply_patch", "update_plan"))
+CODEX_REACHED = "a Codex session record whose rate_limits show a limit reached, in a call that did not succeed"
 EXPIRY_MARGIN_SEC = 900  # a unit's preparation before its launch, and the CLI refreshing ahead of expiry (R16)
 REFUSAL = """#!/bin/sh
 echo "seed-set: $0 is disabled: the study never resumes a unit (a resume has no reservation and no call cap)" >&2
@@ -108,29 +125,74 @@ def session_alive(pgid_file):
     return True
 
 
-def login_file():
-    """The Claude login file a unit copies, where the sandbox's `prepare_unit` finds it: CLAUDE_CONFIG_DIR or
-    ~/.claude."""
-    config = os.environ.get("CLAUDE_CONFIG_DIR") or Path(os.environ.get("HOME") or Path.home()) / ".claude"
-    return Path(config) / ".credentials.json"
+def login_file(provider="claude"):
+    """The login file a unit copies, where the sandbox's `prepare_unit` finds it: for Claude CLAUDE_CONFIG_DIR or
+    ~/.claude, `.credentials.json`; for Codex CODEX_HOME or ~/.codex, `auth.json`."""
+    home = Path(os.environ.get("HOME") or Path.home())
+    if provider == CODEX:
+        return Path(os.environ.get("CODEX_HOME") or home / ".codex") / "auth.json"
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or home / ".claude") / ".credentials.json"
 
 
-def login_expiry(path=None):
-    """Epoch seconds at which the access token in the login file (`login_file`) expires: `claudeAiOauth.expiresAt`,
-    epoch milliseconds. Only that number leaves this function, never the token, and no message holds the file's
-    content. Fails closed (SystemExit) on a missing or unreadable file, a missing field, or a field that is not a
-    number of a time the clock can name (NaN, infinite or past the calendar)."""
-    path = Path(path or login_file())
+def login_expiry(path=None, provider="claude"):
+    """Epoch seconds at which the access token in the login file (`login_file`) expires: for Claude
+    `claudeAiOauth.expiresAt`, epoch milliseconds; for Codex `codex_login_expiry`. Only that number leaves this
+    function, never the token, and no message holds the file's content. Fails closed (SystemExit) on a missing or
+    unreadable file, a missing field, or a field that is not a number of a time the clock can name (NaN, infinite
+    or past the calendar)."""
+    path = Path(path or login_file(provider))
+    if provider == CODEX:
+        return codex_login_expiry(path)
     try:
         expires = json.loads(path.read_text())["claudeAiOauth"]["expiresAt"]
-        if isinstance(expires, bool) or not isinstance(expires, (int, float)):
-            raise TypeError("not a number")
-        expires /= 1000
-        datetime.fromtimestamp(expires)  # OverflowError, ValueError or OSError for a time it cannot name
+        expires = clock_time(expires, 1000)
     except (OSError, ValueError, KeyError, TypeError, OverflowError):
         raise SystemExit(f"{path}: no access-token expiry could be read (claudeAiOauth.expiresAt, epoch "
                          "milliseconds); no unit starts") from None
     return expires
+
+
+def clock_time(value, per_second=1):
+    """`value / per_second` as epoch seconds, if `value` is a number of a time the clock can name; else TypeError,
+    ValueError, OverflowError or OSError."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError("not a number")
+    datetime.fromtimestamp(value / per_second)  # OverflowError, ValueError or OSError for a time it cannot name
+    return value / per_second
+
+
+def codex_login_expiry(path):
+    """The Codex form of `login_expiry` (ruling L-R3): from the Codex CLI's `auth.json` (`OPENAI_API_KEY`, `auth_mode`,
+    `tokens.access_token`) only whether an API key is set, whether it is a ChatGPT login, and the access token's JWT
+    `exp` claim (the payload segment decoded, not verified). Refuses (SystemExit) an unreadable file, an API key, a
+    login that is not ChatGPT's (an `auth_mode` other than "chatgpt", no `tokens.access_token`), and a token whose
+    expiry cannot be read. No message holds a token or any other value of the file."""
+    try:
+        login = json.loads(path.read_text())
+    except (OSError, ValueError):
+        login = None
+    if not isinstance(login, dict):
+        raise SystemExit(f"{path}: the Codex login file cannot be read; no unit starts")
+    if login.get("OPENAI_API_KEY"):
+        raise SystemExit(f"{path}: the Codex login holds an API key (OPENAI_API_KEY); the study runs on the ChatGPT "
+                         "subscription login only, with no API key; no unit starts")
+    tokens = login.get("tokens")
+    if login.get("auth_mode", "chatgpt") != "chatgpt" or not isinstance(tokens, dict) or not tokens.get("access_token"):
+        raise SystemExit(f"{path}: not a ChatGPT login (auth_mode chatgpt with tokens.access_token); no unit starts")
+    try:
+        return clock_time(jwt_claims(tokens["access_token"])["exp"])
+    except (ValueError, KeyError, TypeError, IndexError, AttributeError, OverflowError, OSError):
+        raise SystemExit(f"{path}: no access-token expiry could be read (the JWT exp claim of tokens.access_token); "
+                         "no unit starts") from None
+
+
+def jwt_claims(token):
+    """The claims of a JWT's payload segment, decoded and not verified."""
+    segment = token.split(".")[1]
+    claims = json.loads(base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)))
+    if not isinstance(claims, dict):
+        raise TypeError("the payload is not an object")
+    return claims
 
 
 def expiry_text(expires, now=None):
@@ -140,11 +202,12 @@ def expiry_text(expires, now=None):
     return f"expires {moment}, in {left // 60:.0f} minutes"
 
 
-def require_login(seconds, now=None):
+def require_login(seconds, now=None, provider="claude"):
     """Refuse a unit's start (SystemExit) unless the login's access token outlives `seconds` (the unit's wall-clock
-    limit, at which its launch guard kills it) plus `EXPIRY_MARGIN_SEC` (ruling R16): a unit alive at the expiry
-    fails when the owner's side refreshes first, or refreshes the token itself and rotates the owner's."""
-    expires = login_expiry()
+    limit, at which its launch guard kills it) plus `EXPIRY_MARGIN_SEC` (ruling R16; for Codex, `provider` "codex",
+    also unless it is a ChatGPT login with no API key, L-R3): a unit alive at the expiry fails when the owner's side
+    refreshes first, or refreshes the token itself and rotates the owner's."""
+    expires = login_expiry(provider=provider)
     if expires - (time.time() if now is None else now) < seconds + EXPIRY_MARGIN_SEC:
         raise SystemExit(f"the login's access token {expiry_text(expires, now)}; a unit needs "
                          f"{(seconds + EXPIRY_MARGIN_SEC) // 60:.0f} minutes. Nothing started: start again after "
@@ -189,19 +252,33 @@ def physical_calls(records):
     return sum((call / "prompt.txt").is_file() for call in calls(records))
 
 
+def provider(call):
+    """The CLI the shim recorded for a call (`provider.txt`: "claude" or `CODEX`); "claude" when it recorded none."""
+    path = call / "provider.txt"
+    return (path.read_text().strip() if path.is_file() else "") or "claude"
+
+
 def provider_incident(records):
-    """The first provider or apparatus error line in the run's calls that did not succeed (`succeeded`), or None."""
+    """The first provider or apparatus error line in the run's calls that did not succeed (`succeeded`), or None. Of
+    a Codex call every error line of its stdout counts (an `error` or `turn.failed` event is the CLI's own), and of
+    its stderr the lines in a provider-error wording, as for Claude."""
     for call in calls(records):
-        if succeeded(stream_events(call / "stdout.txt")):
+        if succeeded(stream_events(call / "stdout.txt"), provider(call)):
             continue
-        for name in ("stderr.txt", "stdout.txt"):
-            path = call / name
-            for line in error_lines(path.read_text(errors="replace"), name) if path.is_file() else []:
-                if PROVIDER_ERRORS.search(line):
-                    return f"call {call.name}: {line.strip()[:300]}"
+        for name, line in call_errors(call):
+            if PROVIDER_ERRORS.search(line) or (provider(call) == CODEX and name == "stdout.txt"):
+                return f"call {call.name}: {line.strip()[:300]}"
 
 
-def usage_limit(records, cutting=False):
+def call_errors(call):
+    """(file name, line) of the call's provider error lines (`error_lines`), stderr first."""
+    for name in ("stderr.txt", "stdout.txt"):
+        path = call / name
+        yield from ((name, line) for line in (error_lines(path.read_text(errors="replace"), name, provider(call))
+                                              if path.is_file() else []))
+
+
+def usage_limit(records, cutting=False, home=None):
     """{"call", "rule", "reset", "text", "raw"} of the first call the vendor may have answered with a usage limit, or
     None; with "flag": `UNRECOGNISED` unless `rule` is `PAID` or `RECORDED` (the stream-json result event's `api_error:
     usage_limit_reached` with `api_error_status: 429`, experiments/long_horizon_tasks/fixtures/
@@ -212,12 +289,14 @@ def usage_limit(records, cutting=False):
     directory. Without `cutting`, the first call with paid extra usage comes before any earlier call, so the pause
     names it and only `resume-after-limit` reopens (review 4 M1). With `cutting`, only a limit that cuts its unit:
     paid extra usage on a call that ended normally is passed over (that call is an observation, and only pauses;
-    coordinator ruling on fix round 4)."""
-    found = []
+    coordinator ruling on fix round 4). A Codex call (`codex_limit_rule`) also reads the last `rate_limits` snapshot of
+    the rollouts in the unit's private home `home`, when given; its used-up windows name the reset."""
+    found, snapshot = [], rate_limits(home) if home else {}
     for call in calls(records):
-        events = stream_events(call / "stdout.txt")
-        if (rule := limit_rule(call, events)) and not (cutting and rule == PAID and succeeded(events)):
-            found.append(limit_facts(call, events, rule))
+        events, codex = stream_events(call / "stdout.txt"), provider(call) == CODEX
+        rule = codex_limit_rule(call, events, snapshot) if codex else limit_rule(call, events)
+        if rule and not (cutting and rule == PAID and succeeded(events, provider(call))):
+            found.append(codex_limit_facts(call, rule, snapshot) if codex else limit_facts(call, events, rule))
     paid = [] if cutting else [facts for facts in found if facts["rule"] == PAID]
     return next(iter(paid + found), None)
 
@@ -230,6 +309,15 @@ def limit_facts(call, events, rule):
     text = next(limit_lines(call), "") if rule == WORDING or not errors else errors[-1].get("result")
     return {"call": call.name, "rule": rule, "reset": older_reset(call) if named is None else named,
             "text": str(text)[:300], "raw": str(call)} | ({} if rule in (RECORDED, PAID) else {"flag": UNRECOGNISED})
+
+
+def codex_limit_facts(call, rule, snapshot):
+    """`limit_facts` of a Codex call: the reset from the session record's snapshot (`window_reset`), the text its
+    first limit line, else its last error line."""
+    lines = [line for _, line in call_errors(call)]
+    text = next(limit_lines(call), None) or (lines[-1] if lines else "")
+    return {"call": call.name, "rule": rule, "reset": window_reset(snapshot), "text": str(text)[:300],
+            "raw": str(call)} | ({} if rule == PAID else {"flag": UNRECOGNISED})
 
 
 def older_reset(call):
@@ -257,16 +345,73 @@ def limit_rule(call, events):
     return WORDING if worded_failure(call, events, statuses) else None
 
 
+def codex_limit_rule(call, events, snapshot):
+    """A Codex call's limit rule, each but `PAID` flagged `UNRECOGNISED` (no recorded Codex limit answer exists yet):
+    `PAID` when the session record's `rate_limits.credits.has_credits` is true (the account would draw on paid
+    credits; the plan's default requires them off), whether or not the call succeeded; else, for a call that did
+    not succeed, `CODEX_REACHED` when the snapshot shows a limit reached (`reached`), `STATUS_429` for an error line
+    naming status 429, `WORDING` for one in a limit wording; else None."""
+    if (snapshot.get("credits") or {}).get("has_credits") is True:
+        return PAID
+    if succeeded(events, CODEX):
+        return None
+    if reached(snapshot):
+        return CODEX_REACHED
+    lines = [line for _, line in call_errors(call)]
+    if any(re.search(r"\b429\b", line) for line in lines):
+        return STATUS_429
+    return WORDING if any(LIMIT_TEXT.search(line) for line in lines) else None
+
+
+def rollouts(home):
+    """The Codex session records (`rollout-*.jsonl`) anywhere under a unit's private home, oldest name first."""
+    return sorted((path for path in Path(home).rglob("rollout-*.jsonl") if path.is_file()), key=lambda path: path.name)
+
+
+def rate_limits(home):
+    """The last `rate_limits` object of the `token_count` events in the rollouts under `home`, or {}. A line cut
+    mid-write is skipped."""
+    found = {}
+    for path in rollouts(home):
+        for line in path.read_text(errors="replace").splitlines():
+            payload = json_object(line).get("payload")
+            if isinstance(payload, dict) and payload.get("type") == "token_count" and isinstance(
+                    payload.get("rate_limits"), dict):
+                found = payload["rate_limits"]
+    return found
+
+
+def used_up(snapshot):
+    """The snapshot's windows (`primary`, `secondary`) whose `used_percent` is at least 100."""
+    return [window for window in (snapshot.get("primary"), snapshot.get("secondary")) if isinstance(window, dict)
+            and type(window.get("used_percent")) in (int, float) and window["used_percent"] >= 100]
+
+
+def reached(snapshot):
+    """Whether a `rate_limits` snapshot names a reached limit (`rate_limit_reached_type`) or a used-up window."""
+    return bool(snapshot.get("rate_limit_reached_type") or used_up(snapshot))
+
+
+def window_reset(snapshot):
+    """The latest `resets_at` (epoch seconds) of the snapshot's used-up windows, or None."""
+    return max((window["resets_at"] for window in used_up(snapshot) if type(window.get("resets_at")) is int),
+               default=None)
+
+
 def worded_failure(call, events, statuses):
     """A call that did not succeed with an error line in a limit wording, and no named status, which would be
     something else."""
     return not succeeded(events) and not statuses and next(limit_lines(call), None) is not None
 
 
-def succeeded(events):
+def succeeded(events, provider="claude"):
     """Whether the call ended with a result event and no error result. A warning such a call printed is neither a
     usage limit nor a provider error (re-review N1); a call with an error result, or with no result event at all
-    (a crash, a kill, a refusal by the shim), did not succeed."""
+    (a crash, a kill, a refusal by the shim), did not succeed. A Codex call (`exec --json`) succeeded when its turn
+    completed (`turn.completed`) and none failed (`turn.failed`)."""
+    if provider == CODEX:
+        kinds = [e.get("type") for e in events]
+        return "turn.completed" in kinds and "turn.failed" not in kinds
     results = [e for e in events if e.get("type") == "result"]
     return bool(results) and not any(e.get("is_error") for e in results)
 
@@ -298,10 +443,7 @@ def paid_usage(event):
 
 def limit_lines(call):
     """The call's provider error lines (`error_lines`) in a usage-limit wording."""
-    for name in ("stderr.txt", "stdout.txt"):
-        path = call / name
-        yield from (line for line in (error_lines(path.read_text(errors="replace"), name) if path.is_file() else [])
-                    if LIMIT_TEXT.search(line))
+    yield from (line for _, line in call_errors(call) if LIMIT_TEXT.search(line))
 
 
 def stream_events(path):
@@ -316,9 +458,10 @@ def stream_events(path):
     return found
 
 
-def error_lines(text, name):
+def error_lines(text, name, provider="claude"):
     """The lines that can carry the provider's own error: all of stderr (the CLI's); of the stream-json stdout, the
-    plain lines and the text of a `result` event marked `is_error`. Never the transcript's tool output or model
+    plain lines and the text of a `result` event marked `is_error`; of a Codex call's `exec --json` stdout, the
+    plain lines and the CLI's own error messages (`codex_error`). Never the transcript's tool output or model
     text, where a task's own text can name 401 or oauth (review2 minor 6), and never a stream event cut mid-write
     (a line that starts with `{` and is not JSON: a SIGKILL during a write leaves one; re-review N1)."""
     for line in text.splitlines():
@@ -326,8 +469,23 @@ def error_lines(text, name):
             yield line
             continue
         event = json_object(line)
-        if event.get("type") == "result" and event.get("is_error"):
+        if provider == CODEX:
+            yield from codex_error(event)
+        elif event.get("type") == "result" and event.get("is_error"):
             yield str(event.get("result"))
+
+
+def codex_error(event):
+    """The message of a Codex `exec --json` `error` event, of a `turn.failed` event's `error`, or of an `error` item;
+    nothing for any other event."""
+    item = event.get("item") if isinstance(event.get("item"), dict) else {}
+    failure = event.get("error") if isinstance(event.get("error"), dict) else {}
+    if event.get("type") == "error":
+        yield str(event.get("message"))
+    elif event.get("type") == "turn.failed":
+        yield str(failure.get("message"))
+    elif str(event.get("type")).startswith("item.") and item.get("type") == "error":
+        yield str(item.get("message"))
 
 
 def json_object(line):
@@ -348,9 +506,12 @@ def _session(path):
     return isinstance(row, dict) and ("sessionId" in row or row.get("type") in ("assistant", "user", "summary"))
 
 
-def audit_sessions(home, tree, made, model):
-    """(failure reason or None, policy hit or None, session files) for one unit's private home."""
-    sessions = sorted(path for path in Path(home).rglob("*.jsonl") if _session(path))
+def audit_sessions(home, tree, made, model, provider="claude", effort=None):
+    """(failure reason or None, policy hit or None, session files) for one unit's private home; for a Codex unit
+    (`provider` `CODEX`) `audit_rollouts`, with the arm's declared `effort`."""
+    if provider == CODEX:
+        return audit_rollouts(home, tree, made, model, effort)
+    sessions =sorted(path for path in Path(home).rglob("*.jsonl") if _session(path))
     projects = Path(home) / ".claude" / "projects"
     slug = re.sub(r"[^A-Za-z0-9]", "-", str(tree))
     scoped = [p for p in sessions if p.is_relative_to(projects) and len(p.relative_to(projects).parts) >= 2
@@ -370,13 +531,68 @@ def audit_sessions(home, tree, made, model):
     return None, None, sessions
 
 
+def audit_rollouts(home, tree, made, model, effort):
+    """`audit_sessions` for a Codex unit, over every rollout under its private home (`rollouts`): a `turn_context`
+    model other than `model` is a policy hit (`scan.model_hits`); a `turn_context` effort other than `effort`, a
+    session whose `session_meta` working directory is not under `tree`, more rollouts than `made` calls, or a tool
+    outside `CODEX_TOOLS` in an `additional_tools` row fails the unit."""
+    paths = rollouts(home)
+    try:
+        hits = list(scan.model_hits(paths, model))  # SystemExit on a line that is not JSON
+    except SystemExit as error:
+        return f"unreadable session: {error}", None, paths
+    if policy := scan.model_policy(hits):
+        return f"a session answered by another model: {hits[0]['text']}", policy, paths
+    return rollout_reason(paths, tree, made, effort), None, paths
+
+
+def rollout_reason(paths, tree, made, effort):
+    """Why a Codex unit's readable rollouts fail `audit_rollouts` beyond the model, or None."""
+    rows = [json_object(line) for path in paths for line in path.read_text(errors="replace").splitlines()]
+    if outside := [str(path) for path in paths if not Path(scan.codex_cwd(path)).is_relative_to(tree)]:
+        return f"sessions outside the unit tree: {outside}"
+    if efforts := other_efforts(rows, effort):
+        return f"a session at another effort than {effort}: {efforts}"
+    if len(paths) > made:
+        return f"{len(paths)} sessions for {made} recorded calls"
+    if tools := sorted({name for row in rows for name in additional_tools(row) if name not in CODEX_TOOLS}):
+        return f"a session was given {tools[:5]} ({len(tools)} in all)"
+    return None
+
+
+def other_efforts(rows, effort):
+    """The `turn_context` efforts of rollout rows other than `effort`, sorted."""
+    contexts = [row.get("payload") for row in rows if row.get("type") == "turn_context"]
+    return sorted({str(context.get("effort")) for context in contexts
+                   if isinstance(context, dict) and context.get("effort") != effort})
+
+
+def additional_tools(row):
+    """The tool names an `additional_tools` list of a rollout row (at its top or in its payload) names: strings, or
+    objects' `name`."""
+    payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+    listed = row.get("additional_tools") or payload.get("additional_tools")
+    return [str(tool.get("name") if isinstance(tool, dict) else tool) for tool in listed] if isinstance(
+        listed, list) else []
+
+
 def isolation_breach(records):
-    """Why a unit's sessions were not isolated (the first `system/init` event of its calls that lists one), or None."""
+    """Why a unit's sessions were not isolated (the first `system/init` event of its calls that lists one, or of a
+    Codex call, which prints no init event, its `item.*` types outside `CODEX_ITEMS`), or None."""
     for call in calls(records):
-        for event in stream_events(call / "stdout.txt"):
+        events = stream_events(call / "stdout.txt")
+        if provider(call) == CODEX and (found := sorted(codex_items(events) - CODEX_ITEMS)):
+            return f"call {call.name}: the session was given {found[:5]} ({len(found)} in all)"
+        for event in events:
             if (event.get("type"), event.get("subtype")) == ("system", "init") and (found := foreign(event)):
                 return f"call {call.name}: the session was given {found[:5]} ({len(found)} in all)"
     return None
+
+
+def codex_items(events):
+    """The item types of a Codex call's `item.started`, `item.updated` and `item.completed` events."""
+    return {str(event["item"].get("type")) for event in events
+            if str(event.get("type")).startswith("item.") and isinstance(event.get("item"), dict)}
 
 
 def foreign(init):
@@ -390,28 +606,32 @@ def foreign(init):
     return tools + servers + skills + plugins
 
 
-def priced(records, table, per_call):
+def priced(records, table, per_call, model=None):
     """{"usd", "calls": {call: usd}, "missing": [calls]} of a unit's physical calls (rounded to 1e-6 USD). A call is
     priced from the stream-json result event the metered template prints: the larger of its `modelUsage` at the
     table's ordinary rates and the CLI's reported `total_cost_usd` (the CLI applies a long-context rate per request,
     which the summed usage cannot). A call whose usage is missing, incomplete or unpriced counts at `per_call`, the
     worst case, and is listed in `missing`. A call the shim refused (no prompt) reached no provider and costs
-    nothing."""
+    nothing. A Codex call is priced from its last `turn.completed` usage (`exec --json`) as the unit's declared
+    `model`, at the ordinary rates (Codex reports no cost; one row sums the turn's requests); without `model`, or
+    without a completed turn (a killed or failed call), at `per_call`."""
     found, missing = {}, []
     for call in calls(records):
         if not (call / "prompt.txt").is_file():
             continue
-        cost = call_cost(call, table)
+        cost = call_cost(call, table, model)
         if cost is None:
             missing.append(call.name)
         found[call.name] = round(per_call if cost is None else cost, 6)
     return {"usd": round(sum(found.values()), 6), "missing": missing, "calls": found}
 
 
-def call_cost(call, table):
-    stdout = call / "stdout.txt"
-    usage = usage_from_stdout(ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value,
-                              stdout.read_bytes() if stdout.is_file() else b"", model=None)
+def call_cost(call, table, model=None):
+    stdout, codex = call / "stdout.txt", provider(call) == CODEX
+    mode = ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT if codex else \
+        ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT
+    usage = usage_from_stdout(mode.value, stdout.read_bytes() if stdout.is_file() else b"",
+                              model=model if codex else None)
     if usage.get("status") != "reported" or usage.get("complete") is not True or not usage.get("rows"):
         return None  # no usage row names a model: the worst case (review3 minor 4)
     value, reported = table_price(usage["rows"], table), usage.get("reported_cost_usd")
