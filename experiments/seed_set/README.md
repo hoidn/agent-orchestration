@@ -23,11 +23,10 @@ are the only authorized spend (`AGENTS.md`, "Experiment rules"); the seed evalua
 | The task packages and the difficulty ladder | `build_tasks.py`, `tiers.py`, `tasks.jsonl`, `tasks/` |
 | The anchors' stability record | `anchors.py`, `anchor_stability.json`, and the section below |
 
-## Owed before the third smoke
+## Before a tranche's first start
 
-Done: the allowance (ruling R13, and the owner's 24-hour allowance of 2026-11-23), the 20-task rehearsal (ruling
-R12), the isolation of Claude sessions, the scanner fixes and the verdict guards (plan ledger, rows of 2026-11-23).
-In the ledger's order:
+Each tranche (the smoke, the ladder probe, the calibration) starts only after these, in the ledger's order. The
+same steps repeat after any change to the kit's code, with `record-freeze --reason` once a start exists:
 
 1. **The freeze recorded again on the merged commit:** the runtime worktree, the anchors' stability run on that
    code, `judge-calibration.json`, the price table read again, `criterion.json` with its `spend` and `sha256`
@@ -35,7 +34,7 @@ In the ledger's order:
    is not part of the freeze: it names the judge the calibration selects (plan Step 1f). A CLI self-update before
    the first start means recording the freeze again.
 2. **The tranche's spend row** in the ledger, with the meter reading ruling R13 asks for.
-3. **The smoke.**
+3. **The tranche**, through `study.py` with `SEED_SET_AUTHORIZED_TRANCHE` set to its name.
 
 ## Running a tranche again after a stop or a failed smoke
 

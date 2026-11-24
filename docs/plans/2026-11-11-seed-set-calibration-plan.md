@@ -4,11 +4,12 @@
 [`experiments/seed_set/README.md`](../../experiments/seed_set/README.md)) after five review rounds.** The first smoke stopped after one `claude-haiku-5-5` call (priced USD 0.0323) on an
 isolation incident: the session loaded the account's claude.ai connectors (ledger row of 2026-11-18). The second
 smoke (owner approval of 2026-11-23, after the isolation fix) ran its 8 calls on 2026-11-23 (priced USD 0.9902) with
-no isolation breach and failed its check: scanner false positives left its pool without a summary. Spend to date:
-9 calls, USD 1.0225 priced; no calibration call. The scanner and the steps that lost the pool are fixed on `main`.
-Owed before the third smoke, in the [ledger](#ledger)'s order: the anchors on the merged code, the freeze recorded
-again, the tranche's spend row with a fresh meter reading, then the smoke. The calibration tranche starts only after
-a passed smoke. This page plans the scaled-down research step
+no isolation breach and failed its check: scanner false positives left its pool without a summary. The third smoke
+(scanner fixed; under the owner's allowance of 2026-11-23) passed all its checks the same day (7 calls, priced USD
+1.4603). The ladder probe, the plan's one redraw, is under way: its first step stopped on two runs that lost their
+login and a settlement crash, both fixed (ruling R16), and it resumed on the freeze of `dbe97cf0`. Spend to date:
+20 calls, USD 2.5442 priced settled; no calibration call. The calibration tranche starts after the probe's readout
+names the 20 tasks, with its own spend row; the [ledger](#ledger) has every step. This page plans the scaled-down research step
 the owner set on 2026-11-11: calibrate a small task set and a judge, then find
 two to four simple workflow programs that run reliably and do at least as well
 as one direct call at acceptable cost, and package them as seeds for a later
