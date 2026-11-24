@@ -20,8 +20,9 @@
   study.py smoke-check                                    the smoke's mechanical checklist, pass or fail, in the ledger
   study.py readout                                        anchors first, then V1-V4, G1-G4, incidents, baselines
   study.py ledger                                         calls reserved and made, and the events
-  study.py login-expiry                                   when the login's access token expires (`expires <ISO>, in
-                                                          <N> minutes`), read from the file a unit would copy
+  study.py login-expiry [--provider codex]                when the login's access token expires (`expires <ISO>, in
+                                                          <N> minutes`), read from the file a unit would copy (the
+                                                          Claude CLI's by default; Codex: refuses an API-key login)
   study.py resume-after-limit --reset T --five-hour P --weekly P --read-at T   reopen starts a usage limit closed
   study.py not-a-limit UNIT --reason R                    the raw result shows no usage limit: the unit is what the
                                                           rules make it (an incident or a failure), its pause goes
@@ -298,7 +299,7 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
         shutil.rmtree(record["tree"])
         raise
     facts["exit"] = launch(records / "command.sh", env, records / "run.log", unit_sec(spec["max_calls"], CALL_SEC))
-    pause_on_limit(study, records, str(records))  # before the settlement's collect, scan and check (review3 minor 1)
+    pause_on_limit(study, records, str(records), record["sandbox"]["home"])  # before the settlement (review3 minor 1)
     dump(records / "study.json", facts)
     return finish(study, records, facts, fix)
 
@@ -331,7 +332,7 @@ def settle(study, records, task, fix, cap, model, status):
     except SystemExit as error:
         out |= ({"outcome": "failed", "failure": {"code": "wall_clock_timeout"}} if status == "timeout"
                 else {"incident": str(error)})
-    out = provider_end(study, records, str(records), out)
+    out = provider_end(study, records, str(records), out, record["sandbox"]["home"])
     reason, policy, sessions = units.audit_sessions(record["sandbox"]["home"], record["tree"], made, model)
     reason = reason or units.isolation_breach(records)
     out["sessions"] = len(sessions)
@@ -361,7 +362,7 @@ def settle_price(study, unit, calls_root, tranche, model):
     above the unit's reserved worst case is flagged and closes every start with a `pause` (review3 minor 3): the
     per-call worst case was too low, and the tranche's priced total may pass its ceiling by the excess."""
     per_call = layout.spend_terms(study, tranche, model)[1]
-    priced = units.priced(calls_root, load_price_table(study.runtime / rules.PRICE_TABLE), per_call)
+    priced = units.priced(calls_root, load_price_table(study.runtime / rules.PRICE_TABLE), per_call, model)
     reserved = next((row["usd_reserved"] for row in spend.starts(spend.rows(study.ledger)) if row["unit"] == unit),
                     None)
     over = reserved is not None and priced["usd"] > reserved
@@ -372,22 +373,26 @@ def settle_price(study, unit, calls_root, tranche, model):
     return priced
 
 
-def pause_on_limit(study, calls_root, unit):
-    """The unit's usage limit (`units.usage_limit`, flagged when its shape is not the recorded one) or None; its
-    `pause` event, which closes every start at once, is recorded once per unit."""
-    limit = units.usage_limit(calls_root)
+def pause_on_limit(study, calls_root, unit, home=None):
+    """The unit's usage limit (`units.usage_limit`, flagged when its shape is not the recorded one; a Codex call's
+    also read from the session records in the unit's private `home`) or None; its `pause` event, which closes every
+    start at once, is recorded once per unit. A credit balance those records show (`units.credit_balance`) is no
+    limit: it records a stop (`rules.stop`), so no further start is reserved, and the unit is scored as it ended."""
+    if home and (why := units.credit_balance(home)):
+        rules.stop(study, f"{unit}: {why}; a Luna tranche runs with credits off")
+    limit = units.usage_limit(calls_root, home=home)
     if limit and not any(row.get("event") == "pause" and row.get("unit") == unit for row in spend.rows(study.ledger)):
         spend.record(study.ledger, "pause", unit=unit, **limit)
     return limit
 
 
-def provider_end(study, calls_root, unit, out):
+def provider_end(study, calls_root, unit, out, home=None):
     """The provider's own ending of a unit: a usage limit cuts it (not an incident, not an observation) and closes
     every start (`pause_on_limit`); paid extra usage on calls that ended normally only closes them, and the unit
     stays an observation; the incident a cut sets aside is kept in the cut, for `not_a_limit`. Any other
     provider error ends a failed unit as an incident (`provider_error`)."""
-    if pause_on_limit(study, calls_root, unit):
-        if not (limit := units.usage_limit(calls_root, cutting=True)):  # paid extra usage on normal ends: paused only
+    if pause_on_limit(study, calls_root, unit, home):
+        if not (limit := units.usage_limit(calls_root, cutting=True, home=home)):  # paid extra usage on normal ends
             return provider_error(calls_root, out)
         aside = {"incident": out["incident"]} if "incident" in out else {}
         return {key: value for key, value in out.items() if key != "incident"} | {"cut": limit | aside}
@@ -408,11 +413,11 @@ def not_a_limit(study, unit, reason):
     aside, an incident when it failed with a provider error, else what its outcome says (a natural failure scores
     0). The decision and the reason go to the ledger, and that pause no longer closes starts; nothing runs again
     (a unit that is not cut has no re-run). Taken only while the pause is open, and never for a pause whose rule
-    is a shape the kit knows is a real limit (`units.RECORDED`, `units.PAID`; final scoped check n10). A unit not
+    is a shape the kit knows is a real limit (`units.RECORDED`, `units.PAID_RULES`; final scoped check n10). A unit not
     yet settled refuses with the way out (`spend.UNSETTLED`)."""
     if not reason.strip():
         raise SystemExit("not-a-limit needs the operator's reason: what the raw result shows")
-    if (rule := spend.limit_pause(spend.rows(study.ledger), unit)["rule"]) in (units.RECORDED, units.PAID):
+    if (rule := spend.limit_pause(spend.rows(study.ledger), unit)["rule"]) in (units.RECORDED, *units.PAID_RULES):
         raise SystemExit(f"{unit} was paused by {rule}, a shape the kit knows is a real limit: not-a-limit cannot "
                          "withdraw it; `resume-after-limit` after the reset, with the owner's meter reading")
     path, calls_root = unit_files(unit)
@@ -618,11 +623,11 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
             unit_sec(batches, JUDGE_SEC))}
     finally:
         units.forget_credentials(home)
-    limit = pause_on_limit(study, records / "judges" / model, f"{out}#{model}")  # before anything else (minor 1)
+    limit = pause_on_limit(study, records / "judges" / model, f"{out}#{model}", home)  # before anything (minor 1)
     facts |= {"wall_clock_sec": time.time() - start, "calls": units.physical_calls(records / "judges" / model)}
     facts["priced"] = settle_price(study, f"{out}#{model}", records / "judges" / model, tranche, model)
     # the pool is rebuilt once, its task not lost; paid extra usage on normal ends only pauses (the judgment is kept)
-    if limit and (limit := units.usage_limit(records / "judges" / model, cutting=True)):
+    if limit and (limit := units.usage_limit(records / "judges" / model, cutting=True, home=home)):
         facts["cut"] = limit
     if facts["calls"] > batches:
         raise SystemExit(f"{out}#{model}: {facts['calls']} provider calls exceed the {batches} reserved; stop")
@@ -805,8 +810,10 @@ def parser():
             command.add_argument("--kind", choices=("first", "retest"), required=True)
         command.add_argument("tasks", nargs="+")
     sub.add_parser("settle").add_argument("runs", nargs="+", help="records directories")
-    for name in ("smoke-check", "probe-readout", "early-look", "readout", "ledger", "login-expiry"):
+    for name in ("smoke-check", "probe-readout", "early-look", "readout", "ledger"):
         sub.add_parser(name)
+    sub.add_parser("login-expiry").add_argument("--provider", choices=("claude", units.CODEX), default="claude",
+                                                help="whose login file: the Claude CLI's (default) or the Codex CLI's")
     sub.add_parser("record-freeze").add_argument("--reason", help="needed once a start exists: the apparatus fix")
     sub.add_parser("probe").add_argument("--rung", action="append", help="repeatable; default: the readout's next")
     limit = sub.add_parser("resume-after-limit", help="reopen the starts a usage limit closed (coordinator ruling R2)")
@@ -859,7 +866,7 @@ def main(argv=None):
         "early-look": lambda: print(json.dumps(rules.early_look(study), indent=2)),
         "readout": lambda: write_readout(study),
         "ledger": lambda: ledger_report(study),
-        "login-expiry": lambda: print(units.expiry_text(units.login_expiry())),
+        "login-expiry": lambda: print(units.expiry_text(units.login_expiry(provider=a.provider))),
         "resume-after-limit": lambda: print(json.dumps(spend.resume_after_limit(
             study.ledger, a.reset, a.five_hour, a.weekly, a.read_at))),
         "not-a-limit": lambda: print(json.dumps(not_a_limit(study, a.unit, a.reason))),

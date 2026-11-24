@@ -44,6 +44,7 @@ def recorded_call(root, stream=None):
     call = root / "calls" / "1"
     call.mkdir(parents=True)
     (call / "prompt.txt").write_text("the task\n")
+    (call / "provider.txt").write_text("claude\n")
     (call / "argv.nul").write_bytes(b"".join(arg.encode() + b"\0" for arg in ARGV))
     rows = events() if stream is None else stream
     (call / "stdout.txt").write_text("".join(json.dumps(row) + "\n" for row in rows))

@@ -146,6 +146,7 @@ def run_dir(runner, arm="direct", k=1, calls=0, **facts):
     for n in range(1, calls + 1):
         (records / "calls" / str(n)).mkdir(parents=True)
         (records / "calls" / str(n) / "prompt.txt").write_text("p")
+        (records / "calls" / str(n) / "provider.txt").write_text("claude\n")
     records.mkdir(parents=True, exist_ok=True)
     (records / "record.json").write_text(json.dumps(facts.pop("record", {})))
     (records / "study.json").write_text(json.dumps({"tranche": "calibration", "task": "t1", "arm": arm,
@@ -508,6 +509,7 @@ def test_a_cut_unit_whose_session_audit_fails_is_an_incident_and_its_pause_stays
     import time
     records = recorded_call(run_dir(runner), "token-usage-limit-NonZeroAgentExitCodeError")
     (records / "calls" / "1" / "prompt.txt").write_text("p")
+    (records / "calls" / "1" / "provider.txt").write_text("claude\n")
     home, tree = runner.work / "home", runner.work / "tree"
     tree.mkdir()
     store = home / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(tree))
@@ -624,6 +626,7 @@ def call_printing(records, stdout=(), stderr=""):
     call = records / "calls" / "1"
     call.mkdir(parents=True)
     (call / "prompt.txt").write_text("p")
+    (call / "provider.txt").write_text("claude\n")
     (call / "stdout.txt").write_text("".join((e if isinstance(e, str) else json.dumps(e)) + "\n" for e in stdout))
     (call / "stderr.txt").write_text(stderr)
     return records
@@ -723,6 +726,7 @@ def test_a_unit_with_paid_extra_usage_on_any_call_is_never_withdrawn_by_not_a_li
                                  ("2", [PAID_EVENT, OK_END], "")):
         (root / "calls" / name).mkdir(parents=True)
         (root / "calls" / name / "prompt.txt").write_text("p")
+        (root / "calls" / name / "provider.txt").write_text("claude\n")
         (root / "calls" / name / "stdout.txt").write_text("".join(json.dumps(e) + "\n" for e in stdout))
         (root / "calls" / name / "stderr.txt").write_text(stderr)
     limit = study.pause_on_limit(runner, root, unit)
@@ -851,6 +855,7 @@ def priced_unit(records, *results):
         call = records / "calls" / str(n)
         call.mkdir(parents=True)
         (call / "prompt.txt").write_text("p")
+        (call / "provider.txt").write_text("claude\n")
         (call / "stdout.txt").write_text("" if result is None else json.dumps({"type": "result", **result}) + "\n")
     return records
 
@@ -968,6 +973,7 @@ def test_a_refused_call_directory_is_not_a_physical_call(tmp_path):
         (tmp_path / "calls" / str(n)).mkdir(parents=True)
         if prompt:
             (tmp_path / "calls" / str(n) / "prompt.txt").write_text("p")
+            (tmp_path / "calls" / str(n) / "provider.txt").write_text("claude\n")
     assert units.physical_calls(tmp_path) == 1
 
 
