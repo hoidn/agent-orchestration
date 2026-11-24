@@ -189,18 +189,19 @@ def test_the_launcher_s_criterion_check_passes_under_the_tranche_s_efforts(tranc
     assert ladder._criterion_refusal(criterion) is None
 
 
-M9 = {"screen-cpu": {"competitions": 3, "slots": 9, "starts": 11, "cap": 8.0, "ceiling": 50.0,
+M9 = {"screen-cpu": {"competitions": 3, "slots": 9, "repeated": [], "starts": 11, "cap": 8.0, "ceiling": 50.0,
                      "concurrency": {"smoke": 1, "pilot": 1, "rounds": 3}, "smoke": "leaf", "pilot": "birds"},
-      "screen-gpu": {"competitions": 10, "slots": 30, "starts": 34, "cap": 8.0, "ceiling": 150.0,
+      "screen-gpu": {"competitions": 10, "slots": 30, "repeated": [], "starts": 34, "cap": 8.0, "ceiling": 150.0,
                      "concurrency": {"smoke": 1, "pilot": 1, "rounds": 1}, "smoke": "patent", "pilot": "tweet"}}
 
 
 @pytest.mark.parametrize("tranche", STAGE_ONE)
 def test_the_caps_ceilings_starts_slots_and_concurrency_are_m9_s(tranche):
     criterion = _criterion(tranche)
-    slots = {ladder.slot_id(e) for e in _schedule(criterion)}
+    slots = [ladder.slot_id(e) for e in _schedule(criterion)]
     concurrency = {k: criterion["host"]["concurrency"][k] for k in ("smoke", "pilot", "rounds")}
     assert {"competitions": len(criterion["tasks"]["list"]), "slots": len(slots),
+            "repeated": sorted({s for s in slots if slots.count(s) > 1}),
             "starts": criterion["ceiling"]["starts"], "cap": {t["cap_usd"] for t in criterion["tasks"]["list"]}.pop(),
             "ceiling": criterion["ceiling"]["total_usd"], "concurrency": concurrency,
             "smoke": criterion["schedule"]["smoke"]["task"], "pilot": criterion["schedule"]["pilot"]["task"]} == M9[tranche]
@@ -555,11 +556,11 @@ def _start(n, slot, reward=0, usd=3.0, row=OBSERVATION_ROW, cls="observation", l
             "egress_refused": {}, "relay_lookup_timeouts": {}, "artifact_absent": False}
 
 
-def _export(tranche, medals=(), usd=3.0, cuts=(), end="schedule"):
-    """A constructed export of a stage-one tranche that ran its whole schedule: one observation per slot, reward 1
-    for the slots of `medals` ((round, task) pairs), each start at `usd`; a cut, then its rerun, on the slots of
-    `cuts`. It loads through the reviewed slot_record.py."""
-    criterion = _criterion(tranche)
+def _export(tranche, medals=(), usd=3.0, cuts=(), end="schedule", criterion=None):
+    """A constructed export of a tranche (stage one's committed criterion, or `criterion`) that ran its whole
+    schedule: one observation per slot, reward 1 for the slots of `medals` ((round, task) pairs), each start at
+    `usd`; a cut, then its rerun, on the slots of `cuts`. It loads through the reviewed slot_record.py."""
+    criterion = criterion or _criterion(tranche)
     entries = _schedule(criterion)
     starts = []
     for e in entries:
@@ -593,26 +594,53 @@ def test_stage_two_s_ceiling_is_the_class_s_less_every_start_s_cost_cuts_include
         20.3, 29.7, 29.7)
 
 
-@pytest.mark.parametrize("usd, k", [(1.0, 2), (2.0, 2), (3.0, 1), (3.5, 1), (4.0, 0)])
-def test_stage_two_s_size_is_the_largest_k_with_3k_less_1_mean_costs_and_9_45_within_its_ceiling(usd, k):
-    """CPU, two competitions without a medal; ceiling 50 - 9 x usd - 0.3. At usd 3: 22.7 left, k=1 needs 2 x 3 +
-    9.45 = 15.45, k=2 needs 5 x 3 + 9.45 = 24.45. At usd 3.5: 18.2 left, k=1 needs 16.45 (3k x m would need 19.95).
-    At usd 4: 13.7 left, k=1 needs 17.45."""
+@pytest.mark.parametrize("usd, k", [(1.0, 2), (2.0, 2), (3.0, 0), (3.5, 0), (4.0, 0)])
+def test_stage_two_s_size_is_the_largest_k_of_two_or_more_with_3k_less_1_mean_costs_and_9_45_within_its_ceiling(
+        usd, k):
+    """CPU, two competitions without a medal; ceiling 50 - 9 x usd - 0.3. At usd 2: 31.7 left, k=2 needs 5 x 2 +
+    9.45 = 19.45. At usd 3: 22.7 left, k=2 needs 5 x 3 + 9.45 = 24.45; k=1 would fit (15.45) and is not funded
+    (M9-R1). At usd 4: 13.7 left, k=1 would need 17.45."""
     export = _export("screen-cpu", medals={(1, "leaf")}, usd=usd)
     derivation, criterion, _ = _derive("screen-cpu", export)
     m, ceiling = derivation["mean_usd_per_start"], derivation["ceiling_usd"]
-    fits = [j for j in range(len(derivation["no_medal"]) + 1) if j == 0 or (3 * j - 1) * m + 9.45 <= ceiling]
+    fits = [j for j in range(len(derivation["no_medal"]) + 1)
+            if j == 0 or (j >= 2 and (3 * j - 1) * m + 9.45 <= ceiling)]
     assert (derivation["k"], max(fits), derivation["funded"], derivation["not_funded"]) == (
         k, k, ["textnorm-ru", "birds"][:k], ["textnorm-ru", "birds"][k:])
     assert (criterion is None) == (k == 0)
 
 
-def test_a_stage_of_one_competition_schedules_three_slots_and_its_starts_cap_is_m9_s():
+def test_one_competition_without_a_medal_is_not_funded_as_a_stage_of_one():
+    """M9-R1: k = 1 would fit; it is reported not funded, and there is no stage two."""
     export = _export("screen-cpu", medals={(1, "leaf"), (2, "textnorm-ru")}, usd=1.0)
     derivation, criterion, tasks = _derive("screen-cpu", export)
-    slots = {ladder.slot_id(e) for e in _schedule(criterion)}
-    assert (derivation["funded"], sorted(slots), criterion["ceiling"]["starts"], [t["name"] for t in tasks["tasks"]]) == (
-        ["birds"], ["r1-birds-medium", "r2-birds-medium", "r3-birds-medium"], 5, ["mle-bench/birds"])
+    assert (derivation["no_medal"], derivation["k"], derivation["funded"], derivation["not_funded"], criterion,
+            tasks) == (["birds"], 0, [], ["birds"], None, None)
+
+
+def test_a_stage_two_of_one_funded_competition_is_refused():
+    derivation = {"export_label": LABEL, "export_sha256": "e" * 64, "funded": ["birds"], "ceiling_usd": 20.0}
+    with pytest.raises(mc.Refused, match="M9-R1"):
+        mc._stage_two(_criterion("screen-cpu"), derivation, "cpu", mc.FIELDS)
+
+
+def test_a_stage_one_with_one_qualified_competition_is_refused():
+    fields = copy.deepcopy(mc.FIELDS)
+    fields["filled"] = {"screen-cpu": {"tasks.qualified": {"value": ["leaf"], "source": "a stand-in row"}}}
+    with pytest.raises(mc.Refused, match="M9-R1"):
+        mc.stage_one("cpu", fields=fields)
+
+
+def test_a_stage_two_s_schedule_lists_each_slot_once_and_its_export_loads():
+    """The smallest stage two the rule funds, two competitions: six slots, each once, and an export of its whole
+    schedule loads through the reviewed slot_record.py (with one competition its smoke and pilot are one slot,
+    which slot_record.py refuses)."""
+    _, criterion, _ = _derive("screen-cpu", _export("screen-cpu", medals={(1, "leaf")}, usd=1.0))
+    slots = [ladder.slot_id(e) for e in _schedule(criterion)]
+    export = _export(None, criterion=_stand_ins(criterion))
+    assert (slots[:2], sorted(slots), len(export["starts"])) == (
+        ["r1-textnorm-ru-medium", "r1-birds-medium"],
+        sorted(f"r{r}-{t}-medium" for r in (1, 2, 3) for t in ("textnorm-ru", "birds")), 6)
 
 
 def test_a_gpu_stage_two_s_starts_cap_is_its_slots_and_four():

@@ -57,6 +57,7 @@ PER_COMPETITION = ("tasks.list", "tasks.qualified", "tasks.load_sensitive", "tas
                    "tasks.withholding", "tasks.packages", "readout.graded_outcome.verifiers",
                    "readout.contamination_scan.canary_exempt_tasks")
 SMALL_TRANCHE_RULES = ("infrastructure failures", "cuts")  # stops' entries whose from_starts M9 sets per class
+LEAST_COMPETITIONS = 2  # M9-R1: with one, the launcher's smoke and pilot are one slot, listed twice
 
 
 def _load(name, path):
@@ -169,7 +170,18 @@ def stage_one(cls, fields=FIELDS, the_ladder=None):
     doc["filled"] = [e for e in base["filled"] if not _under(e["field"], replaced)]
     doc["filled_rule"] = fields["filled_rule"]
     _own(doc, c["tranche"], own_pending(cls, fields), fields)
+    _enough(doc)
     return doc, tasks_json(doc)
+
+
+def _enough(doc):
+    """Refused when the tranche has fewer than two competitions, or fewer than two qualified once that is filled
+    (M9-R1): the launcher would schedule its smoke and its pilot as one slot, and every export would be refused."""
+    qualified = doc["tasks"]["qualified"]
+    for what, names in (("competitions", doc["tasks"]["list"]), ("qualified competitions", qualified)):
+        if names is not None and len(names) < LEAST_COMPETITIONS:
+            raise Refused(f"{doc['stage']['tranche']}: {len(names)} {what}; a tranche needs at least "
+                          f"{LEAST_COMPETITIONS} (M9-R1)")
 
 
 def _placeholder(name):
@@ -241,10 +253,12 @@ def _money(one, starts, probe):
 
 
 def _size(one, starts, label, probe, fields):
-    """M9's rules 1 to 3: the competitions with no medal, the ceiling left, and the first k of them it funds."""
+    """M9's rules 1 to 3: the competitions with no medal, the ceiling left, and the first k of them it funds; k is
+    at least two or zero (M9-R1)."""
     no_medal, (m, committed, ceiling) = _no_medal(one, starts, label), _money(one, starts, probe)
     last = one["caps"]["cap_usd"] + one["ceiling"]["reservation"]["margin_usd"] + fields["live_probe_bound_usd"]
-    k = max((j for j in range(1, len(no_medal) + 1) if (3 * j - 1) * m + last <= ceiling), default=0)
+    k = max((j for j in range(LEAST_COMPETITIONS, len(no_medal) + 1) if (3 * j - 1) * m + last <= ceiling),
+            default=0)
     return {"no_medal": no_medal, "funded": no_medal[:k], "not_funded": no_medal[k:], "mean_usd_per_start": m,
             "committed_usd": committed, "live_probe_usd": probe, "k": k, "ceiling_usd": ceiling}
 
@@ -258,13 +272,17 @@ def _only(value, keep):
 
 
 def _stage_two(one, derivation, cls, fields):
-    """Stage one's criterion with M9's fields of stage two: everything else is stage one's."""
+    """Stage one's criterion with M9's fields of stage two: everything else is stage one's. Refused for fewer than
+    two funded competitions (M9-R1)."""
     two, c, funded = copy.deepcopy(one), fields["classes"][cls], derivation["funded"]
+    if len(funded) < LEAST_COMPETITIONS:
+        raise Refused(f"{c['stage_two']}: {len(funded)} funded competitions; a tranche needs at least "
+                      f"{LEAST_COMPETITIONS} (M9-R1)")
     for field in PER_COMPETITION:
         ladder._set(two, field, _only(ladder._at(two, field), set(funded)))
     two["ceiling"]["total_usd"] = derivation["ceiling_usd"]
     two["ceiling"]["starts"] = fields["attempts_per_competition"] * len(funded) + c["extra_starts"]
-    smoke, pilot = funded[0], funded[1 if len(funded) > 1 else 0]
+    smoke, pilot = funded[0], funded[1]
     two["schedule"]["smoke"]["task"], two["schedule"]["pilot"]["task"] = smoke, pilot
     two["schedule"]["pilot"]["fallback"] = _fallback([t["name"] for t in two["tasks"]["list"]], smoke, pilot)
     two["stage"] = {**one["stage"], "tranche": c["stage_two"], "stage": 2,

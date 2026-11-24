@@ -16,17 +16,22 @@ manifest.py with KIT, MANIFEST, NOT_COVERED and EXTERNAL set, made by make_crite
 launcher LH=~/mle-cache. It replaces or wraps no function of either module.
 
 Its own refusals (exit 3, `screen.py: refused: <reason>`), each before the launcher is entered: a tranche outside
-the kit's list or not generated; LH naming another cache than ~/mle-cache, or ~/mle-cache resolving into the
-ladder's ~/lh-cache. At launch: an image reference of tasks.json not pinned by digest, or a competition without a
-passing withholding result for its agent image; at launch and resume: an uncommitted change under
-experiments/mle_bench_tasks. At launch: free disk on a file system under host.disk_plan.launch_room_gb; for a GPU
-tranche, a process holding memory on the card (or nvidia-smi failing). For a live launch or resume: a passthrough
-answering on the ladder's, the live probe's or another tranche's socket; the ladder's launcher lock or this line's
-lock (~/.local/state/mle-bench/launcher.lock) held. Both locks are then held until the launcher returns. While a
-GPU tranche's launcher runs, the processes on the card are recorded once a minute into <state>/screen/gpu.jsonl.
-A rehearsal (LH_REHEARSAL) takes neither lock.
+the kit's list or not generated, or with fewer than two qualified competitions (M9-R1; in a rehearsal, the
+stand-in's list while the field is pending); LH naming another cache than ~/mle-cache, or ~/mle-cache, its logs/ or
+its packages/ resolving into the ladder's ~/lh-cache. At launch: an image reference of tasks.json not pinned by
+digest, or a competition without a passing withholding result for its agent image, its slug and this checkout's
+withhold_check.py; ~/mle-cache/recordings missing or a symbolic link (the launcher's round read scans it; Task 7's
+setup creates it, mode 700). At launch and resume: an uncommitted change under experiments/mle_bench_tasks. At
+launch: free disk on a file system under host.disk_plan.launch_room_gb; for a GPU tranche, a process holding memory
+on the card (or nvidia-smi failing). For a live launch or resume: a passthrough answering on the ladder's, the live
+probe's or another tranche's socket; the ladder's launcher lock or this line's lock
+(~/.local/state/mle-bench/launcher.lock) held. Both locks are then held until the launcher returns. A rehearsal's
+launch or resume (LH_REHEARSAL) takes the ladder's lock alone, so it never runs beside a ladder launcher. While a GPU
+tranche's launcher runs, the processes on the card are recorded once a minute into <state>/screen/gpu.jsonl, which
+screen_readout.py reads.
 """
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -36,13 +41,14 @@ import subprocess
 import sys
 import threading
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent
 LADDER_KIT = KIT.parent / "long_horizon_tasks"
 TRANCHES = KIT / "tranches"
 COMMANDS = ("plan", "launch", "status", "ruling", "resume", "allowance")
+CACHE_PARTS = ("", "logs", "packages")  # ~/mle-cache and the parts the launcher writes or reads: never the ladder's
 SCREEN_EFFORTS = ("medium",)
 GPU_QUERY = ["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits"]
 GPU_EVERY_S = 60
@@ -98,11 +104,23 @@ def launcher(tranche):
 # ---- the wrapper's refusals ----------------------------------------------------------------------------------
 
 
-def tranche_refusal(tranche):
+def _qualified(criterion, env):
+    """The criterion's qualified competitions: the field, or while it is pending a rehearsal's stand-in, or the
+    whole list."""
+    tasks, path = criterion["tasks"], Path(env.get("LH_REHEARSAL") or "/nonexistent") / "stand_ins.json"
+    stand_in = _read(path).get("tasks.qualified") if path.is_file() else None
+    return next(q for q in (tasks["qualified"], stand_in, [t["name"] for t in tasks["list"]]) if q is not None)
+
+
+def tranche_refusal(tranche, env):
     if tranche not in FIELDS["tranches"]:
         return f"{tranche} is not a tranche of the kit ({', '.join(FIELDS['tranches'])})"
     if not (TRANCHES / tranche / "ladder.json").is_file():
         return f"{tranche} has no tranche directory under {TRANCHES}"
+    qualified = _qualified(_read(TRANCHES / tranche / "ladder.json"), env)
+    if len(qualified) < make_criterion.LEAST_COMPETITIONS:
+        return (f"{tranche} has {len(qualified)} qualified competitions: a tranche needs at least "
+                f"{make_criterion.LEAST_COMPETITIONS}, or its smoke and its pilot are one slot (M9-R1)")
     return None
 
 
@@ -111,18 +129,31 @@ def _home(env):
 
 
 def cache_refusal(env):
-    """LH naming another cache than this line's, or this line's resolving into the ladder's (M4, ruling M-b)."""
+    """LH naming another cache than this line's, or this line's, its logs/ or its packages/ resolving into the
+    ladder's (M4, ruling M-b)."""
     cache, theirs = _home(env) / "mle-cache", (_home(env) / "lh-cache").resolve()
     if env.get("LH") and Path(env["LH"]) != cache:
         return f"this line's cache is {cache}, and LH names {env['LH']}"
-    resolved = cache.resolve()
-    if theirs == resolved or theirs in resolved.parents:
-        return f"{cache} resolves to the ladder's cache {theirs}"
+    for path in (cache / part for part in CACHE_PARTS):
+        resolved = path.resolve()
+        if theirs == resolved or theirs in resolved.parents:
+            return f"{path} resolves into the ladder's cache {theirs}"
+    return None
+
+
+def recordings_refusal(env):
+    """The recordings directory the launcher's round read scans (ladder.file_set): missing, it makes every round read
+    incomplete; a link could read the ladder's (Task 7's setup creates it, mode 700)."""
+    path = _home(env) / "mle-cache" / "recordings"
+    if path.is_symlink() or not path.is_dir():
+        return f"{path} is not a directory of this line's own (Task 7's setup creates it, mode 700)"
     return None
 
 
 def image_refusal(tranche):
-    """An image reference not pinned by digest, or no passing withholding result for the agent image (ruling B2)."""
+    """An image reference not pinned by digest, or no passing withholding result for the agent image, by this
+    checkout's withhold_check.py, for the competition's slug (ruling B2)."""
+    check = "sha256:" + hashlib.sha256((KIT / "withhold_check.py").read_bytes()).hexdigest()
     for task in _read(TRANCHES / tranche / "tasks.json")["tasks"]:
         name, result = task["name"], task["withholding"]
         for key in ("environment_image", "verifier_image"):
@@ -134,6 +165,10 @@ def image_refusal(tranche):
             return f"{name}: the withholding result names another image ({result.get('image')})"
         if result.get("verdict") != "pass":
             return f"{name}: the withholding result did not pass"
+        if result.get("competition") != task["slug"]:
+            return f"{name}: the withholding result is for another competition ({result.get('competition')})"
+        if result.get("check_sha256") != check:
+            return f"{name}: the withholding result is by another version of withhold_check.py"
     return None
 
 
@@ -193,13 +228,16 @@ def passthrough_refusal(home, tranche):
 
 
 @contextmanager
-def exclusive(lad, home):
-    """The ladder's launcher lock and this line's lock, by the reviewed lock class, held together (M5)."""
-    roots = [home / ".local" / "state" / "lh-ladder", home / ".local" / "state" / "mle-bench"]
+def exclusive(lad, home, line=True):
+    """The ladder's launcher lock and, with `line`, this line's lock, by the reviewed lock class, held together
+    (M5)."""
+    roots = [home / ".local" / "state" / "lh-ladder"] + [home / ".local" / "state" / "mle-bench"] * line
     for root in roots:
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
-        with lad.OneLauncher(roots[0]), lad.OneLauncher(roots[1]):
+        with ExitStack() as held:
+            for root in roots:
+                held.enter_context(lad.OneLauncher(root))
             yield
     except lad.Refused as exc:
         raise Refused(str(exc)) from None
@@ -295,7 +333,7 @@ def before_launcher(lad, tranche, command, env):
     """The wrapper's refusals of a launch or a resume, in M4's order."""
     criterion, ctx = _read(TRANCHES / tranche / "ladder.json"), lad.Ctx(env)
     if command == "launch":
-        _first(lambda: image_refusal(tranche))
+        _first(lambda: image_refusal(tranche), lambda: recordings_refusal(env))
     _first(lambda: clean_refusal(lad))
     if command == "launch":
         _first(lambda: disk_refusal(criterion), lambda: gpu_refusal(lad, ctx, criterion))
@@ -312,7 +350,7 @@ def run(tranche, command, rest, env):
     if command in ("launch", "resume"):
         before_launcher(lad, tranche, command, env)
     ctx = lad.Ctx(env)
-    locks = exclusive(lad, ctx.home) if ctx.live and command in ("launch", "resume") else nullcontext()
+    locks = exclusive(lad, ctx.home, line=ctx.live) if command in ("launch", "resume") else nullcontext()
     starts = command == "launch" and "--dry-run" not in rest
     record = gpu_recorder(lad, ctx) if starts and is_gpu(_read(TRANCHES / tranche / "ladder.json")) else nullcontext()
     with locks, record:
@@ -327,7 +365,7 @@ def main(argv=None, env=None):
         return 2
     tranche, command, rest = argv[0], argv[1], argv[2:]
     try:
-        _first(lambda: tranche_refusal(tranche))
+        _first(lambda: tranche_refusal(tranche, env))
         if command == "manifest":
             return manifest_command(tranche, rest)
         return run(tranche, command, rest, env)

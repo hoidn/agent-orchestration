@@ -773,5 +773,47 @@ def test_the_table_prints_each_score_against_the_thresholds(tmp_path):
 
 
 def test_the_document_names_the_inputs_the_exports_do_not_carry(tmp_path):
-    assert set(_compute(tmp_path, {A: [1, 0, 0], B: [1, 0, 0]})["not_in_the_inputs"]) == {
-        "installed packages", "processes holding the GPU"}
+    assert set(_compute(tmp_path, {A: [1, 0, 0], B: [1, 0, 0]})["not_in_the_inputs"]) == {"installed packages"}
+
+
+# GPU rows, by the minute each stands for, against attempt windows [1000 i, 1000 i + 500] of starts 1 to 6 (M5):
+# start 1 a process; start 2 none; start 3 unreadable; start 4 a process in the minute before it opened; start 5 a
+# process after it closed; start 6 a process in a minute that ends before it opened.
+GPU_ROWS = [(1100, [{"pid": "7", "name": "python3", "mib": "512"}]), (2100, []), (3100, None),
+            (3970, [{"pid": "7", "name": "python3", "mib": "512"}]), (5600, [{"pid": "7", "name": "x", "mib": "1"}]),
+            (5939, [{"pid": "7", "name": "x", "mib": "1"}])]
+
+
+def _gpu_stage(tmp_path):
+    stage_one = _tranche(tmp_path / "one", SCREEN, {A: [1, 0, 0], B: [0, 0, 0]})
+    state = stage_one[2]
+    for attempt in sorted((state / "slots").iterdir()):
+        i = int(attempt.name[:3])
+        for name, key, at in (("slot.json", "opened", 1000.0 * i), ("settled.json", "closed", 1000.0 * i + 500)):
+            doc = json.loads((attempt / name).read_text())
+            (attempt / name).write_text(json.dumps({**doc, key: at}))
+    (state / "screen").mkdir()
+    (state / "screen" / "gpu.jsonl").write_text("".join(json.dumps({"at": at, "processes": p}) + "\n"
+                                                        for at, p in GPU_ROWS))
+    return stage_one
+
+
+def test_an_observation_during_which_the_gpu_record_lists_a_process_or_could_not_be_read_is_flagged(tmp_path):
+    result = readout.compute(_gpu_stage(tmp_path), time_zone=ZoneInfo(ZONE))
+    held = {a["start"]: a["gpu_held"] for c in result["competitions"].values()
+            for a in c["stage_one"]["attempts"]}
+    assert (held, {n: c["stage_one"]["gpu_held"] for n, c in result["competitions"].items()}) == (
+        {1: [1100], 2: [], 3: [3100], 4: [3970], 5: [], 6: []}, {A: 2, B: 1, C: 0})
+
+
+def test_the_table_marks_a_competition_whose_observations_the_gpu_record_flags(tmp_path):
+    lines = readout.table(readout.compute(_gpu_stage(tmp_path), time_zone=ZoneInfo(ZONE))).splitlines()
+    marks = {line.split("|")[0].strip(): line.split("|")[-1].strip() for line in lines[1:]
+             if line.split("|")[0].strip() in (A, B)}
+    assert marks == {A: readout.GPU_MARK.format(2), B: readout.GPU_MARK.format(1)}
+
+
+def test_a_gpu_record_row_without_a_time_is_refused(tmp_path):
+    stage_one = _gpu_stage(tmp_path)
+    (stage_one[2] / "screen" / "gpu.jsonl").write_text('{"processes": []}\n')
+    assert _code(lambda: readout.compute(stage_one, time_zone=ZoneInfo(ZONE))) == "gpu-record"
