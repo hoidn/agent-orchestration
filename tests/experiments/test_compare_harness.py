@@ -9,12 +9,13 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
-from experiments.compare import prepare, repos, scan
+from experiments.compare import pool as pooling, prepare, repos, scan
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
     READY, REPO, call, configure_test_sandbox, drive, edit, git, selects, skip_without_sandbox, start, world,
     write_memo, write_task,
@@ -90,6 +91,33 @@ def test_run_refuses_a_sandbox_mount_inside_or_around_the_main_checkout(world, m
     configure_test_sandbox(world, monkeypatch, readonly_files=[world.main / ".git" if mount == "inside" else world.tmp])
     with pytest.raises(SystemExit, match="main checkout"):
         start(world, "direct_task")
+
+
+def test_pool_refuses_a_judge_sandbox_mount_inside_the_main_checkout(world, monkeypatch):
+    """A judge's scan skips the main checkout prefix in tool output too, so its sandbox may not mount it either."""
+    records, _ = drive(world, "direct_task", [edit("$PWD", "b + a")], True)
+    configure_test_sandbox(world, monkeypatch, readonly_files=[world.main / ".git"])
+    with pytest.raises(SystemExit, match="main checkout"):
+        pooling.pool(world.task, world.criterion, world.outside / "pool", ["judge-a"], [records])
+
+
+def test_dump_never_shows_a_reader_a_partial_file(tmp_path):
+    """Units in flight read each other's records (the stop rules); a write replaces the file whole."""
+    path, values = tmp_path / "study.json", [{"x": "a" * 2_000_000}, {"x": "b" * 2_000_000}]
+    repos.dump(path, values[0])
+    done, seen = threading.Event(), []
+
+    def write():
+        for k in range(40):
+            repos.dump(path, values[k % 2])
+        done.set()
+
+    writer = threading.Thread(target=write)
+    writer.start()
+    while not done.is_set():
+        seen.append(repos.load(path) in values)
+    writer.join()
+    assert (all(seen), sorted(p.name for p in tmp_path.iterdir())) == (True, ["study.json"])
 
 
 def test_run_refuses_a_runtime_inside_the_work_root(world):

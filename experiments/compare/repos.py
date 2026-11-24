@@ -39,7 +39,19 @@ def load(path):
 
 
 def dump(path, value):
-    Path(path).write_text(json.dumps(value, indent=2) + "\n")
+    """Write `value` as JSON atomically: a new file in the same directory, synced, then renamed over `path`, so a
+    concurrent reader (units in flight read each other's records) sees the old file or the new, never part of one."""
+    path = Path(path)
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    try:
+        with open(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666), "w") as handle:
+            handle.write(json.dumps(value, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def sha256_file(path):
