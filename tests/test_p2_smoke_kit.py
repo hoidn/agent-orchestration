@@ -8,6 +8,8 @@ temporary HOME. A paid-path test (`authorized=True`) only ever reaches a refusal
 
 from __future__ import annotations
 
+import atexit
+import functools
 import hashlib
 import json
 import os
@@ -15,6 +17,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -28,6 +31,10 @@ WRAPPER_FLAGS = ["--setting-sources", "project", "--strict-mcp-config", "--disab
                  "--max-budget-usd", "0.5"]
 SOURCE = "experiments/orc_vs_single_call/workflows/best_of_n.orc"
 PINNED_CLI = json.loads((KIT / "criterion.json").read_text())["cli_version"]
+# The concluded smoke pinned the price table by hash (criterion.json); the live table has moved on since, so every
+# runtime here holds the pinned table, taken from a commit that carries it.
+PRICE_TABLE = "orchestrator/providers/price_table.json"
+PINNED_PRICE_COMMIT = "486f2018d570ba26b006edff407538e3c15c393c"
 
 
 def _manifest(kit: Path, regenerate: bool = False) -> str:
@@ -43,13 +50,31 @@ def _head(checkout: Path) -> str | None:
     return found.stdout.strip() if found.returncode == 0 else None
 
 
-RUNTIME_COMMIT = _head(REPO)
+def _pinned_price_table() -> bytes:
+    """The price table the smoke pinned, from git; a source whose hash is not the criterion's pin fails here."""
+    table = subprocess.run(["git", "-C", str(REPO), "show", f"{PINNED_PRICE_COMMIT}:{PRICE_TABLE}"],
+                           capture_output=True, check=True).stdout
+    pinned = json.loads((KIT / "criterion.json").read_text())["price_table_sha256"]
+    assert hashlib.sha256(table).hexdigest() == pinned, f"{PINNED_PRICE_COMMIT}:{PRICE_TABLE} is not the pinned table"
+    return table
 
 
-def launch(tmp: Path, *, kit: Path = KIT, runtime: Path = REPO, rehearsal: bool = True, authorized: bool = False,
-           path: tuple = (), claude_bin: Path | None = None, **extra: str | None) -> subprocess.CompletedProcess[str]:
-    """`run_smoke.sh RUNTIME <tmp>/results`; a rehearsal with the kit's stand-in unless `rehearsal=False`, with the
-    runtime's own HEAD as the ledger's runtime commit and `claude_bin` as P2SMOKE_CLAUDE_BIN."""
+@functools.cache
+def pinned_runtime() -> Path:
+    """The default runtime: a committed copy of this checkout's orchestrator package (with the pinned price table),
+    the best-of-N source and, as a link, this kit; one per test process, removed at exit."""
+    tmp = Path(tempfile.mkdtemp(prefix="p2smoke-runtime-"))
+    atexit.register(shutil.rmtree, tmp, ignore_errors=True)
+    return _runtime(tmp)
+
+
+def launch(tmp: Path, *, kit: Path = KIT, runtime: Path | None = None, rehearsal: bool = True,
+           authorized: bool = False, path: tuple = (), claude_bin: Path | None = None,
+           **extra: str | None) -> subprocess.CompletedProcess[str]:
+    """`run_smoke.sh RUNTIME <tmp>/results` (default `pinned_runtime()`); a rehearsal with the kit's stand-in unless
+    `rehearsal=False`, with the runtime's own HEAD as the ledger's runtime commit and `claude_bin` as
+    P2SMOKE_CLAUDE_BIN."""
+    runtime = pinned_runtime() if runtime is None else runtime
     (tmp / "home").mkdir(exist_ok=True)
     env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH" and not key.startswith("P2SMOKE_")}
     env.update(HOME=str(tmp / "home"), PATH=closed_path(*path), P2SMOKE_PYTHON=sys.executable,
@@ -85,7 +110,9 @@ def nothing_launched(tmp: Path) -> bool:
         results / "rehearsal-ledger" / "smoke").exists()
 
 
-def readout(results: Path, *extra: str, commit: str | None = RUNTIME_COMMIT) -> subprocess.CompletedProcess[str]:
+def readout(results: Path, *extra: str, commit: str | None = "") -> subprocess.CompletedProcess[str]:
+    """The readout with `commit` as the ledger's runtime commit: by default the pinned runtime's HEAD; None sets none."""
+    commit = _head(pinned_runtime()) if commit == "" else commit
     env = {key: value for key, value in os.environ.items() if not key.startswith("P2SMOKE_")}
     env.update({"PATH": closed_path()}, **({"P2SMOKE_RUNTIME_COMMIT": commit} if commit else {}))
     return subprocess.run([sys.executable, "-B", str(KIT / "readout.py"), str(results), *extra], capture_output=True,
@@ -108,10 +135,16 @@ def _kit_copy(tmp: Path, edit, *, regenerate: bool) -> Path:
     return kit
 
 
-def _runtime(tmp: Path, edit=None, *, commit_edit: bool = False) -> Path:
-    """A small committed checkout holding the orchestrator package and the best-of-N source."""
+def _runtime(tmp: Path, edit=None, *, commit_edit: bool = False, own_kit: bool = True) -> Path:
+    """A small committed checkout holding the orchestrator package with the pinned price table, the best-of-N source
+    and, unless `own_kit=False`, the kit as a link (so the kit is the runtime's own experiments/p2_smoke, as in the
+    repository)."""
     runtime = tmp / "runtime"
     shutil.copytree(REPO / "orchestrator", runtime / "orchestrator", ignore=shutil.ignore_patterns("__pycache__"))
+    (runtime / PRICE_TABLE).write_bytes(_pinned_price_table())
+    (runtime / "experiments").mkdir()
+    if own_kit:
+        (runtime / "experiments" / "p2_smoke").symlink_to(KIT)
     (runtime / SOURCE).parent.mkdir(parents=True)
     shutil.copy2(REPO / SOURCE, runtime / SOURCE)
     git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-C", str(runtime)]
@@ -810,7 +843,7 @@ def test_readout_does_not_pass_a_run_on_a_dirty_runtime(real):
 
 
 def test_paid_run_refuses_a_kit_that_is_not_the_runtimes_own(tmp):
-    launched = launch(tmp, runtime=_runtime(tmp), rehearsal=False, authorized=True,
+    launched = launch(tmp, runtime=_runtime(tmp, own_kit=False), rehearsal=False, authorized=True,
                       claude_bin=_fake_cli(tmp, PINNED_CLI))
     assert refused(launched, "not the runtime's own experiments/p2_smoke") and nothing_launched(tmp), launched.stderr
 
