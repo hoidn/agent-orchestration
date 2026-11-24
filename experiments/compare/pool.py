@@ -423,7 +423,8 @@ def write_score_inputs(out, mapping, intent, runtime, *, environment=None):
                          *([batch['reference']] if 'reference' in batch else [])]})
         info['sandbox'] = sandbox.prepare_unit(home, out / 'records/judges' / judge,
             homes=out / '.private-homes', clones=clones, providers=Path(info['providers']), result_root=home / 'state',
-            environment=environment, claude_model=judge if judge in sandbox.CLAUDE_MODELS else sandbox.SONNET)
+            environment=environment, claude_model=judge if judge in sandbox.CLAUDE_MODELS else sandbox.SONNET,
+            main=mapping["main"])
         env = {"COMPARE_ROOT": out / "records" / "judges" / judge, "COMPARE_TREE": home,
                "COMPARE_BASE": mapping["compare_base"], 'COMPARE_SANDBOX': info['sandbox']['declaration']}
         if judge in contamination.CODEX_MODELS:

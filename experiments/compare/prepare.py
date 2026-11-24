@@ -118,11 +118,8 @@ def refuse_paths(main, root, runtime, spec, readonly=()):
     scan does not count the prefix in tool output because the sandbox mounts no part of it."""
     files = [p for p in (spec.source, spec.source_root, spec.providers, spec.command_boundaries) if p]
     state = [spec.state_dir] if spec.state_dir else []
-    mounts = [Path(path) for pair in dict(readonly).items() for path in pair]
-    guard(main, root, runtime, *files, *state, *mounts)
-    for mount in mounts:
-        if Path(main).is_relative_to(mount):
-            raise SystemExit(f"the sandbox mount {mount} contains the main checkout {main}; mount a narrower path")
+    guard(main, root, runtime, *files, *state)
+    sandbox.refuse_main_mounts(main, readonly)  # before anything is built; prepare_unit checks again for every unit
     if str(runtime).startswith(f"{root}/"):
         raise SystemExit(f"the runtime {runtime} lies inside the work root {root}, where agents work")
     for path in files:
@@ -248,7 +245,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec
     native = sandbox.prepare_unit(tree, records, homes=root / '.private-homes',
                                   providers=None if spec.command else spec.providers,
                                   result_root=state or cwd / '.orchestrate/runs', environment=environment,
-                                  claude_model=claude)
+                                  claude_model=claude, main=main)
     env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base, "TMPDIR": tree / "tmp"}
     env['COMPARE_SANDBOX'] = native['declaration']
     if inputs.get("model") in contamination.CODEX_MODELS:

@@ -419,7 +419,8 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
         shim_env["COMPARE_CLAUDE_MODELS"] = ",".join(model for model in config.models if model.startswith('claude'))
     from experiments.compare import sandbox
     native = sandbox.prepare_unit(tree, records, homes=work_root / '.private-homes',
-                                  environment={**env, **{key: str(value) for key, value in shim_env.items()}})
+                                  environment={**env, **{key: str(value) for key, value in shim_env.items()}},
+                                  main=main_checkout(runtime))
     shim_env['COMPARE_SANDBOX'] = native['declaration']
     dump(records / 'record.json', {'tree': str(tree), 'records': str(records), 'sandbox': native,
                                    'main': str(main_checkout(runtime)), 'runtime': str(runtime), 'created_at': created_at})

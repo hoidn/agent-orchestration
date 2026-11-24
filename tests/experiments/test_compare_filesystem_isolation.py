@@ -437,7 +437,8 @@ def test_effective_preparation_environment_selects_private_auth_and_dependencies
         out = world.outside / 'selected-pool'
         (out / 'records').mkdir(parents=True)
         mapping = {'judges': {'judge-a': {'dir': 'anonymous', 'providers': str(world.runtime / 'providers.json')}},
-                   'batches': [], 'criterion_sha256': 'synthetic-only', 'compare_base': world.base}
+                   'batches': [], 'criterion_sha256': 'synthetic-only', 'compare_base': world.base,
+                   'main': str(world.main)}
         pool.write_score_inputs(out, mapping, 'synthetic intent', world.runtime, environment=environment)
         metadata = mapping['judges']['judge-a']['sandbox']
     home = Path(metadata['home'])

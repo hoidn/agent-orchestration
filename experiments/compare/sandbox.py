@@ -142,10 +142,20 @@ def _bound_claude(model):
     return model
 
 
+def refuse_main_mounts(main, readonly):
+    """No read-only mount (destination -> source) lies under the main checkout's prefix or contains it: the scan
+    does not count that prefix in tool output because the sandbox mounts no part of the main checkout."""
+    for mount in (Path(path) for pair in dict(readonly).items() for path in pair):
+        if str(mount).startswith(str(main)) or Path(main).is_relative_to(mount):
+            raise SystemExit(f"the sandbox mount {mount} lies under or contains the main checkout {main}; "
+                             "mount a path elsewhere")
+
+
 def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment=None, result_root=None,
-                 claude_model=SONNET):
+                 claude_model=SONNET, main=None):
     """Create one home once; its declaration/marker bind launch, resume and receipt discovery. The declaration
-    fixes the unit's one Claude model; a launch environment can only narrow it."""
+    fixes the unit's one Claude model; a launch environment can only narrow it. With `main`, refuse read-only
+    mounts under or around the main checkout (`refuse_main_mounts`)."""
     _bound_claude(claude_model)
     environment = os.environ if environment is None else environment
     tree, records, homes = (Path(p).resolve() for p in (tree, records, homes))
@@ -154,6 +164,8 @@ def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment
         raise ValueError('sandbox unit already prepared; resume its recorded declaration')
     data = dependencies(environment)
     _validate_dependencies(data)
+    if main is not None:
+        refuse_main_mounts(main, data['readonly'])
     if homes.is_relative_to(tree) or homes.is_relative_to(records):
         raise ValueError('private homes must stay outside candidate and public records trees')
     homes.mkdir(parents=True, exist_ok=True, mode=0o700)
