@@ -470,7 +470,9 @@ class ProviderTemplate:
         interactive_session_support: Optional queued interactive-session
             capability
         env_unset: Environment variable names removed from the child's
-            environment on every launch of this template
+            environment on every executor launch of this template (plain,
+            metered, session fresh and resume); interactive-terminal launches
+            do not apply it, and no template with interactive support sets it
     """
     name: str
     command: List[str]
@@ -481,6 +483,13 @@ class ProviderTemplate:
     interactive_session_support: Optional[InteractiveSessionSupport] = None
     command_metadata_mode: Optional[str] = None
     env_unset: Tuple[str, ...] = ()
+
+    def _env_unset_errors(self) -> List[str]:
+        if isinstance(self.env_unset, tuple) and all(
+            isinstance(name, str) and name for name in self.env_unset
+        ):
+            return []
+        return [f"Provider '{self.name}': env_unset must be a tuple of non-empty strings"]
 
     def validate(self) -> List[str]:
         """
@@ -508,6 +517,7 @@ class ProviderTemplate:
                     f"Provider '{self.name}': command_metadata_mode must be "
                     "one of the pinned metadata modes"
                 )
+        errors.extend(self._env_unset_errors())
 
         is_omp_transport = (
             self.command_metadata_mode

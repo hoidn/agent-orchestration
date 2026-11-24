@@ -20,14 +20,15 @@ from orchestrator.providers import (
     ProviderSessionMode,
     ProviderSessionRequest,
 )
+from orchestrator.providers.registry import AGY_ENV_UNSET, metered_templates
 from orchestrator.providers.session_transport import create_session_transport_accumulator
-from orchestrator.providers.types import ProviderSessionMetadataMode
+from orchestrator.providers.types import ProviderSessionMetadataMode, ProviderTemplate
 from tests.agent_session_shims import closed_path
 
 AGY = ProviderSessionMetadataMode.AGY_STREAM_JSON_STDOUT.value
 FIXTURES = Path(__file__).parent / "fixtures" / "agy"
 CONVERSATION = "5078e3ed-4db2-4afe-9be7-47b241073d21"
-KEYS = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS")
+KEYS = AGY_ENV_UNSET
 
 
 def _fixture(name: str) -> bytes:
@@ -154,6 +155,17 @@ def test_metered_and_session_calls_decode_agy_stream_json():
             plain.session_support.turn_boundary_resume) == (None, AGY, AGY, False)
 
 
+def test_metering_refuses_an_agy_command_whose_prompt_is_not_last():
+    with pytest.raises(ValueError, match="must end in"):
+        metered_templates({"x": ProviderTemplate(name="x", command=["agy", "-p", "${PROMPT}", "--model", "m"])})
+
+
+@pytest.mark.parametrize("env_unset", [("",), ("A", 1), ["A"]], ids=["empty", "not-string", "list"])
+def test_env_unset_must_be_a_tuple_of_names(env_unset):
+    template = ProviderTemplate(name="x", command=["agy", "-p", "${PROMPT}"], env_unset=env_unset)
+    assert template.validate() == ["Provider 'x': env_unset must be a tuple of non-empty strings"]
+
+
 # Child environment and launches through the executor
 
 STANDIN = r'''import json, os, sys
@@ -181,7 +193,7 @@ def standin(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", closed_path(bin_dir))
     monkeypatch.setenv("AGY_STANDIN_LOG", str(tmp_path / "calls.jsonl"))
     monkeypatch.setenv("AGY_STANDIN_FIXTURES", str(FIXTURES))
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "kept")
+    monkeypatch.setenv("GOOGLE_UNLISTED_SETTING", "kept")
     for key in KEYS:
         monkeypatch.setenv(key, "parent-secret")
     return tmp_path
@@ -198,7 +210,7 @@ def test_no_google_credential_variable_reaches_the_child(standin, name, session)
     result = executor.execute(invocation, cwd=standin,
                               execution_env_overlay={"GEMINI_API_KEY": "overlay-secret"})
     assert (result.exit_code, result.error) == (0, None)
-    assert _calls(standin)[0]["keys"] == ["GOOGLE_CLOUD_PROJECT"]
+    assert _calls(standin)[0]["keys"] == ["GOOGLE_UNLISTED_SETTING"]
 
 
 def test_session_fresh_then_resume_binds_one_conversation(standin):
@@ -221,4 +233,4 @@ def test_a_template_without_env_unset_passes_the_variables_on(standin):
     executor = ProviderExecutor(standin, registry)
     invocation, error = executor.prepare_invocation("agy_with_key", ProviderParams(), {}, prompt_content="hi")
     assert error is None and executor.execute(invocation, cwd=standin).exit_code == 0
-    assert _calls(standin)[0]["keys"] == sorted([*KEYS, "GOOGLE_CLOUD_PROJECT"])
+    assert _calls(standin)[0]["keys"] == sorted([*KEYS, "GOOGLE_UNLISTED_SETTING"])

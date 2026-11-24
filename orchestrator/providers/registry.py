@@ -29,8 +29,9 @@ _TRANSPORTS = {
     "codex": (2, ("--json",), ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value),
     "agy": (-2, ("--output-format", "stream-json"), ProviderSessionMetadataMode.AGY_STREAM_JSON_STDOUT.value),
 }
-# Credentials `agy` would read instead of the account login; a built-in `agy` call never passes them on.
-AGY_ENV_UNSET = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS")
+# Key and cloud-credential variables the `agy` binary reads; a built-in `agy` call never hands the parent's to it.
+AGY_ENV_UNSET = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE",
+                 "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION")
 
 
 def metered_templates(builtins: Dict[str, ProviderTemplate]) -> Dict[str, ProviderTemplate]:
@@ -45,6 +46,8 @@ def metered_templates(builtins: Dict[str, ProviderTemplate]) -> Dict[str, Provid
         if transport is None or template.command_metadata_mode is not None:
             continue
         at, flags, mode = transport
+        if at < 0 and template.command[at:] != ["-p", "${PROMPT}"]:
+            raise ValueError(f"template {name!r} must end in `-p ${{PROMPT}}` to take metered flags before it")
         command = [*template.command[:at], *flags, *template.command[at:]]
         metered[f"{name}_metered"] = replace(template, name=f"{name}_metered", command=command,
                                              command_metadata_mode=mode)

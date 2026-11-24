@@ -206,19 +206,52 @@ def test_agy_without_init_uses_the_policy_model():
         "gemini-3.8-flash")
 
 
-def test_agy_last_usage_line_of_a_step_wins():
-    step = (b'{"event":"step_update","step_update":{"step_index":1,"usage":{"input_tokens":%d,"output_tokens":1,'
-            b'"cache_read_tokens":0,"total_tokens":%d}}}\n')
-    raw = step % (5, 6) + step % (9, 10) + b'{"event":"result","result":{"status":"SUCCESS"}}\n'
-    assert usage_from_stdout(AGY, raw, model="m") == _agy_usage("m", 9, 1, 0)
-
-
 def _agy_step(usage) -> bytes:
     return json.dumps({"event": "step_update", "step_update": {"step_index": 1, "usage": usage}}).encode() + b"\n"
 
 
+def _agy_result(usage, *, status="SUCCESS", num_turns=1, conversation_id="c") -> bytes:
+    return json.dumps({"event": "result", "result": {"conversation_id": conversation_id, "status": status,
+                                                     "num_turns": num_turns, "usage": usage}}).encode() + b"\n"
+
+
 GOOD_AGY_USAGE = {"input_tokens": 10, "output_tokens": 3, "thinking_tokens": 2, "cache_read_tokens": 4,
                   "total_tokens": 13}
+ZERO_AGY_USAGE = dict.fromkeys(GOOD_AGY_USAGE, 0)
+
+
+def test_agy_last_usage_line_of_a_step_wins():
+    first = {**GOOD_AGY_USAGE, "input_tokens": 5, "total_tokens": 8}
+    raw = _agy_step(first) + _agy_step(GOOD_AGY_USAGE) + _agy_result(GOOD_AGY_USAGE)
+    assert usage_from_stdout(AGY, raw, model="m") == _agy_usage("m", 10, 3, 4)
+
+
+@pytest.mark.parametrize("result", [
+    _agy_result(GOOD_AGY_USAGE, status="ERROR"),
+    _agy_result({**GOOD_AGY_USAGE, "input_tokens": 11, "total_tokens": 14}),     # a fresh call's total disagrees
+    _agy_result("x"),
+    b'{"event":"result","result":"x"}\n',
+], ids=["error-status", "fresh-sum-mismatch", "result-usage-malformed", "result-not-object"])
+def test_agy_step_sums_are_a_lower_bound_unless_the_result_confirms_them(result):
+    assert usage_from_stdout(AGY, _agy_step(GOOD_AGY_USAGE) + result, model="m") == _agy_usage(
+        "m", 10, 3, 4, complete=False)
+
+
+def test_agy_resumed_call_skips_the_cumulative_total():
+    raw = _agy_step(GOOD_AGY_USAGE) + _agy_result({**GOOD_AGY_USAGE, "input_tokens": 99, "total_tokens": 102},
+                                                  num_turns=2)
+    assert usage_from_stdout(AGY, raw, model="m") == _agy_usage("m", 10, 3, 4)
+
+
+@pytest.mark.parametrize("raw", [
+    _agy("fresh", drop="result").splitlines(keepends=True)[0] + _agy_result(ZERO_AGY_USAGE),
+    _agy_result(ZERO_AGY_USAGE, conversation_id=""),
+    _agy_result(ZERO_AGY_USAGE, status="ERROR"),
+    _agy("fresh", drop="result").splitlines(keepends=True)[0]
+    + _agy_result(ZERO_AGY_USAGE, status="ERROR", conversation_id=""),
+], ids=["init-and-success", "success", "conversation-id", "init"])
+def test_agy_zero_usage_is_unknown_unless_the_call_was_refused(raw):
+    assert usage_from_stdout(AGY, raw, model="m") == {"status": "unknown", "reason": "no_usage_event"}
 
 
 @pytest.mark.parametrize(("raw", "reason"), [
@@ -233,12 +266,13 @@ GOOD_AGY_USAGE = {"input_tokens": 10, "output_tokens": 3, "thinking_tokens": 2, 
     (_agy("fresh", drop="result").splitlines(keepends=True)[0], "no_usage_event"),
     (b'{"event":"result","result":{"status":"ERROR"}}\n', "no_usage_event"),
     (b"", "no_usage_event"),
+    (_agy_result({**GOOD_AGY_USAGE, "total_tokens": 1}, status="ERROR", conversation_id=""), "malformed"),
 ], ids=["negative", "fraction", "total-mismatch", "missing-counter", "usage-not-object", "index-not-int", "prose",
-        "result-usage-only", "init-only", "result-without-usage", "empty"])
+        "result-usage-only", "init-only", "result-without-usage", "empty", "result-usage-malformed"])
 def test_agy_unreadable_usage_is_unknown_not_zero(raw, reason):
     assert usage_from_stdout(AGY, raw, model="m") == {"status": "unknown", "reason": reason}
 
 
 def test_agy_good_step_usage_is_charged_as_read():
-    raw = _agy_step(GOOD_AGY_USAGE) + b'{"event":"result","result":{"status":"SUCCESS"}}\n'
+    raw = _agy_step(GOOD_AGY_USAGE) + _agy_result(GOOD_AGY_USAGE)
     assert usage_from_stdout(AGY, raw, model="m") == _agy_usage("m", 10, 3, 4)

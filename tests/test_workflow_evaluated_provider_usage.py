@@ -327,7 +327,9 @@ AGY_REPLAY = ROOT / "tests" / "fixtures" / "agy" / "model_effort.jsonl"     # `a
 
 
 def test_agy_metered_step_writes_step_usage_and_report_shows_it_unpriced(tmp_path, monkeypatch):
-    for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS"):
+    from orchestrator.providers.registry import AGY_ENV_UNSET
+
+    for key in AGY_ENV_UNSET:
         monkeypatch.setenv(key, "parent-secret")
     root = _workspace(tmp_path / "w", "agy_metered", "gemini-3.8-flash")
     (root / "bin" / "agy").write_text(f"#!{sys.executable}\n" + AGY_STANDIN, encoding="utf-8")

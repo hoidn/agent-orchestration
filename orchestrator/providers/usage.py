@@ -17,11 +17,14 @@ usage it could not read, and never raises. Sources:
 - Codex `exec --json`: the last `turn.completed` line's `usage`; the model is the call's policy model.
   Charged input is input minus cached and cache-write tokens.
 - `agy --output-format stream-json`: one row for `init.model` (the call's policy model without an `init`
-  line) summing the `step_update` lines that carry `usage`, the last such line per `step_index`; never
-  `result.usage`, which is cumulative over the whole conversation. Each usage must have
+  line) summing the `step_update` lines that carry `usage`, the last such line per `step_index` (a step's
+  usage is taken once, as Claude's repeated message usage is; a fresh call's result total cross-checks
+  it); never `result.usage`, which is cumulative over the whole conversation. Each usage must have
   `total_tokens == input_tokens + output_tokens` (thinking inside output, `cache_read_tokens` outside
-  input); cache-write is 0. `complete` is whether a `result` line was seen. Without step usage, a `result`
-  line with all-zero usage (the CLI refused the call before any request) is reported with no rows.
+  input); cache-write is 0. `complete` needs a `SUCCESS` `result` line with well-formed usage which, when
+  `num_turns` is 1, equals the step sums; otherwise the rows are a lower bound. Without step usage, only
+  the refused shape (no `init`, an empty `conversation_id`, a status other than `SUCCESS`, all-zero
+  usage: the CLI refused the call before any request) is reported, with no rows.
 
 A cut final line (a killed writer) is ignored; any other undecodable line makes usage `malformed`.
 `usage_from_stdout` reads nothing but its arguments; `spent` and `run_usage` read a run's `usage.json` files.
@@ -190,16 +193,40 @@ def _agy(events: list[dict], model: str | None) -> dict | None:
         model = init["model"]
     per_step = _agy_step_usages(events)
     results = [event.get("result") for event in events if event.get("event") == "result"]
+    result = results[-1] if results and isinstance(results[-1], dict) else None
     if not per_step:
-        last = results[-1] if results and isinstance(results[-1], dict) else {}
-        if "usage" in last and not any(_agy_tokens(last["usage"]).values()):     # refused before any request
-            return _reported("result.usage", [], None)
-        return None
+        return _agy_refused(result, init_seen=any(event.get("event") == "init" for event in events))
     tokens = dict.fromkeys(("input", "output", "cache_read", "cache_write"), 0)
     for usage in per_step.values():
         for key, value in _agy_tokens(usage).items():
             tokens[key] += value
-    return _reported("step_update.usage", [{"model": model, "tokens": tokens}], None, complete=bool(results))
+    return _reported("step_update.usage", [{"model": model, "tokens": tokens}], None,
+                     complete=_agy_complete(result, tokens))
+
+
+def _agy_refused(result: dict | None, *, init_seen: bool) -> dict | None:
+    """No rows, complete, for the refused shape only: no `init`, an empty `conversation_id`, a status that is
+    not `SUCCESS` and all-zero usage; else None. A malformed `result.usage` raises `_Malformed`."""
+    if result is None or "usage" not in result:
+        return None
+    zero = not any(_agy_tokens(result["usage"]).values())
+    if zero and not init_seen and result.get("conversation_id") == "" and result.get("status") != "SUCCESS":
+        return _reported("result.usage", [], None)
+    return None
+
+
+def _agy_complete(result: dict | None, tokens: dict) -> bool:
+    """Whether the step sums are the whole call: a `SUCCESS` result whose usage is well formed and, for a fresh
+    conversation (`num_turns` 1), equal to the step sums; a resumed call's `result.usage` is cumulative."""
+    if result is None or result.get("status") != "SUCCESS":
+        return False
+    try:
+        total = _agy_tokens(result.get("usage"))
+    except _Malformed:
+        return False
+    if type(result.get("num_turns")) is not int or result["num_turns"] != 1:
+        return True
+    return all(total[key] == tokens[key] for key in ("input", "output", "cache_read"))
 
 
 def _agy_step_usages(events: list[dict]) -> dict[int, Any]:
