@@ -1293,6 +1293,19 @@ def test_the_smoke_fails_while_a_reserved_unit_is_unsettled(runner, settled):  #
     assert rules.smoke_check(runner)["checks"]["every_reserved_unit_settled"] is settled
 
 
+@pytest.mark.parametrize("verdict, clean", [("cleared", True), ("contaminated", False)])
+def test_the_smoke_scan_check_passes_a_cleared_hit_and_fails_a_contaminated_one(runner, verdict, clean):
+    """Coordinator ruling (2026-11-23): a scan hit adjudicated `cleared` keeps the smoke's scans clean."""
+    smoke_runs(runner)
+    hit = {"file": "calls/1/stdout.txt", "line": 1, "pattern": "github.com", "text": "see github.com/x"}
+    for path in layout.study_runs(runner):
+        hits = [hit] if json.loads(path.read_text())["arm"] == "direct" else []
+        found = {"hits": hits, "verdict": {"verdict": verdict, "reason": "r", "hits": 1} if hits else None}
+        record = path.parent / "record.json"
+        record.write_text(json.dumps(json.loads(record.read_text()) | {"scan": found}))
+    assert rules.smoke_check(runner)["checks"]["scans_and_session_audits_clean"] is clean
+
+
 def test_the_runtime_counts_haiku_calls_at_five_times_and_sonnet_calls_at_once_the_ordinary_rate(runner):
     assert (rules.tier_ratio(runner, H), rules.tier_ratio(runner, S)) == (5, 1)  # review3 X3
 

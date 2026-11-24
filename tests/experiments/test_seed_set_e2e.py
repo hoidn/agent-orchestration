@@ -476,6 +476,9 @@ def test_offline_pool_refuses_scan_hits_without_a_verdict_before_building_and_bu
     prepare.adjudicate(run, "cleared", "a benign mention")
     study.build_pools(s, "calibration", "first", [task])
     assert (layout.current_pool(s, task, "first") / "records" / "mapping.json").exists()
+    (run / "record.json").write_text(json.dumps(record | {"scan": record["scan"] | {"hits": [hit]}}))
+    with pytest.raises(SystemExit, match="built once"):  # a pool not to be built asks for no verdict
+        study.build_pools(s, "calibration", "first", [task])
 
 
 def test_offline_summarize_refuses_judge_hits_without_a_verdict_and_summarizes_after_adjudication(world, monkeypatch):

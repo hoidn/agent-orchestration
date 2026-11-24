@@ -340,22 +340,30 @@ def tokens(records):
     return (consumption.get("claude") or {}).get("tokens") if isinstance(consumption, dict) else "unavailable"
 
 
-def unadjudicated(found):
-    """Whether a scan record (a run's `scan`, a judge's scan.json) holds hits and no verdict. Model-policy hits need
-    none: that run or judge is excluded anyway."""
-    return bool(found and found.get("hits") and found.get("verdict") is None and not model_policy(found["hits"]))
+def scan_record(records):
+    """The scan of a unit's records directory: a run's `scan` in its record.json, or a judge's scan.json; or None."""
+    run, judge = Path(records) / "record.json", Path(records) / "scan.json"
+    if run.is_file():
+        return load(run).get("scan")
+    return load(judge) if judge.is_file() else None
 
 
-def run_scan_command(run):
-    """The adjudication command of a run whose scan awaits a verdict, or None."""
-    record = Path(run) / "record.json"
-    return f"prepare.py scan --run {run}" if record.is_file() and unadjudicated(load(record).get("scan")) else None
+def scan_clean(records):
+    """Scanned, and every hit adjudicated `cleared` (coordinator ruling, 2026-11-23); contaminated or no verdict is
+    not clean."""
+    found = scan_record(records)
+    return found is not None and (not found["hits"] or (found["verdict"] or {}).get("verdict") == "cleared")
 
 
-def judge_scan_command(pool, judge):
-    """The adjudication command of a judge whose scan awaits a verdict, or None."""
-    path = Path(pool) / "records" / "judges" / judge / "scan.json"
-    return f"prepare.py scan --pool {pool} --judge {judge}" if path.is_file() and unadjudicated(load(path)) else None
+def adjudication_command(records):
+    """The `prepare.py scan` command of a run or judge whose scan holds hits and no verdict, or None. Model-policy hits
+    need no verdict: that run or judge is excluded anyway."""
+    found, records = scan_record(records), Path(records)
+    if not (found and found.get("hits") and found.get("verdict") is None and not model_policy(found["hits"])):
+        return None
+    if (records / "record.json").is_file():
+        return f"prepare.py scan --run {records}"
+    return f"prepare.py scan --pool {records.parents[2]} --judge {records.name}"
 
 
 def refuse_unadjudicated(commands, step):
@@ -383,8 +391,7 @@ def smoke_check(study):
     hold no second smoke: a stop for the owner)."""
     (task,) = tranche_tasks(study, "smoke")
     found = smoke_units(study, task)
-    refuse_unadjudicated([judge_scan_command(r.parents[2], r.name) if name.startswith("judge") else run_scan_command(r)
-                          for name, r, _, _, _ in found], "smoke-check")
+    refuse_unadjudicated([adjudication_command(r) for _, r, _, _, _ in found], "smoke-check")
     runs = [f for name, _, _, _, f in found if not name.startswith("judge")]
     results_path = study.results / "pools" / f"{task}-first" / "results.json"
     results = load(results_path) if results_path.is_file() else {"clones": {}, "excluded_judges": {"pool": "missing"}}
@@ -421,8 +428,7 @@ def pool_checks(results_path, results, runs):
 def call_checks(found, reserved):
     """Clean scans and session audits, the bound model and effort on every call, calls within the reservation, no
     provider error."""
-    return {"scans_and_session_audits_clean": all(f.get("scan_hits") == 0 and not f.get("incident")
-                                                  for _, _, _, _, f in found),
+    return {"scans_and_session_audits_clean": all(scan_clean(r) and not f.get("incident") for _, r, _, _, f in found),
             "bound_model_and_effort_on_every_call": all(bound_argv(r, m, e) for _, r, m, e, _ in found),
             "calls_within_reserved": all(units.physical_calls(r) <= reserved.get(unit_of(r), 0)
                                          for _, r, _, _, _ in found),

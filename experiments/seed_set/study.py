@@ -39,8 +39,10 @@ the harness's resume scripts are disabled (the study never resumes). Candidate c
 ledger is `~/.local/state/seed-set/spend-ledger.jsonl` whatever the paths given. Scan hits are adjudicated by hand
 (`prepare.py scan --verdict`); `pool`, `summarize` and `smoke-check` refuse before writing anything (no incident, no
 smoke result) while a run or judge they read has hits and no verdict, naming each one's command, so the operator
-adjudicates and runs the step again. A pool that cannot be summarized (a failed judge, a wrong rating count, a task
-without a usable run) is recorded as an incident and costs only its task.
+adjudicates and runs the step again (`pool` asks only for the tasks it would build). The smoke's scan check passes
+a hit adjudicated `cleared` (coordinator ruling, 2026-11-23). A pool that cannot be summarized (a failed judge, a
+wrong rating count, a task without a usable run) is recorded as an incident and costs only its task; its clones are
+removed only after the incident is written.
 
 A usage limit (coordinator rulings R1 and R2, 2026-11-14) is neither an incident nor an observation. The unit it
 cuts is recorded `cut`, never pooled, never scored and not counted by the incident stop; a `pause` event closes
@@ -460,18 +462,23 @@ def pool_incident(study, task, kind, reason, failed_judges=()):
     print(f"POOL INCIDENT {task}/{kind}: {reason}")
 
 
-def pool_to_build(study, task, kind):
-    """Where `pool` builds (task, kind): the first pool, or once its rebuild when a usage limit cut one of its judges
-    (the cut pool's clones go first; its records stay). A pool built or rebuilt before, or ended as an incident,
-    refuses."""
+def pool_target(study, task, kind):
+    """Where `pool` would build (task, kind), or None: the first pool, or once its rebuild when a usage limit cut one
+    of its judges. None for a pool built or rebuilt before, or ended as an incident."""
     out = layout.current_pool(study, task, kind)
     if out.exists() and layout.cut_judges(out) and out.name == kind:
-        if (out / "clones").exists():
-            retire(out)
         out = out.with_name(kind + layout.REBUILT)
-    if out.exists() or (study.results / "pools" / f"{task}-{kind}").exists():
-        raise SystemExit(f"{out} exists or ended as an incident; a pool is built once (and rebuilt once after a usage "
-                         "limit)")
+    return None if out.exists() or (study.results / "pools" / f"{task}-{kind}").exists() else out
+
+
+def pool_to_build(study, task, kind):
+    """`pool_target`, or a refusal; a rebuild retires the cut pool's clones first (its records stay)."""
+    out = pool_target(study, task, kind)
+    if out is None:
+        raise SystemExit(f"{layout.current_pool(study, task, kind)} exists or ended as an incident; a pool is built "
+                         "once (and rebuilt once after a usage limit)")
+    if out.name != kind and (out.with_name(kind) / "clones").exists():
+        retire(out.with_name(kind))
     return out
 
 
@@ -488,7 +495,8 @@ def build_pools(study, tranche, kind, tasks):
     require_tasks(study, tranche, tasks, kind)
     load_criterion(study)
     pooled = {task: runs_to_pool(study, task) for task in dict.fromkeys(tasks)}
-    rules.refuse_unadjudicated([rules.run_scan_command(run) for runs in pooled.values() for run in runs], "pool")
+    rules.refuse_unadjudicated([rules.adjudication_command(run) for task, runs in pooled.items()
+                                if pool_target(study, task, kind) for run in runs], "pool")
     for task, runs in pooled.items():
         out = pool_to_build(study, task, kind)
         rules.require_free(study, study.pools)
@@ -637,9 +645,8 @@ def summarize_pools(study, kind, tasks):
     """summarize.py per pool behind the guard, then keep its records and delete its clones. A pool it refuses is an
     incident naming the judges that failed; only its task loses its numbers."""
     load_criterion(study)
-    rules.refuse_unadjudicated([rules.judge_scan_command(pool, judge) for task in dict.fromkeys(tasks)
-                                for pool in [layout.current_pool(study, task, kind)]
-                                for judge in sorted(p.name for p in (pool / "records" / "judges").glob("*"))],
+    rules.refuse_unadjudicated([rules.adjudication_command(judge) for task in dict.fromkeys(tasks) for judge in
+                                sorted((layout.current_pool(study, task, kind) / "records" / "judges").glob("*"))],
                                "summarize")
     for task in dict.fromkeys(tasks):
         out = layout.current_pool(study, task, kind)
