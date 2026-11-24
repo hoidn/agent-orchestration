@@ -39,7 +39,7 @@ Three exemptions keep the repository's own text and the unit's own paths from re
   still is. A candidate's paths (agents/<random>, records/<arm>/run-<k>) carry no task id, so it passes none.
 A hit's excerpt is always taken from the recorded line itself, never from the text an exemption altered.
 
-Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1 and an
+Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna (5.6 or 6) or Sol 6.1 and an
 explicitly bound Claude run or judge Haiku (expected_claude_model). Any other answering model is a hit. Read actual
 Claude assistant message.model and Codex turn_context.model metadata, never printed model names. A Claude row
 answered by `<synthetic>` is the CLI's own message (an API error, a usage limit): no hit where a Claude model is
@@ -62,7 +62,7 @@ SOLUTION = "solution hash"
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
 FORBIDDEN_MODEL = "Forbidden model"
-CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-luna", "gpt-6.1-sol")
+CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-luna", "gpt-6.1-sol", "gpt-6-luna")
 JUDGE_TESTS = r"\bpytest\b|\bdev_check(?:\.py)?\b"
 BOUNDARY = r"(?![\w.-])"  # a path ends here: what follows is not part of its last component
 POOL_FILES = r"records/(?:mapping\.json|patches/|score-inputs-|(?:score|resume)-\S*\.sh|results\.(?:json|md)|judges/)"

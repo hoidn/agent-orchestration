@@ -9,6 +9,7 @@ from tests.experiments.test_compare_model_cap import guarded  # noqa: F401
 from tests.experiments.compare_harness_support import world  # noqa: F401
 
 LUNA = 'gpt-5.6-luna'
+LUNA_6 = 'gpt-6-luna'
 TERRA = 'gpt-5.6-terra'
 SOL = 'gpt-6.1-sol'
 
@@ -169,9 +170,17 @@ def test_codex_luna_is_explicit_and_each_run_allowlist_is_exact(guarded):
                    ORC_ALLOWED_CODEX_MODELS=LUNA).returncode == 2
 
 
+@pytest.mark.parametrize('allowed,status', [(LUNA_6, 3), (None, 2), (TERRA, 2), (LUNA, 2)])
+def test_codex_gpt_6_luna_runs_only_in_a_unit_that_names_it(guarded, allowed, status):
+    env = {} if allowed is None else {'ORC_ALLOWED_CODEX_MODELS': allowed}
+    assert guarded('codex', ['--model', LUNA_6], **env).returncode == status
+
+
 @pytest.mark.parametrize('expected,actual,forbidden', [(LUNA, LUNA, False), (LUNA, TERRA, True),
                                                      (TERRA, LUNA, True), (TERRA, TERRA, False),
-                                                     (SOL, SOL, False), (SOL, TERRA, True), (TERRA, SOL, True)])
+                                                     (SOL, SOL, False), (SOL, TERRA, True), (TERRA, SOL, True),
+                                                     (LUNA_6, LUNA_6, False), (LUNA_6, LUNA, True),
+                                                     (LUNA_6, TERRA, True), (TERRA, LUNA_6, True)])
 def test_scan_audits_the_exact_frozen_codex_model(tmp_path, expected, actual, forbidden):
     tree = tmp_path / 'tree'; tree.mkdir()
     home = tmp_path / 'home'
