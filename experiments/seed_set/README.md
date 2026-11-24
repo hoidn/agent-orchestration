@@ -6,9 +6,11 @@ simple workflows that do at least as well as one direct call, as seeds for a lat
 set, the thresholds, the budget, the stop rules and the ledger. This page only routes. Its commands are for this
 machine and are not copyable examples.
 
-**Spend so far: one `claude-haiku-5-5` call, priced USD 0.0323** (the first smoke, stopped on an isolation
-incident). The smoke and the calibration tranches, and one second smoke the owner approved on 2026-11-23, are the
-only authorized spend (`AGENTS.md`, "Experiment rules"); the seed evaluation needs a new owner approval. Every call uses the owner's subscription.
+**Spend so far: 9 calls, priced USD 1.0225** (7 `claude-haiku-5-5`, 2 `claude-sonnet-5-5`): the first smoke
+stopped after one call on an isolation incident, and the second ran its 8 calls and failed its check on scanner
+false positives (plan ledger, rows of 2026-11-18 and 2026-11-23). No smoke has passed and no calibration call is
+made. The smoke and the calibration tranches, and a smoke repeated on the owner's word after an apparatus failure,
+are the only authorized spend (`AGENTS.md`, "Experiment rules"); the seed evaluation needs a new owner approval. Every call uses the owner's subscription.
 
 ## Where to read
 
@@ -22,23 +24,43 @@ only authorized spend (`AGENTS.md`, "Experiment rules"); the seed evaluation nee
 | The task packages and the difficulty ladder | `build_tasks.py`, `tiers.py`, `tasks.jsonl`, `tasks/` |
 | The anchors' stability record | `anchors.py`, `anchor_stability.json`, and the section below |
 
-## Owed before the second smoke
+## Owed before the third smoke
 
-The first freeze (on `592ed731`), the 20-task rehearsal (ruling R12), the allowance (ruling R13) and the first
-smoke's spend row are done; that smoke stopped after its first run (plan ledger, rows of 2026-11-17 and
-2026-11-18). In the ledger's order:
+Done: the allowance (ruling R13, and the owner's 24-hour allowance of 2026-11-23), the 20-task rehearsal (ruling
+R12), the isolation of Claude sessions, the scanner fixes and the verdict guards (plan ledger, rows of 2026-11-23).
+In the ledger's order:
 
-1. **The isolation fix merged:** every Claude session of a unit runs under the harness's managed settings
-   (`experiments/compare/sandbox.py`, `CLAUDE_SETTINGS` and `CLAUDE_ENV`), and an init event listing a tool,
-   server, skill or plugin outside a clean session's is an incident ([programs/README.md](programs/README.md)).
-2. **The freeze recorded again on the merged commit:** the runtime worktree, the anchors' stability run on that
+1. **The freeze recorded again on the merged commit:** the runtime worktree, the anchors' stability run on that
    code, `judge-calibration.json`, the price table read again, `criterion.json` with its `spend` and `sha256`
-   blocks and the CLI pin renewed (`spend.cli`), `study.py record-freeze`, and the hashes in the ledger. A
-   stop in the spend ledger is final, so the stopped smoke's ledger is kept as an archive copy and the new freeze
-   starts a fresh one (plan ledger). `judge-seeds.json` is not part of the freeze: it names the judge the
-   calibration selects (plan Step 1f). A CLI self-update before the first start means recording the freeze again.
-3. **The tranche's spend row** in the ledger, with the meter reading ruling R13 asks for.
-4. **The smoke.**
+   blocks and the CLI pin (`spend.cli`), `study.py record-freeze`, and the hashes in the ledger. `judge-seeds.json`
+   is not part of the freeze: it names the judge the calibration selects (plan Step 1f). A CLI self-update before
+   the first start means recording the freeze again.
+2. **The tranche's spend row** in the ledger, with the meter reading ruling R13 asks for.
+3. **The smoke.**
+
+## Running a tranche again after a stop or a failed smoke
+
+A `stop` in the spend ledger is final and a failed `smoke` row stays: no command lifts either, and the caps count
+the calls already made. A tranche the owner approves again (ruling R14) starts from a new freeze with a fresh
+ledger: the old ledger moves beside it under a dated name, read-only, with its SHA-256 in the plan's ledger, and
+the old work root (`~/seedset-work`) and pools root (`~/seedset-pools`) move aside the same way. The plan's
+ledger, not the guard, then carries the earlier spend.
+
+## Scan hits need a verdict before the pool
+
+Every run and every judge is scanned for contamination when it settles. A run or judge with hits and no verdict
+stops `pool`, `summarize` and `smoke-check`: each refuses with a non-zero exit, writes nothing, and prints the
+command for each unit. Read the hits (`scan` in the run's `record.json`, or the judge's `scan.json`), record
+`cleared` or `contaminated` with a reason, then run the refused step again:
+
+```
+python experiments/compare/prepare.py scan --run <records>/<arm>/run-<n> --verdict cleared --reason "<why>"
+python experiments/compare/prepare.py scan --pool <pools>/<task>/<kind> --judge <model> --verdict cleared --reason "<why>"
+```
+
+A cleared hit passes the smoke's scan check (ruling R15); a contaminated run is left out of its pool. What the
+scan counts, and what it deliberately does not, is in the harness's [README](../compare/README.md) ("Scan, then
+adjudicate"). An operator script must stop at the first non-zero exit and must not go on to the next step.
 
 ## The credential route
 

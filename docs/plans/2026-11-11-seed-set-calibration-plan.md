@@ -2,10 +2,13 @@
 
 **Status: Plan; the kit is on `main` (`09068ec8`, 2026-11-15; entry point
 [`experiments/seed_set/README.md`](../../experiments/seed_set/README.md)) after five review rounds.** The first smoke stopped after one `claude-haiku-5-5` call (priced USD 0.0323) on an
-isolation incident: the session loaded the account's claude.ai connectors (ledger row of 2026-11-18). The owner
-approved a second smoke on 2026-11-23. Owed before it, in the [ledger](#ledger)'s order: the isolation fix
-reviewed and merged, the anchors re-run on the merged code, the freeze recorded again with the CLI pin renewed,
-the tranche's spend row with a fresh meter reading, then the smoke. This page plans the scaled-down research step
+isolation incident: the session loaded the account's claude.ai connectors (ledger row of 2026-11-18). The second
+smoke (owner approval of 2026-11-23, after the isolation fix) ran its 8 calls on 2026-11-23 (priced USD 0.9902) with
+no isolation breach and failed its check: scanner false positives left its pool without a summary. Spend to date:
+9 calls, USD 1.0225 priced; no calibration call. The scanner and the steps that lost the pool are fixed on `main`.
+Owed before the third smoke, in the [ledger](#ledger)'s order: the anchors on the merged code, the freeze recorded
+again, the tranche's spend row with a fresh meter reading, then the smoke. The calibration tranche starts only after
+a passed smoke. This page plans the scaled-down research step
 the owner set on 2026-11-11: calibrate a small task set and a judge, then find
 two to four simple workflow programs that run reliably and do at least as well
 as one direct call at acceptable cost, and package them as seeds for a later
