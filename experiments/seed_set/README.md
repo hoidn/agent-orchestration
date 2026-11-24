@@ -67,7 +67,18 @@ adjudicate"). An operator script must stop at the first non-zero exit and must n
 Each unit's private home gets a copy of the subscription login file, removed when the unit ends normally, is
 refused or raises (ruling R7 and its correction; the limits of that clean-up are in
 [programs/README.md](programs/README.md), "Known limits"). The agent under test can read its unit's copy during
-its call. The owner kept this route on 2026-11-17 (ruling R9 in the plan's ledger). The long-horizon kit's route,
+its call. The owner kept this route on 2026-11-17 (ruling R9 in the plan's ledger).
+
+A copy goes stale when the owner's side refreshes the login, so no unit may live across the access token's expiry
+(ruling R16). Before a candidate run, a probe run or a judge is prepared or reserved, the kit reads the expiry time,
+and nothing else, from the login file the unit would copy (`units.login_expiry`: `claudeAiOauth.expiresAt`) and
+refuses the start unless the token outlives the unit's reserved calls times its provider timeout (1,200 s a
+candidate call, 3,600 s a judge batch) plus 10 minutes (`units.EXPIRY_MARGIN_SEC`). A file without a numeric expiry
+refuses too. After a refusal nothing is reserved; start again once the owner's own session has refreshed the
+login. `study.py login-expiry` prints `expires <ISO time>, in <N> minutes` without opening anything else. A
+refresh before the expiry, such as a new login by the owner, still ends the units in flight as incidents.
+
+The long-horizon kit's route,
 where one host process holds the token and no copy enters a unit
 ([its README](../long_horizon_tasks/README.md)), would be a kit change with its own tests, review and rehearsal.
 

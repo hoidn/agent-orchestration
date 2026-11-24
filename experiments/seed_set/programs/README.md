@@ -76,8 +76,17 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   `<pool>/.private-homes` copies when pooling ends. A launcher killed with SIGKILL, or a host reboot, runs no
   clean-up: its copies stay on disk until the next study command, which starts by removing every copy no live unit
   holds and prints each path (review 3 X5). The agent under test can read its unit's copy during its call; a copy it
-  makes under another name, or text it writes into its output or patch, is not removed. The route is an open owner
-  decision (coordinator ruling R7), and the freeze waits for it: see the kit's [README](../README.md).
+  makes under another name, or text it writes into its output or patch, is not removed. The owner kept this copy
+  route (ruling R9): see the kit's [README](../README.md), "The credential route".
+- A copy holds the access token of the moment it was made. A unit alive when that token expires either fails, when
+  the owner's side refreshes first (two probe runs on 2026-11-23), or refreshes the token itself and rotates the
+  owner's. So a unit starts only if the token in the file it would copy outlives its reserved calls times its
+  provider timeout plus 10 minutes (ruling R16, `units.require_login`); the kit reads only the expiry time and
+  fails closed without one. A refresh before the expiry, such as a new login by the owner, is not seen: the units
+  in flight then end as incidents.
+- A settlement removes the agents' tree after making its read-only directories writable. A tree that still cannot
+  be removed is named in the run's `tree_left` and printed. The settlement and the credential clean-up stand, and
+  the operator removes the tree by hand.
 - The isolation of Claude sessions (the harness's `sandbox.CLAUDE_SETTINGS`, mounted as the sandbox's managed
   settings, and `sandbox.CLAUDE_ENV`) binds the CLI sessions the kit launches. An agent can start its own CLI with
   the copied credential (R7). Inside the sandbox the managed settings bind that CLI too, and

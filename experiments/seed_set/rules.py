@@ -387,8 +387,9 @@ def smoke_units(study, task):
 
 def smoke_check(study):
     """The mechanical part of the smoke checklist; records pass or fail in the ledger and returns it. A unit cut by
-    a usage limit, a planned program without its run and a reserved unit not yet settled each fail it (the caps
-    hold no second smoke: a stop for the owner)."""
+    a usage limit, a planned program without its run and a reserved unit not yet settled each fail it. A failed
+    smoke is a stop for the owner; a repeat the owner approves runs from a new freeze and a fresh ledger (the kit's
+    README, "Running a tranche again after a stop or a failed smoke")."""
     (task,) = tranche_tasks(study, "smoke")
     found = smoke_units(study, task)
     refuse_unadjudicated([adjudication_command(r) for _, r, _, _, _ in found], "smoke-check")
