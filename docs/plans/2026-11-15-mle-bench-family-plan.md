@@ -462,6 +462,9 @@ changes, so the ladder's configuration and manifest do not move.**
   changed". The wrapper therefore gives the launcher `LH=~/mle-cache` and refuses when that
   resolves to the ladder's `~/lh-cache`. In it: `logs/` with this line's two host-side files,
   `packages/<name>/` with the task packages, `prepared/` with the prepared data and the answers,
+  `recordings/`, a directory of its own (never a link; Task 7's setup creates it, mode 700), which
+  the launcher's read of the whole file set at each round's end scans, and the wrapper refuses a
+  launch without it,
   and `hvenv`, a link to the ladder's harness environment, whose versions the criterion pins and
   the launcher checks. The benchmark's clone and its environment stay where the fact-finding put
   them, under `~/lh-cache/mle`, and are only read. Each tranche's jobs and state are under its own
@@ -781,9 +784,12 @@ that stops by itself: USD 1 to 8, central about USD 3) and are not measured.
   3. *Its size.* With m the mean priced cost per start of stage one, it holds the first k
      competitions of that order, k the largest number for which (3k − 1) × m + USD 9.45 is within
      its ceiling: the launcher reserves the cap and USD 1 before the last start and counts the
-     probe's usage, at most USD 0.45, again. A competition beyond k is reported "not screened: the
-     second stage was not funded", and no attempt is spent on a stage that cannot finish. With k at
-     zero there is no stage two.
+     probe's usage, at most USD 0.45, again. **k is at least two (ruling M9-R1):** with one
+     competition the launcher schedules the smoke and the pilot as one slot, the pilot never starts
+     and every export is refused, so where only k = 1 fits nothing is funded. A competition beyond k
+     is reported "not screened: the second stage was not funded", and no attempt is spent on a stage
+     that cannot finish. With k at zero there is no stage two. A tranche of either stage with fewer
+     than two qualified competitions is refused by the generator and by the wrapper.
   4. *Everything else* in its criterion equals stage one's, which a test holds. The generator takes
      stage one's export and gives the same criterion every time; the stage-two ledger's first row
      states the list, m, k and the ceiling.
@@ -792,8 +798,8 @@ that stops by itself: USD 1 to 8, central about USD 3) and are not measured.
 - **What USD 200 pays for.** The launcher reserves the cap and USD 1 before each start. Stage one
   completes only if its attempts average under about USD 5.05 (CPU) or USD 4.85 (GPU). The second
   stage of every competition, 78 attempts, fits only if attempts average under about USD 2.35. At
-  the central estimate of USD 3, the rule funds the second stage of one CPU competition and five GPU
-  competitions. Competitions at the floor nearly always need it (M1), and the report expects 8 to 11
+  the central estimate of USD 3, the rule funds the second stage of no CPU competition (one would
+  fit, and a stage of one is not run: M9-R1) and of five GPU competitions. Competitions at the floor nearly always need it (M1), and the report expects 8 to 11
   of the 13 outside the band (2 to 5 in it), so at USD 3 some competitions will end "not screened".
   **The estimates therefore do not allow USD 200 to cover the whole sequential screen at their
   centre.** The plan keeps USD 200 as its proposed total and funds the second stage in rank order;
@@ -1169,7 +1175,8 @@ day; a stop readout places nothing. *Verify:* the module, and `--collect-only`.
 
 **Task 7: the fixture on containers** (impl_code; 6 h and under an hour of machine time; report §13
 gives 3 to 4; no spend, no model call).
-*Files:* create `qualify.sh`; `README.md` of the kit begins here. *Produces:* the fixture's two images
+*Files:* create `qualify.sh`; `README.md` of the kit begins here. Its setup creates `~/mle-cache/recordings`
+as a directory of its own, mode 700 (M4; the wrapper refuses a launch without it). *Produces:* the fixture's two images
 built with rootless Podman, and the three legs of M2 run twice and the four controls once through
 Harbor 0.25.0 under the allowlist. This is where the benchmark's grader first runs inside a
 verifier's container, with the pinned dependency set of M3 (so far it has run on the host only).
@@ -1234,7 +1241,8 @@ the ledger.
 installation and preparation and 1 to 2 for each further competition).
 *Files:* fill `tranches/screen-cpu/tasks.json`. *Does:* the download and the benchmark's preparation
 on the host, `leaf` first; the secret scan of M10; the two images per competition; the withholding
-check, recorded against each image's digest; the six runs and the four controls of M2 per
+check, recorded against each image's digest and run with `--withheld ~/.kaggle`, so a copy of the
+Kaggle credential in an image is a hit; the six runs and the four controls of M2 per
 competition; a dry run of the contamination terms over those jobs, after which the terms are
 frozen. `textnorm-ru` is prepared last of the three: its preparation loads about ten million rows
 and needs a few GB of memory (scout report C, an estimate). *Verify:* `qualify.sh` on each;
@@ -1362,8 +1370,8 @@ registry for the fixture, or the fixture needs its own grader call.
 deep-learning stack, the weights and several GB written, image layers included, fits the token
 scan's three hours (if not, the smoke stops as an incomplete scan; the 300-second limit in the
 launcher is on reading a container's configuration and logs, not on the export); that a stage-two
-tranche generated from an export launches and runs as M9 describes, a tranche of one competition
-included; that the process limit of 4,096 is enough for data loaders; how the CLI's Bash tool, which
+tranche generated from an export launches and runs as M9 describes (a tranche of one competition
+is never generated: M9-R1); that the process limit of 4,096 is enough for data loaders; how the CLI's Bash tool, which
 refuses a standalone `sleep` (ladder D2), lets a session wait on training that runs for hours.
 
 **Settled by the GPU path (Task 11):** that the device entry, the allowlist network mode and the
@@ -1428,6 +1436,7 @@ its blockers and majors were accepted. The wrapper is kept, and nothing under
 | 2026-11-15 | M-h | The evaluator check gains four synthetic controls per qualified competition, just either side of the bronze line and of the median, each graded to its expected class, with zero errors allowed. They validate the evaluator only (M2) | The three legs sit at the ends of the scale and pass under any threshold; the measure decides at the bronze line | The controls take the benchmark's lines as given. A line that is unfair on the rebuilt test set is not caught by them |
 | 2026-11-15 | M-i | Before the first paid start: an independent review of `fetch.sh` before it first runs (Task 10a); a review of the real packages and their withholding results (Tasks 10b and 12b); and a zero-spend rehearsal with the real CLI on one real package of each class, under the conditions of the ladder's rehearsals (Tasks 10c and 12b) | Task 8 sees only the fixture. The script that reads the Kaggle credential and the real images would otherwise first run unreviewed, in a paid smoke | About 17 hours. Without them, a hole in a real package would cost a paid start and the tranche's label, or leak the key |
 | 2026-11-15 | Minors 1 to 13 | All taken: the export is bounded by the scan's three hours, not 300 seconds; the test report's form and mapping are named; the placement's arithmetic and tail rule are stated; the guard's two-at-once limit and the load gate's effect are stated; the GPU is checked for other use; the verifier reads one regular file and a link is tested; this note on where rows go; the readout takes score and percentile from the result that gave the reward; the readout counts invalid submissions only; the proposed `AGENTS.md` wording names `screen.py` and the later-day rule; the preparation is taken to read the credential until shown otherwise; decision 16 names 16 tasks | Each corrects a fact or adds a test the review showed missing | Small: a few hours of tests, inside the tasks' estimates |
+| 2026-11-23 | M9-R1 (Task 8, B1) | Only k of two or more is funded: where only k = 1 fits, stage two is not run and its competition is reported "not screened: the second stage was not funded". The generator refuses a tranche of either stage with fewer than two competitions, or fewer than two qualified once that is filled, and the wrapper refuses one with fewer than two qualified (in a rehearsal, the stand-in's list while the field is pending) (M9 rule 3) | With one competition the launcher's schedule gives the smoke and the pilot one key, `r1-<task>-medium`: the pilot never starts, the export lists the slot twice and `slot_record.load` refuses every export, so the stage could neither finish nor be read. The test that should have caught it collected slot ids into a set | A competition that one more stage-two start would have screened ends "not screened". At USD 3 an attempt the CPU class funds no stage two |
 
 ## Proposed wording for the `AGENTS.md` rule
 
@@ -1480,4 +1489,5 @@ reads the tranche's own file as committed on `main` (M4). No tranche ledger exis
 | 2026-11-18 | Task 4 built: the configuration as data | Commits of 2026-11-15: `dda5109e` (`make_criterion.py`, the two stage-one tranches with their links, their manifests, the stage-two rule, the `weights.json` placeholder), `f80b7d32` (a filled `tasks.packages` that leaves a competition out is refused; more tests), `f3efde57` (stage two's size split to complexity 12). No commit subject names a review: Task 4 has no visible review, and no verdict was recorded. On `integ/mle-kit` the two manifests were rewritten by `make_criterion.py write` (`67c08e39`, 2026-11-18), because they hashed files changed since; neither manifest is frozen and no manifest hash is recorded as a label. Branch `feat/mle-kit-t4` (`feat/mle-kit-t5` merges it with `feat/mle-bench-kit` and holds no Task 5 commit). Spend: 0 |
 | 2026-11-18 | Task 6 built: the readout | Commits of 2026-11-15: `66e137bb` (tests first), `726d0f03` (`screen_readout.py`), `8fb72b00` and `b029c2fa` (subject: "review of Task 2"; grader exceptions listed for a ruling, valid submissions with no score counted apart), `6ac3dadf` and `77725a60` ("readout fix round 1"), `3e509e74`, `44e5c46f` and `4cbb77c7` ("readout fix round 2", the last naming "the guards the mutation run found untested"). The subjects show two fix rounds and a mutation run. No review verdict was recorded at the time. Branch `feat/mle-kit-t6`; integrated on `integ/mle-kit` on 2026-11-18. Spend: 0 |
 | 2026-11-23 | Task 5 built: the wrapper around the launcher | Commit `81d1608e` on branch `worktree-agent-aff64d547cbee5aca` from `main` at `fc3a7051` (which carries the ladder's per-round whole-file-set read of 2026-11-23): `screen.py` and `tests/experiments/test_mle_bench_screen.py` (60 tests, from the uncommitted tests-first draft of `feat/mle-kit-t5`, checked against Task 5's list and today's ladder), and the two screen manifests rewritten by `make_criterion.py write` (not frozen; no label recorded). The wrapper sets M4's names and replaces no function; it uses `make_criterion.manifest_module` for the manifest load, and writes the freeze and the check itself, because `manifest.py`'s own `write --freeze` and `check` of a frozen manifest read `ladder.json` beside `KIT`, which this kit has not. Dropped from the draft, as outside Task 5's list: refusing a tranche of one competition, flagging Harbor's failed `compose stop` warning, refusing placeholders by name, a withholding result's competition, check version and inputs, a GPU tranche's concurrency (Task 4 holds it). Not settled: a tranche of one competition schedules the smoke and the pilot as one slot id (`r1-<task>-medium` twice), which the export's slot list would carry twice (left to Task 9). The ladder's own launcher tests cannot run against the wrapped module unedited: they run `ladder.py` by its path in a copy of the ladder's kit, with its `tasks41` packages and `lh-ladder` state. `ladder.py` unchanged; its six test modules pass unchanged with this module (1,248 tests); each wrapper guard was mutated once and a test failed. Not reviewed (Task 8). Spend: 0 |
+| 2026-11-23 | Task 8: the independent review and its fixes | **Verdict:** ready for Task 7; not ready for Task 9 or a paid start until B1 and S1 were fixed. 38 of 39 guard mutations were caught; the one missed (the GPU record's writer replaced by nothing) now fails a test. The coordinator accepted every finding. **B1** (blocking): a tranche of one competition scheduled one slot twice; ruling M9-R1 (Rulings), fixed in `make_criterion.py` (`_size`, `_stage_two`, `stage_one`) and `screen.py`; the criterion tests now assert the slot list, not a set, and an export of the smallest stage two loads. **S1:** nothing made `~/mle-cache/recordings`, which the launcher's round read scans: the wrapper refuses a launch while it is missing or a link, Task 7's setup creates it (M4), and a rehearsal through the wrapper reads the whole file set clean at round 1's end. **S2:** `screen_readout.py` reads `<state>/screen/gpu.jsonl` and flags each observation whose window meets a row that lists a process or could not read the card (M5); a flag excludes nothing. **S3:** a withholding result must also name the competition's slug and this checkout's `withhold_check.py`. **Nits:** a rehearsal's launch or resume takes the ladder's launcher lock (no change to `ladder.py`); the wrapper refuses `logs/` or `packages/` of the cache resolving into `~/lh-cache`; Task 10 runs the withholding check with `--withheld ~/.kaggle`. **Not judged without containers** (Task 7): a local image started by digest without a pull; the withholding check on a real export; a submission that is a symbolic link; the grader inside the verifier image; nvidia-smi's view of processes in containers; the reward file's keys. Manifests rewritten (not frozen). Spend: 0 |
 | 2026-11-15 | Independent review, and the revision after it | Review of the plan at `cf07b110` by a reviewer who wrote none of it (read-only; no provider call, no Kaggle access, no container run): accept after fixes, 2 blockers, 9 majors, 13 minors; no return to design. The coordinator accepted every blocker and major and ruled on each ([Rulings](#rulings)); the wrapper is kept and nothing under `experiments/long_horizon_tasks/` changes. This revision applies the rulings and all 13 minors. Changed figures: the screen is 39 to 78 slots and at most 90 starts at USD 200 (was 39 and 45); the line at most 168 slots and 190 starts at USD 600 (was 129 and 145); the work about 153 hours (was 111). One ruling was applied in another form than written: the screen's second three attempts cannot run inside the first tranche, because the launcher's schedule is fixed by the criterion and its export refuses a start outside it, so they run as a stage-two tranche funded from what stage one left of the class's ceiling (M9). The roadmap's step 11 still names 39 attempts and is updated with this plan. The coordinator accepted the plan for Tasks 1 to 9. Nothing paid is approved. Spend to date: 0 |

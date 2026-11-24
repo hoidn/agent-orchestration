@@ -20,8 +20,9 @@ Reused from the reviewed ladder kit, loaded by path and unchanged (`experiments/
 Inputs per stage: (criterion: the tranche's ladder.json as a dict, export: the path of the launcher's export,
 state: the tranche's state root). The state root holds `slots/<start:03d>-<slot>/` per attempt (the launcher's
 attempt id) with the trial's `jobs/<job>/<trial>/result.json` and each regrade's
-`regrade/<attempt>-regrade-<n>/result.json`, and `passthrough/requests.jsonl`, the passthrough's request log. Only
-the export's current label enters a count, as in the ladder (D7.6).
+`regrade/<attempt>-regrade-<n>/result.json`, and `passthrough/requests.jsonl`, the passthrough's request log; a
+GPU tranche's also holds `screen/gpu.jsonl`, the wrapper's once-a-minute record of the processes on the card (M5).
+Only the export's current label enters a count, as in the ladder (D7.6).
 
 The stages are identified, not assumed: stage one's criterion says `stage.stage` 1, stage two's 2 with the same
 `stage.class`, and stage two's `stage.derived_from` names stage one's export label and the SHA-256 of its file;
@@ -78,13 +79,14 @@ WARNING = "WARNING"
 COLUMNS = ("competition", "stage one", "stage two", "open", "missing", "valid", "valid not scored", "above median",
            "usd", "cuts", "grader exceptions", "rewards without a verifier result", "class", "marks")
 RESTS = "the class rests on rewards without a verifier result"
+GPU_MARK = "a process held the GPU during {} of its observations (M5: a person rules on it)"
 # What Task 6 names and the inputs do not carry (coordinator's note 8): where each would have to come from.
 NOT_IN_THE_INPUTS = {
     "installed packages": "dropped from Task 6 (coordinator's ruling on fix round 1): neither the export nor the "
                           "result file lists them; they would be parsed from each attempt's transcript",
-    "processes holding the GPU": "the wrapper's once-a-minute record (plan M4, item 7) is Task 5's; its file and form "
-                                 "are not yet written",
 }
+GPU_RECORD = Path("screen") / "gpu.jsonl"  # screen.py's record_gpu, one row a minute while a GPU tranche runs
+GPU_EVERY_S = 60  # a row stands for the minute after it
 
 
 def _ladder(name):
@@ -156,16 +158,43 @@ def reward_source(state, start):
     return (rewards, "trial") if rewards and rewards.get("reward") is not None else (None, None)
 
 
-def _attempt(start, state):
-    """One observation with its graded outcomes; refused when the result file's reward is not the exported one."""
+def gpu_rows(state):
+    """The wrapper's GPU record of a stage: [(time, processes or None)], None where they could not be read; [] when
+    there is no record (a CPU tranche). Refused for a row that is not an object with a finite time."""
+    path = Path(state) / GPU_RECORD
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
+    if not all(isinstance(r, dict) and _finite(r.get("at")) and "processes" in r for r in rows):
+        raise ReadoutError("gpu-record", "a row is an object with a finite `at` and `processes`", path)
+    return [(r["at"], r["processes"]) for r in rows]
+
+
+def _window(attempt):
+    """(opened, closed) of an attempt by its slot.json and settled.json; None where a time is not recorded."""
+    slot, settled = attempt / "slot.json", attempt / "settled.json"
+    opened = slot_record.read(slot).get("opened") if slot.is_file() else None
+    return opened, slot_record.read(settled).get("closed") if settled.is_file() else None
+
+
+def gpu_held(rows, window):
+    """The times of the GPU rows inside the attempt's window that list a process on the card, or could not read
+    them (M5: a flag excludes nothing; a person rules on it)."""
+    opened, closed = window
+    return [at for at, processes in rows if (processes is None or processes)
+            and (opened is None or at + GPU_EVERY_S >= opened) and (closed is None or at <= closed)]
+
+
+def _attempt(start, state, gpu=()):
+    """One observation with its graded outcomes and the GPU rows that flag it; refused when the result file's
+    reward is not the exported one."""
     rewards, source = reward_source(state, start)
     graded = outcomes(rewards) if rewards else _no_outcomes(start)
     if rewards is not None and rewards["reward"] != start["reward"]:
         raise ReadoutError("reward-mismatch", f"start {start['start']}: the {source}'s result gives reward "
                                               f"{rewards['reward']}, the export {start['reward']}")
+    held = gpu_held(gpu, _window(state / "slots" / f"{start['start']:03d}-{start['slot']}")) if gpu else []
     return {"start": start["start"], "slot": start["slot"], "reward": start["reward"], "source": source,
             "ending": start["ending"], "flagged": start["flagged"], "usd": start["usd"],
-            "minutes": start["minutes"]} | graded
+            "minutes": start["minutes"], "gpu_held": held} | graded
 
 
 # ---- one stage --------------------------------------------------------------------------------------------------
@@ -207,9 +236,11 @@ def _competition(name, current, listed, state, classes):
     flags and refused connections, and every start that entered no count with its reason."""
     own = [s for s in current if s["task"] == name]
     observed = [s for s in own if s["counted"]]
-    attempts = [_attempt(s, state) for s in observed]
+    gpu = gpu_rows(state)
+    attempts = [_attempt(s, state, gpu) for s in observed]
     return {"observations": len(observed), "medals": sum(s["success"] for s in observed), "attempts": attempts,
-            "flagged": sum(s["flagged"] for s in observed), "egress_refused": _refused(own),
+            "flagged": sum(s["flagged"] for s in observed), "gpu_held": sum(bool(a["gpu_held"]) for a in attempts),
+            "egress_refused": _refused(own),
             "not_counted": [e for e in listed["exclusions"] if e["task"] == name]} | _graded(attempts) | _spent(
                 own, observed, classes) | _unbacked(attempts)
 
@@ -546,13 +577,15 @@ def _row_cells(name, c):
     """A competition's row, one cell per column of COLUMNS."""
     stages = [s for s in (c["stage_one"], c["stage_two"]) if s]
     total = {key: sum(s[key] for s in stages) for key in ("valid", "valid_not_scored", "above_median", "usd", "cuts",
-                                                           "grader_exception", "reward_without_result")}
+                                                           "grader_exception", "reward_without_result", "gpu_held")}
     screen = c["screen"]
+    marks = [RESTS] * screen["rests_on_rewards_without_result"] + [GPU_MARK.format(total["gpu_held"])] * bool(
+        total["gpu_held"])
     return [f"{name:<12}", _cell(c["stage_one"]), _cell(c["stage_two"]), str(screen["open"]),
             "-" if screen["missing"] is None else str(screen["missing"]), str(total["valid"]),
             str(total["valid_not_scored"]), str(total["above_median"]), f"{total['usd']:.2f}", str(total["cuts"]),
             str(total["grader_exception"]), str(total["reward_without_result"]), screen["class"],
-            RESTS if screen["rests_on_rewards_without_result"] else ""]
+            "; ".join(marks)]
 
 
 def _figure(value):

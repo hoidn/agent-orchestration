@@ -148,6 +148,7 @@ class Kit:
         (self.lh / "logs" / "limits-compose.yaml").write_text(side["limits_compose"]["content"])
         for folder in ("logs", "packages"):
             (self.cache / folder).mkdir(parents=True)
+        (self.cache / "recordings").mkdir(mode=0o700)  # Task 7's setup makes it (S1): the round read scans it
         (self.cache / "hvenv").symlink_to(self.lh / "hvenv")
 
     def _packages(self):
@@ -386,6 +387,9 @@ class Rig:
 
     def __init__(self, kit, plan=(), scenario="normal", stub_args=()):
         self.kit, self.root = kit, kit.reh / "state"
+        shutil.move(kit.repo, kit.short / "main")  # D4: the checkout is a git worktree of the main repository
+        _git(kit.short / "main", "worktree", "add", "-q", "--detach", str(kit.repo))
+        (kit.home / ".claude" / "projects").mkdir(parents=True)  # D4's file set: the agents' transcripts
         LT.ladder.ensure_state(self.root)
         (kit.lh / "standin" / "plan.json").write_text(json.dumps(list(plan)))
         kit.allowance(self.root)
@@ -410,6 +414,11 @@ class Rig:
 
     def launch(self, timeout=WAIT * 3):
         return self.kit.run("screen-cpu", "launch", timeout=timeout)
+
+    def ledger(self, what, cell):
+        """A row of the rehearsal's ledger (LH_REHEARSAL/ledger.md), which a rehearsal reads in place of main's."""
+        with open(self.kit.reh / "ledger.md", "a") as fh:
+            fh.write(f"| 2026-11-20 | {what} | {cell} |\n")
 
     def attempts(self):
         return LT.ladder.attempts(self.root)
@@ -458,6 +467,19 @@ def test_a_launch_through_the_wrapper_runs_the_smoke_on_this_line_s_files_and_ne
         [str(kit.cache / "logs" / "limits-compose.yaml"),
          str(kit.kit / "tranches" / "screen-cpu" / "relay-compose.yaml")],
         str(kit.cache / "logs" / "containers-override.conf"), ("tiny-a", "smoke", "observation")), err
+
+
+def test_a_round_read_through_the_wrapper_scans_this_line_s_recordings_and_exits_0(rig):
+    """S1: after round 1 (the smoke and the pilot of two competitions), the launcher's read of D4's whole file set,
+    this line's ~/mle-cache/recordings included, is clean; the tranche then waits for the pilot's row."""
+    r = rig(plan=[{}, {}])
+    label = r.kit.label("screen-cpu")
+    first = r.launch(timeout=WAIT * 5)
+    r.ledger("Smoke read", f"{label} pass")
+    code, out, err = r.launch(timeout=WAIT * 5)
+    rounds = [(e["round"], e["exit"]) for e in r.events() if e["event"] == "round_scan"]
+    assert (first[0], code, rounds, out.strip().splitlines()[-1], [a["kind"] for a in r.attempts()]) == (
+        0, 0, [(1, 0)], "waiting for the pilot's ledger row", ["smoke", "pilot"]), err
 
 
 # ---- the ledger per tranche (Task 5, second item; ruling B1) ---------------------------------------------------
@@ -670,6 +692,9 @@ WITHHOLDING = {
     "failed": (lambda k: _result(k, verdict="fail"), "did not pass"),
     "another digest": (lambda k: _result(k, image="localhost/mle-bench/tiny-b-agent@sha256:" + "e" * 64),
                        "names another image"),
+    "another competition": (lambda k: _result(k, competition="leaf-classification"), "another competition"),
+    "another version of the check": (lambda k: _result(k, check_sha256="sha256:" + "d" * 64),
+                                     "another version of withhold_check.py"),
 }
 
 
@@ -699,13 +724,37 @@ def _symlinked_cache(kit):
     kit.cache.symlink_to(kit.lh)
 
 
+def _linked(part):
+    """The cache's `part` replaced by a link into the ladder's cache."""
+    def make(kit):
+        shutil.rmtree(kit.cache / part)
+        (kit.lh / part).mkdir(exist_ok=True)
+        (kit.cache / part).symlink_to(kit.lh / part)
+    return make
+
+
+def _one_qualified(kit):
+    doc = kit.criterion("screen-cpu")
+    doc["tasks"]["qualified"] = ["tiny-a"]
+    (kit.kit / "tranches" / "screen-cpu" / "ladder.json").write_text(json.dumps(doc, indent=1))
+
+
 WRAPPER_REFUSALS = {
     "a tranche outside the kit's list": (lambda k: None, ("screen-xyz", "launch"), {},
                                           "screen-xyz is not a tranche of the kit"),
     "a tranche not generated": (lambda k: None, ("place-cpu", "launch"), {}, "place-cpu has no tranche directory"),
     "LH naming the ladder's cache": (lambda k: None, ("screen-cpu", "launch"), {"LH": "<lh>"}, "this line's cache is"),
     "a cache that resolves to the ladder's": (_symlinked_cache, ("screen-cpu", "launch"), {},
-                                              "resolves to the ladder's cache"),
+                                              "resolves into the ladder's cache"),
+    "the cache's logs in the ladder's": (_linked("logs"), ("screen-cpu", "launch"), {},
+                                         "logs resolves into the ladder's cache"),
+    "the cache's packages in the ladder's": (_linked("packages"), ("screen-cpu", "launch"), {},
+                                             "packages resolves into the ladder's cache"),
+    "no recordings directory in the cache": (lambda k: (k.cache / "recordings").rmdir(), ("screen-cpu", "launch"), {},
+                                             "recordings is not a directory of this line's own"),
+    "the cache's recordings a link": (_linked("recordings"), ("screen-cpu", "launch"), {},
+                                      "recordings is not a directory of this line's own"),
+    "one qualified competition": (_one_qualified, ("screen-cpu", "plan"), {}, "has 1 qualified competitions"),
     "an uncommitted change under the kit": (lambda k: (k.kit / "NOTES.md").write_text("x\n"), ("screen-cpu", "launch"),
                                             {}, "experiments/mle_bench_tasks has uncommitted changes"),
     "an uncommitted change under the kit, at resume": (lambda k: (k.kit / "NOTES.md").write_text("x\n"),
@@ -797,16 +846,27 @@ def test_a_live_launch_or_resume_is_refused_while_another_launcher_or_passthroug
     assert (code, why in (reason or ""), named in (reason or "")) == (3, True, True), reason
 
 
-def test_a_rehearsal_takes_neither_lock(kit):
-    holders = [_hold(HOLDER, kit.home / ".local/state/lh-ladder/launcher.lock"),
-               _hold(HOLDER, kit.home / ".local/state/mle-bench/launcher.lock")]
+@pytest.mark.parametrize("lock, refused", [(".local/state/lh-ladder/launcher.lock", True),
+                                           (".local/state/mle-bench/launcher.lock", False)])
+def test_a_rehearsal_takes_the_ladder_s_lock_and_not_the_line_s(kit, lock, refused):
+    """A rehearsal never runs beside a ladder launcher (a paid ladder run); this line's lock is a live tranche's."""
+    holder = _hold(HOLDER, kit.home / lock)
     try:
         result = kit.run("screen-cpu", "launch")
     finally:
-        for holder in holders:
-            holder.kill()
-            holder.wait()
-    assert (_wrapper_refused(result)[1], _launcher_refused(result)[1].startswith("no allowance inputs")) == (None, True)
+        holder.kill()
+        holder.wait()
+    reason = _wrapper_refused(result)[1]
+    assert (reason is not None and "another launcher holds" in reason,
+            (_launcher_refused(result)[1] or "").startswith("no allowance inputs")) == (refused, not refused)
+
+
+def test_a_one_competition_tranche_s_qualified_stand_in_is_refused_in_a_rehearsal(short):
+    """M9-R1, while tasks.qualified is pending: the rehearsal's stand-in is the list the launcher would run."""
+    kit = Kit(short, filled=False)
+    (kit.reh / "stand_ins.json").write_text(json.dumps({"tasks.qualified": ["tiny-a"]}))
+    code, reason = _wrapper_refused(kit.run("screen-cpu", "plan"))
+    assert (code, "has 1 qualified competitions" in (reason or "")) == (3, True)
 
 
 def test_while_this_line_s_launcher_runs_the_ladder_s_unmodified_launcher_is_refused_on_its_state_root(kit):
@@ -908,6 +968,15 @@ def test_a_stage_two_tranche_starts_with_its_own_smoke_and_pilot_and_reads_its_o
 
 
 # ---- the wrapper's own record of the GPU (M4 item 7, M5) ---------------------------------------------------------
+
+
+def test_a_gpu_tranche_s_launch_through_the_wrapper_records_the_card_into_its_state(kit):
+    """M4 item 7: the record runs while the launcher runs, here a launch the launcher refuses at once (no allowance
+    inputs): its first row is written as it starts."""
+    (kit.lh / "standin" / "gpu.txt").write_text("")
+    result = kit.run("screen-gpu", "launch")
+    rows = LT.ladder._jsonl(kit.reh / "state" / "screen" / "gpu.jsonl")
+    assert (_launcher_refused(result)[0], [r["processes"] for r in rows]) == (3, [[]])
 
 
 def test_the_gpu_s_processes_are_recorded_into_the_tranche_s_state(kit, short):
