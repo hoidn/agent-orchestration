@@ -32,9 +32,9 @@ WRAPPER_FLAGS = ["--setting-sources", "project", "--strict-mcp-config", "--disab
 SOURCE = "experiments/orc_vs_single_call/workflows/best_of_n.orc"
 PINNED_CLI = json.loads((KIT / "criterion.json").read_text())["cli_version"]
 # The concluded smoke pinned the price table by hash (criterion.json); the live table has moved on since, so every
-# runtime here holds the pinned table, taken from a commit that carries it.
+# runtime here holds the pinned table, kept as a fixture (the table of commit 486f2018).
 PRICE_TABLE = "orchestrator/providers/price_table.json"
-PINNED_PRICE_COMMIT = "486f2018d570ba26b006edff407538e3c15c393c"
+PINNED_PRICE_TABLE = REPO / "tests" / "fixtures" / "p2_smoke" / "price_table.json"
 
 
 def _manifest(kit: Path, regenerate: bool = False) -> str:
@@ -51,11 +51,10 @@ def _head(checkout: Path) -> str | None:
 
 
 def _pinned_price_table() -> bytes:
-    """The price table the smoke pinned, from git; a source whose hash is not the criterion's pin fails here."""
-    table = subprocess.run(["git", "-C", str(REPO), "show", f"{PINNED_PRICE_COMMIT}:{PRICE_TABLE}"],
-                           capture_output=True, check=True).stdout
+    """The price table the smoke pinned (the fixture); a fixture whose hash is not the criterion's pin fails here."""
+    table = PINNED_PRICE_TABLE.read_bytes()
     pinned = json.loads((KIT / "criterion.json").read_text())["price_table_sha256"]
-    assert hashlib.sha256(table).hexdigest() == pinned, f"{PINNED_PRICE_COMMIT}:{PRICE_TABLE} is not the pinned table"
+    assert hashlib.sha256(table).hexdigest() == pinned, f"{PINNED_PRICE_TABLE} is not the pinned price table"
     return table
 
 
