@@ -46,6 +46,19 @@ SPEND_TERMS = {"ceiling_usd": {"smoke": 20.0, "redraw": 40.0, "calibration": 100
                "cli": {"path": "/stand-in/bin/claude", "version": VERSION}}
 
 
+def stand_in_login(config, expires_in_sec=30 * 86400):
+    """A hand-made login file in the Claude config directory `config`: an expiry (`claudeAiOauth.expiresAt`, epoch
+    milliseconds) `expires_in_sec` from now and stand-in token values, never a real token."""
+    import json
+    import time
+    from pathlib import Path
+    path = Path(config) / ".credentials.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"claudeAiOauth": {"accessToken": "stand-in-access", "refreshToken": "stand-in-refresh",
+                                                  "expiresAt": int((time.time() + expires_in_sec) * 1000)}}))
+    return path
+
+
 def stand_in_terms(fakebin, **change):
     """SPEND_TERMS pinned to the stand-in `claude` in `fakebin` (the path the sandbox declaration resolves)."""
     from pathlib import Path

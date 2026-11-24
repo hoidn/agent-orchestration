@@ -15,7 +15,7 @@ resume, the smoke check must fail, and the rehearsal ends after showing that nei
 may start (review3 X1). In the calibration the stand-in Sonnet's code on the first task makes one hidden test hang
 past the kit's bound on one hidden test (fix round 3, ruling 1): the test must count as failed and the task's pools
 be summarised (`hidden_hang`). The process runs with an empty HOME, no
-provider credentials, a closed PATH behind the Thread M no-provider stubs, and a ledger under ROOT/state (the
+provider credentials (a stand-in login file holds only the expiry every start checks), a closed PATH behind the Thread M no-provider stubs, and a ledger under ROOT/state (the
 study's own ledger is never opened). The stand-in fixes T1 and T2 always, every second T3 task (two of the four
 probe tasks), never T4 or T5; Sonnet fixes everything; on the smoke task Haiku fixes from its second attempt.
 
@@ -47,7 +47,7 @@ from experiments.compare.repos import dump, load
 from experiments.seed_set import ladder, layout, probing, reaper, rules, spend, study, units
 from tests.agent_session_shims import closed_path
 from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, open_up, write_test_sandbox_config
-from tests.experiments.seed_set_offline_support import STUB, stand_in_terms
+from tests.experiments.seed_set_offline_support import STUB, stand_in_login, stand_in_terms
 
 CHECKOUT = Path(__file__).resolve().parents[2]
 GUARD = CHECKOUT / "experiments" / "thread_m" / "no_provider"
@@ -101,6 +101,7 @@ def setup(root):
     for name in ("claude", "codex"):
         (fakebin / name).write_text(STUB)
         (fakebin / name).chmod(0o755)
+    stand_in_login(home / ".claude")  # the expiry every unit's start reads (ruling R16); no real token
     tasks_file = runtime / "experiments" / "seed_set" / "tasks.jsonl"
     plan = outside / "stub-plan.json"
     dump(plan, stand_in_plan([json.loads(line) for line in tasks_file.read_text().splitlines()],

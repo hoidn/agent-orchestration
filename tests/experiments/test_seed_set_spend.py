@@ -3,6 +3,7 @@
 provider process; the end-to-end launch path is in test_seed_set_e2e.py."""
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -15,7 +16,7 @@ import pytest
 from experiments.compare.repos import sha256_file
 from experiments.seed_set import anchors, host, layout, rules, spend, study, units
 from tests.experiments.seed_set_offline_support import (
-    REPORTED_USD, SPEND_TERMS, USAGE, committed_runtime, stable_anchors, write_frozen_criterion,
+    REPORTED_USD, SPEND_TERMS, USAGE, committed_runtime, stable_anchors, stand_in_login, write_frozen_criterion,
 )
 
 H, S = spend.HAIKU, spend.SONNET
@@ -1227,6 +1228,94 @@ def test_copied_credentials_are_removed_from_a_private_home(tmp_path):  # review
     (home / ".claude" / "projects").mkdir()
     units.forget_credentials(home)
     assert sorted(str(p.relative_to(home)) for p in home.rglob("*")) == [".claude", ".claude/projects", ".codex"]
+
+
+def test_the_login_expiry_is_read_from_the_file_a_unit_copies(tmp_path, monkeypatch):  # ruling R16
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    path = stand_in_login(tmp_path / "config", expires_in_sec=3600)
+    expires = json.loads(path.read_text())["claudeAiOauth"]["expiresAt"] / 1000
+    assert (units.login_file(), units.login_expiry()) == (path, expires)
+
+
+@pytest.mark.parametrize("text", [None, "stand-in-token", "{}", '{"claudeAiOauth": "stand-in-token"}',
+                                  '{"claudeAiOauth": {"accessToken": "stand-in-token"}}',
+                                  '{"claudeAiOauth": {"accessToken": "stand-in-token", "expiresAt": "1900000000000"}}',
+                                  '{"claudeAiOauth": {"accessToken": "stand-in-token", "expiresAt": true}}',
+                                  '{"claudeAiOauth": {"accessToken": "stand-in-token", "expiresAt": NaN}}'])
+def test_a_login_file_without_a_numeric_expiry_fails_closed_without_its_content(tmp_path, text):
+    path = tmp_path / ".credentials.json"
+    if text is not None:
+        path.write_text(text)
+    with pytest.raises(SystemExit) as refused:
+        units.login_expiry(path)
+    assert (str(path) in str(refused.value), "stand-in-token" in str(refused.value)) == (True, False)
+
+
+@pytest.mark.parametrize("left, starts", [(1200 + units.EXPIRY_MARGIN_SEC, True),
+                                          (1200 + units.EXPIRY_MARGIN_SEC - 1, False)])
+def test_a_unit_starts_only_if_the_token_outlives_its_calls_and_the_margin(tmp_path, monkeypatch, left, starts):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    now = 1_900_000_000.0
+    (tmp_path / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"expiresAt": (now + left) * 1000}}))
+    if starts:
+        units.require_login(1200, now=now)
+    else:
+        with pytest.raises(SystemExit, match="expires .*, in 29 minutes"):
+            units.require_login(1200, now=now)
+
+
+def short_login(tmp_path, monkeypatch):
+    """A stand-in login whose token expires in ten minutes: no unit outlives it."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "login"))
+    stand_in_login(tmp_path / "login", expires_in_sec=600)
+
+
+def test_candidates_refuse_before_preparing_or_reserving_a_unit_the_token_would_not_outlive(
+        runner, monkeypatch, tmp_path):
+    monkeypatch.setenv(AUTH, "calibration")
+    ready(runner)
+    short_login(tmp_path, monkeypatch)
+    with pytest.raises(SystemExit, match="refreshed the login"):
+        study.candidates(runner, "calibration", "direct", ["t1"])
+    assert (spend.starts(spend.rows(runner.ledger)), sorted(p.name for p in runner.work.iterdir())) == ([], [])
+
+
+def test_a_judge_refuses_before_its_reservation_when_the_token_would_not_outlive_it(runner, monkeypatch, tmp_path):
+    monkeypatch.setenv(AUTH, "calibration")
+    ready(runner)
+    pool_dir_of(runner, "t1", scan=[])
+    short_login(tmp_path, monkeypatch)
+    monkeypatch.setattr(study, "launch", lambda *a, **k: pytest.fail("a judge was launched"))
+    with pytest.raises(SystemExit, match="refreshed the login"):
+        study.judge(runner, "calibration", "first", ["t1"])
+    assert spend.starts(spend.rows(runner.ledger)) == []
+
+
+def test_login_expiry_prints_the_expiry_and_never_the_token(runner, monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "login"))
+    stand_in_login(tmp_path / "login", expires_in_sec=7200)
+    study.main(["--runtime", str(runner.runtime), "login-expiry"])
+    out = capsys.readouterr().out
+    assert (re.fullmatch(r"expires \S+, in 1[12]\d minutes\n", out) is not None, "stand-in" in out) == (True, False)
+
+
+def test_a_tree_with_read_only_directories_is_removed(tmp_path):  # ruling R16
+    tree = tmp_path / "tree"
+    (tree / "tmp" / "rootfs" / "workspace").mkdir(parents=True)
+    (tree / "tmp" / "rootfs" / "workspace" / "file").write_text("x")
+    for path in (tree / "tmp" / "rootfs" / "workspace", tree / "tmp" / "rootfs"):
+        path.chmod(0o555)
+    assert (units.remove_tree(tree), tree.exists()) == (None, False)
+
+
+def test_a_tree_that_cannot_be_removed_is_reported_not_raised(tmp_path):
+    (tmp_path / "parent" / "tree").mkdir(parents=True)
+    (tmp_path / "parent").chmod(0o555)
+    try:
+        why = units.remove_tree(tmp_path / "parent" / "tree")
+    finally:
+        (tmp_path / "parent").chmod(0o755)
+    assert (why or "").startswith("PermissionError")
 
 
 @pytest.mark.parametrize("line, incident", [  # review2 minor 6: the agent's own tool output is not the provider's

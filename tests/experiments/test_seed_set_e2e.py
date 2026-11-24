@@ -32,7 +32,7 @@ from tests.experiments.compare_harness_support import (
 )
 from tests.agent_session_shims import closed_path
 from tests.experiments.seed_set_offline_support import (
-    STUB, VERSION, hanging_harness, stable_anchors, stand_in_terms, write_frozen_criterion,
+    STUB, VERSION, hanging_harness, stable_anchors, stand_in_login, stand_in_terms, write_frozen_criterion,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -128,8 +128,7 @@ def world(tmp_path, monkeypatch):
     declaration = write_test_sandbox_config(fakebin, outside / "sandbox.json", readonly_files=(stub_plan,),
                                             environment_names=("SEED_SET_STUB_PLAN",))
     empty = tmp_path / "empty-home"
-    (empty / ".claude").mkdir(parents=True)
-    (empty / ".claude" / ".credentials.json").write_text("{}")  # a stand-in the sandbox copies into each unit
+    stand_in_login(empty / ".claude")  # a stand-in the sandbox copies into each unit
     for key, value in {"PATH": closed_path(fakebin), "COMPARE_SANDBOX": declaration, "SEED_SET_STUB_PLAN": stub_plan,
                        "HOME": empty,
                        "CODEX_HOME": empty / ".codex", "CLAUDE_CONFIG_DIR": empty / ".claude"}.items():
@@ -847,3 +846,68 @@ def test_offline_a_summary_whose_harness_hangs_past_the_per_clone_bound_makes_it
     incident = json.loads((dest / "incident.json").read_text())["reason"]
     assert ("ran past its backstop of 7 s" in incident, (dest / "results.json").exists(), len(os.listdir(pids)),
             running(pids)) == (True, False, 1, [])
+
+
+def after_launch(monkeypatch, then):
+    """Run each unit's real launch, then `then(records, record)`: what the agent or an interruption leaves."""
+    real = study.launch
+
+    def launched(command, env, log, timeout):
+        status = real(command, env, log, timeout)
+        records = Path(log).parent
+        then(records, json.loads((records / "record.json").read_text()))
+        return status
+    monkeypatch.setattr(study, "launch", launched)
+
+
+def read_only_leftover(record):
+    """A read-only directory under the unit's tmp, as the agent's own tests leave a sandbox snapshot (ruling R16)."""
+    workspace = Path(record["tree"]) / "tmp" / "snapshots" / "rootfs" / "workspace"
+    workspace.mkdir(parents=True)
+    (workspace / "file").write_text("x")
+    for path in (workspace, workspace.parent):
+        path.chmod(0o555)
+
+
+def test_offline_an_interrupted_settlement_of_a_tree_with_read_only_directories_settles_again(world, monkeypatch):
+    s, task = world.study, "a0a0a0a0a0"
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+
+    def interrupted(records, record):  # the runner dies after an earlier settlement copied the run state
+        read_only_leftover(record)
+        shutil.copytree(record["state_root"], records / "state")
+        raise SystemExit("the runner was interrupted")
+    after_launch(monkeypatch, interrupted)
+    with pytest.raises(SystemExit, match="interrupted"):
+        study.candidates(s, "calibration", "direct_sonnet", [task])
+    (records,) = [path.parent for path in study.study_runs(s)]
+    study.settle_runs(s, [records])
+    facts = json.loads((records / "study.json").read_text())
+    tree = Path(json.loads((records / "record.json").read_text())["tree"])
+    assert ((facts["calls"], facts["outcome"], "tree_left" in facts), tree.exists(), credentials(s),
+            any((records / "state").glob("*/memo.jsonl"))) == ((1, "completed", False), False, [], True)
+
+
+def test_offline_a_tree_that_cannot_be_removed_keeps_the_settlement_and_removes_the_credentials(world, monkeypatch):
+    s, task = world.study, "a0a0a0a0a0"
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    locked = []
+
+    def unremovable(records, record):
+        locked.append(Path(record["tree"]).parent)
+        locked[0].chmod(0o555)
+    after_launch(monkeypatch, unremovable)
+    try:
+        study.candidates(s, "calibration", "direct_sonnet", [task])
+    finally:
+        for path in locked:
+            path.chmod(0o755)
+    (facts,) = facts_of(s)
+    (unit,) = [row["unit"] for row in spend.starts(spend.rows(s.ledger))]
+    settled = [row for row in spend.rows(s.ledger) if row.get("event") == "settle" and row["unit"] == unit]
+    assert (facts["calls"], facts["outcome"], facts["tree_left"].startswith("PermissionError"), credentials(s),
+            len(settled)) == (1, "completed", True, [], 1)

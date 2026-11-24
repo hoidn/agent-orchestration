@@ -12,7 +12,9 @@ import pytest
 
 from experiments.compare.repos import load
 from experiments.seed_set import host, ladder, layout, probing, rules, spend, study
-from tests.experiments.seed_set_offline_support import committed_runtime, manifest_rows, write_frozen_criterion
+from tests.experiments.seed_set_offline_support import (
+    committed_runtime, manifest_rows, stand_in_login, write_frozen_criterion,
+)
 
 H, S = spend.HAIKU, spend.SONNET
 P = (1000.0, 0.01)  # a priced ceiling and per-call worst case no test here reaches
@@ -469,3 +471,11 @@ def test_a_probe_step_the_redraw_allowance_cannot_hold_is_a_stop(s):  # review3 
     with pytest.raises(SystemExit, match="stopped"):
         probing.probe(s)
     assert "redraw allowance" in spend.latest(spend.rows(s.ledger), "stop")["reason"]
+
+
+def test_a_probe_run_the_token_would_not_outlive_is_refused_before_it_is_prepared(s, monkeypatch, tmp_path):  # R16
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "login"))
+    stand_in_login(tmp_path / "login", expires_in_sec=600)
+    with pytest.raises(SystemExit, match="refreshed the login"):
+        probing.probe(s, ["T1"])
+    assert (spend.starts(spend.rows(s.ledger)), sorted(p.name for p in s.work.iterdir())) == ([], [])

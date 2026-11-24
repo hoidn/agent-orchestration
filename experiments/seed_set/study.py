@@ -20,6 +20,8 @@
   study.py smoke-check                                    the smoke's mechanical checklist, pass or fail, in the ledger
   study.py readout                                        anchors first, then V1-V4, G1-G4, incidents, baselines
   study.py ledger                                         calls reserved and made, and the events
+  study.py login-expiry                                   when the login's access token expires (`expires <ISO>, in
+                                                          <N> minutes`), read from the file a unit would copy
   study.py resume-after-limit --reset T --five-hour P --weekly P --read-at T   reopen starts a usage limit closed
   study.py not-a-limit UNIT --reason R                    the raw result shows no usage limit: the unit is what the
                                                           rules make it (an incident or a failure), its pause goes
@@ -34,7 +36,12 @@ Run every command from the frozen runtime (`cd <runtime> && PYTHONPATH=$PWD pyth
 outside the runtime. Every harness step is the harness's own. Every provider start passes `rules.enforce` (freeze, smoke pass, chosen
 tasks, a sound ledger, no stop) and `spend.reserve` (authorization, caps, planned runs per task and arm, never
 a relaunch), and runs with `COMPARE_MAX_CALLS` at its reservation and `COMPARE_CLAUDE_MODELS` at its exact model;
-the harness's resume scripts are disabled (the study never resumes). Candidate code runs on the host only behind
+the harness's resume scripts are disabled (the study never resumes). Before a unit (candidate run, probe run or
+judge) is prepared or reserved, `units.require_login` refuses it unless the access token in the login file it would
+copy outlives its reserved calls times the provider timeout plus 10 minutes (ruling R16); only the expiry time is
+read. A settlement removes the credential copy first and the agents' tree last, read-only directories included; a
+tree it cannot remove is recorded as `tree_left`, and a settlement run again replaces the earlier copy of the run
+state. Candidate code runs on the host only behind
 `host.guarded`. A forbidden-model answer, three contaminated tasks or too many incidents record a stop. The spend
 ledger is `~/.local/state/seed-set/spend-ledger.jsonl` whatever the paths given. Scan hits are adjudicated by hand
 (`prepare.py scan --verdict`); `pool`, `summarize` and `smoke-check` refuse before writing anything (no incident, no
@@ -247,6 +254,7 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
     it; return (records, the facts in its study.json). `extra` facts (a probe's step and rung) join them."""
     spend.refuse_closed(spend.rows(study.ledger))  # after a usage limit or a stop, no clone is built for nothing
     rules.require_free(study, study.work)
+    units.require_login(spec["max_calls"] * CALL_SEC)  # before its preparation copies the login (ruling R16)
     env, programs = launch_env(spec["model"], spec["max_calls"]), study.programs
     arm_spec = prepare.ArmSpec(programs / spec["source"], spec["entry"], programs, programs / "providers.json",
                                INPUTS, command_boundaries=programs / "commands.json")
@@ -300,9 +308,12 @@ def finish(study, records, facts, fix):
 
 def settle(study, records, task, fix, cap, model, status):
     """Collect and scan the run, audit its sessions, run the visible check on its final patch behind the guard,
-    record metering, keep the run state and delete the agents' tree. A run the harness cannot collect, a provider
-    error and a failed session audit are incidents; a run that outlived its wall clock is a natural failure."""
+    record metering, keep the run state (replacing a copy an interrupted settlement made) and delete the agents'
+    tree. A run the harness cannot collect, a provider error and a failed session audit are incidents; a run that
+    outlived its wall clock is a natural failure. A tree that cannot be removed is named in `tree_left` and printed,
+    not raised, so the settlement is kept (ruling R16)."""
     made, record = units.physical_calls(records), load(records / "record.json")
+    units.forget_credentials(record["sandbox"]["home"])  # the unit has ended; the transcripts stay (review2 minor 7)
     if made > cap:
         raise SystemExit(f"{records}: {made} provider calls exceed the {cap} reserved; stop")
     out = {"calls": made}
@@ -329,9 +340,12 @@ def settle(study, records, task, fix, cap, model, status):
     dump(records / "metering.json", receipt)
     out["metering_complete"] = receipt["consumption"] != metering.UNAVAILABLE
     if Path(record["state_root"]).is_dir():
+        if (records / "state").exists() and (why := units.remove_tree(records / "state")):
+            raise SystemExit(f"{records / 'state'}: an earlier settlement's copy cannot be replaced: {why}")
         shutil.copytree(record["state_root"], records / "state")
-    shutil.rmtree(record["tree"])
-    units.forget_credentials(record["sandbox"]["home"])  # the transcripts stay for the audits (review2 minor 7)
+    if why := units.remove_tree(record["tree"]):
+        out["tree_left"] = why
+        print(f"{records}: the agents' tree {record['tree']} is left ({why}); remove it by hand")
     return out
 
 
@@ -445,10 +459,11 @@ def live_pools(study):
 
 def retire(out):
     """Delete a pool's clones and any credential copy left in its judges' homes (its records stay: the audit and the
-    ledger name its judges)."""
-    (out / "clones").chmod(0o755)
-    shutil.rmtree(out / "clones")
+    ledger name its judges). The copies go first: clones a judge's run left read-only are made writable; clones that
+    still cannot be removed are refused, and the pool stays live."""
     units.forget_credentials(out / ".private-homes")
+    if why := units.remove_tree(out / "clones"):
+        raise SystemExit(f"{out / 'clones'} is left ({why}); remove it by hand")
 
 
 def probe_only(tranche):
@@ -580,6 +595,7 @@ def judge_blocked(study, tranche, out, batches):
 def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     batches, records = len(mapping["batches"]), out / "records"
     rules.require_order(study, tranche)  # per unit (review3 minor 6)
+    units.require_login(batches * JUDGE_SEC)  # before its reservation and its copy of the login (ruling R16)
     pooling.verify_pool(out)
     judged = blinding.judged_patches(out, mapping)  # what this judge reads, bound to its ratings in the readout
     ceiling, per_call, pin = layout.spend_terms(study, tranche, model)
@@ -782,7 +798,7 @@ def parser():
             command.add_argument("--kind", choices=("first", "retest"), required=True)
         command.add_argument("tasks", nargs="+")
     sub.add_parser("settle").add_argument("runs", nargs="+", help="records directories")
-    for name in ("smoke-check", "probe-readout", "early-look", "readout", "ledger"):
+    for name in ("smoke-check", "probe-readout", "early-look", "readout", "ledger", "login-expiry"):
         sub.add_parser(name)
     sub.add_parser("record-freeze").add_argument("--reason", help="needed once a start exists: the apparatus fix")
     sub.add_parser("probe").add_argument("--rung", action="append", help="repeatable; default: the readout's next")
@@ -836,6 +852,7 @@ def main(argv=None):
         "early-look": lambda: print(json.dumps(rules.early_look(study), indent=2)),
         "readout": lambda: write_readout(study),
         "ledger": lambda: ledger_report(study),
+        "login-expiry": lambda: print(units.expiry_text(units.login_expiry())),
         "resume-after-limit": lambda: print(json.dumps(spend.resume_after_limit(
             study.ledger, a.reset, a.five_hour, a.weekly, a.read_at))),
         "not-a-limit": lambda: print(json.dumps(not_a_limit(study, a.unit, a.reason))),
