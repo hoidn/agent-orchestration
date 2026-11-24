@@ -444,7 +444,8 @@ rungs are probed flat within the cap.
 
 Tasks are chosen by tier and seed order, never by their own probe outcome; a
 probed task that is drawn keeps its probe run as the first of its four Haiku
-runs unless the form changed. The ladder probe is the plan's one redraw,
+runs unless the form changed; the programs' text is part of the form (ruling
+R17). The ladder probe is the plan's one redraw,
 taken before calibration instead of after it: no later redraw follows, and
 Step 2's redraw paragraph does not apply. Worst case in Haiku candidate
 calls: 40 from the redraw cap (probe and extension probe) and 80 from the
