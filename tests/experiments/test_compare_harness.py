@@ -16,7 +16,8 @@ import pytest
 
 from experiments.compare import prepare, repos, scan
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
-    READY, REPO, call, drive, edit, git, selects, skip_without_sandbox, start, world, write_memo, write_task,
+    READY, REPO, call, configure_test_sandbox, drive, edit, git, selects, skip_without_sandbox, start, world,
+    write_memo, write_task,
 )
 from tests.agent_session_shims import closed_path
 
@@ -80,6 +81,14 @@ def test_run_refuses_a_runtime_under_the_main_checkout_prefix(world):
     git(world.main, "worktree", "add", "-q", "--detach", str(world.tmp / "main-frozen"), world.solution)
     world.runtime = world.tmp / "main-frozen"
     with pytest.raises(SystemExit, match="main checkout prefix"):
+        start(world, "direct_task")
+
+
+@pytest.mark.parametrize("mount", ["inside", "around"])
+def test_run_refuses_a_sandbox_mount_inside_or_around_the_main_checkout(world, monkeypatch, mount):
+    """The scan's tool-output exemption rests on the sandbox mounting no part of the main checkout."""
+    configure_test_sandbox(world, monkeypatch, readonly_files=[world.main / ".git" if mount == "inside" else world.tmp])
+    with pytest.raises(SystemExit, match="main checkout"):
         start(world, "direct_task")
 
 
@@ -406,10 +415,16 @@ def tool_result(text, **extra):
         "session_id": "SESSION", "tool_use_result": {"stdout": text, "stderr": "", **extra}}
 
 
+def stdout_lines(records):
+    return (records / "calls" / "1" / "stdout.txt").read_text().splitlines()
+
+
 def test_scan_counts_the_main_checkout_in_inputs_and_assistant_text_but_not_in_tool_output(world):
     """The real case: a relative `cat` of a repository document whose text names the main checkout."""
     records, record = start(world, "direct_task")
     doc = f"## Working-tree rules\n\n- Run from `{world.main}`.\n- Do not create a worktree.\n"
+    typed = tool_result(doc)
+    typed["message"]["content"].insert(0, {"type": "text", "text": f"Look in {world.main} too."})
     call(world, record, stream_json([
         assistant({"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "cat docs/plans/x.md"}}),
         tool_result(doc),
@@ -417,27 +432,36 @@ def test_scan_counts_the_main_checkout_in_inputs_and_assistant_text_but_not_in_t
                    "input": {"command": f"cat {world.main}/docs/x.md"}}),
         assistant({"type": "text", "text": f"The plan says to work in {world.main}."}),
         tool_result(f"{doc}see github.com/x\n"),
+        typed,
     ]))
-    assert [h["pattern"] for h in prepare.scan(records, world.solution)] == [
-        "main checkout prefix", "main checkout prefix", "github.com"]
+    hits = prepare.scan(records, world.solution)
+    lines = stdout_lines(records)
+    assert ([h["pattern"] for h in hits], all(h["text"] in lines[h["line"] - 1] for h in hits)) == (
+        ["main checkout prefix", "main checkout prefix", "github.com", "main checkout prefix"], True)
 
 
 def test_scan_does_not_count_the_units_own_project_folder_but_counts_any_other(world):
-    """The real case: the CLI saves a large tool output under the unit's own home's project folder for its tree."""
+    """The real case: the CLI saves a large tool output under the unit's own home's project folder for its working
+    directory (<tree slug>-cand-1). Only a folder the CLI made in the unit's own home is exempt, and `..` leaves it."""
     records, record = start(world, "direct_task")
-    own = "".join(c if c.isalnum() else "-" for c in record["tree"])
+    own = "".join(c if c.isalnum() else "-" for c in record["tree"]) + "-cand-1"
     home = record["sandbox"]["home"]
-    persisted = f"/home/compare/.claude/projects/{own}-cand-1/SESSION/tool-results/b1.txt"
-    lines = [f"cat ~/.claude/projects/{own}-cand-1/SESSION/tool-results/b1.txt",
+    (Path(home) / ".claude" / "projects" / own).mkdir(parents=True)
+    persisted = f"/home/compare/.claude/projects/{own}/SESSION/tool-results/b1.txt"
+    lines = [f"cat ~/.claude/projects/{own}/SESSION/tool-results/b1.txt",
              f"ls {home}/.claude/projects/{own}",
              "cat /home/compare/.claude/projects/-other-agents-tree-cand-1/s.jsonl",
-             f"cat /root/.claude/projects/{own}-cand-1/s.jsonl",
-             "ls ~/.claude/projects/"]
+             f"cat /root/.claude/projects/{own}/s.jsonl",
+             "ls ~/.claude/projects/",
+             f"cat ~/.claude/projects/{own}/../-x-other/s.jsonl",
+             f"cat ~/.claude/projects/{own}-evil/s.jsonl",
+             f"cat {persisted} /home/compare/.claude/projects/-other/s.jsonl"]
     call(world, record, stream_json([
         tool_result(f"Output too large. Full output saved to: {persisted}", persistedOutputPath=persisted)])
         + "".join(f"echo '{line}'\n" for line in lines))
-    assert [(h["line"], h["pattern"]) for h in prepare.scan(records, world.solution)] == [
-        (5, "other sessions' files"), (6, "other sessions' files"), (7, "other sessions' files")]
+    hits = prepare.scan(records, world.solution)
+    assert ([(h["line"], h["pattern"]) for h in hits], "tool-results/b1.txt" in hits[-1]["text"]) == (
+        [(n, "other sessions' files") for n in (5, 6, 7, 8, 9, 10)], True)
 
 
 def test_scan_patterns_match_home_aliases_without_overriding_a_unit_home(world):

@@ -110,13 +110,19 @@ def resolved(spec):
     return replace(spec, **paths)
 
 
-def refuse_paths(main, root, runtime, spec):
+def refuse_paths(main, root, runtime, spec, readonly=()):
     """The runtime and the spec's files (a candidate root among them) outside the main checkout's prefix
     and the work root; the work root and the spec's state directory (agents write results there) outside
-    the main checkout's prefix and visible in the shims' sandbox."""
+    the main checkout's prefix and visible in the shims' sandbox. No read-only sandbox mount (`readonly`, the
+    declared or discovered destination -> source map) lies under the main checkout's prefix or contains it: the
+    scan does not count the prefix in tool output because the sandbox mounts no part of it."""
     files = [p for p in (spec.source, spec.source_root, spec.providers, spec.command_boundaries) if p]
     state = [spec.state_dir] if spec.state_dir else []
-    guard(main, root, runtime, *files, *state)
+    mounts = [Path(path) for pair in dict(readonly).items() for path in pair]
+    guard(main, root, runtime, *files, *state, *mounts)
+    for mount in mounts:
+        if Path(main).is_relative_to(mount):
+            raise SystemExit(f"the sandbox mount {mount} contains the main checkout {main}; mount a narrower path")
     if str(runtime).startswith(f"{root}/"):
         raise SystemExit(f"the runtime {runtime} lies inside the work root {root}, where agents work")
     for path in files:
@@ -222,7 +228,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec
     task, runtime, root = task.resolve(), runtime.resolve(), root.resolve()
     spec = resolved(spec) if spec else arm_spec(arm, runtime)
     main = main_checkout(runtime)
-    refuse_paths(main, root, runtime, spec)
+    refuse_paths(main, root, runtime, spec, sandbox.dependencies(environment)["readonly"])
     commit = runtime_commit(runtime)
     base = git(runtime, "rev-parse", "--verify", (task / "base_commit").read_text().strip() + "^{commit}")
     arm_inputs(task, arm, [Path("/")], sets, spec.inputs)  # refuse bad --set values before building anything

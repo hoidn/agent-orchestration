@@ -28,12 +28,14 @@ Three exemptions keep the repository's own text and the unit's own paths from re
   Limit: a path reached without spelling the prefix in an input (a variable, a relative path) and echoed only in
   a result is not counted; Codex output in stdout and every other pattern are still matched in full.
 - "other sessions' files" does not count the unit's own Claude project folders (where the CLI persists large tool
-  output): `.claude/projects/<the tree's slug>[-...]` under its own home, written as the guest home, the backing
-  home, ~, $HOME or ${HOME}. Another slug, another home and a bare `.claude/projects` remain hits.
+  output): exactly the folders the CLI made in the unit's own home for the tree or a directory under it (those
+  `claude_sessions` reads), written under the guest home, the backing home, ~, $HOME or ${HOME}, and followed by no
+  `..` component. Any other folder name or home, a `..` leaving the folder and a bare `.claude/projects` are hits.
 - The solution hash is not matched inside the unit's own roots passed as `own_roots` (a judge's pool root): a
   seed-set pool lives at <pools>/<task id>/<kind> and the task id is the solution's first ten characters. Limit:
   the prefix inside such a path is never counted, and a judge naming a path above the root (<pools>/<task id>)
   still is. A candidate's paths (agents/<random>, records/<arm>/run-<k>) carry no task id, so it passes none.
+A hit's excerpt is always taken from the recorded line itself, never from the text an exemption altered.
 
 Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1 and an
 explicitly bound Claude run or judge Haiku (expected_claude_model). Any other answering model is a hit. Read actual
@@ -159,11 +161,27 @@ def project_slug(tree):
     return re.sub(r"[^A-Za-z0-9]", "-", str(tree))
 
 
+def project_folders(tree, home):
+    """The Claude CLI's project folders in `home` for the tree and every directory under it."""
+    slug = project_slug(tree)
+    return [project for project in sorted((Path(home) / ".claude" / "projects").glob(slug + "*"))
+            if project.name == slug or project.name.startswith(slug + "-")]
+
+
 def own_projects(tree, home):
-    """The unit's own Claude project folders under its home, written as the guest or backing home or a ~ form."""
+    """Mentions of the unit's own Claude project folders (exact names, no `..` after them), under its guest or
+    backing home or a ~ form."""
+    names = "|".join(re.escape(project.name) for project in project_folders(tree, home))
+    if not names:
+        return re.compile(r"(?!)")
     homes = "|".join(map(re.escape, (str(home), str(sandbox.GUEST_HOME), "~", "$HOME", "${HOME}")))
-    return re.compile(rf"(?<![\w.~$/-])(?:{homes})/\.claude/projects/{re.escape(project_slug(tree))}"
-                      rf"(?:-[\w.-]*)?{BOUNDARY}")
+    return re.compile(rf"(?<![\w.~$/-])(?:{homes})/\.claude/projects/(?:{names}){BOUNDARY}"
+                      r"""(?![^\s'"]*/\.\.(?:/|[\s'"]|$))""")
+
+
+def blanked(pattern, text):
+    """`text` with every match of `pattern` replaced by as many spaces, so positions still index the original."""
+    return pattern.sub(lambda match: " " * len(match.group()), text)
 
 
 def without_tool_output(text):
@@ -182,10 +200,8 @@ def without_tool_output(text):
 
 def claude_sessions(tree, home):
     """The Claude CLI's session files for the tree and every directory under it."""
-    slug = project_slug(tree)
-    for project in sorted((home / ".claude" / "projects").glob(slug + "*")):
-        if project.name == slug or project.name.startswith(slug + "-"):
-            yield from sorted(project.rglob("*.jsonl"))
+    for project in project_folders(tree, home):
+        yield from sorted(project.rglob("*.jsonl"))
 
 
 def codex_sessions(tree, since, home):
@@ -225,6 +241,14 @@ def refuse_publication_errors(calls_root):
             raise SystemExit(f'{marker}: incomplete or failed sandbox result publication')
 
 
+def excerpt(text, found, aligned):
+    """80 characters around a match, from the recorded line. A blanked subject keeps the line's positions (`aligned`);
+    a Claude row re-serialized without its tool results does not, so its match is located in the line by its text
+    (the first occurrence)."""
+    start = found.start() if aligned else max(text.find(found.group()), 0)
+    return text[max(0, start - 80):start + len(found.group()) + 80]
+
+
 def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="gpt-5.6-terra",
               expected_claude_model=sandbox.SONNET, own_roots=()):
     refuse_publication_errors(calls_root)
@@ -235,14 +259,13 @@ def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="
     hits, own = [], own_projects(tree, home)
     roots = re.compile("|".join(spelled(root, home) + BOUNDARY for root in own_roots) or r"(?!)")
     for path, number, text in sources(Path(calls_root), Path(tree), since, Path(home)):
-        subjects = {MAIN: without_tool_output(text), OTHER_SESSIONS: own.sub(" ", text),
-                    SOLUTION: roots.sub(" ", text)}
+        subjects = {MAIN: without_tool_output(text), OTHER_SESSIONS: blanked(own, text), SOLUTION: blanked(roots, text)}
         for name, pattern in compiled.items():
             subject = subjects.get(name, text)
             found = re.search(pattern, subject)
             if found:
                 hits.append({"file": str(path), "line": number, "pattern": name,
-                             "text": subject[max(0, found.start() - 80):found.end() + 80]})
+                             "text": excerpt(text, found, name != MAIN or subject is text)})
     hits.extend(model_hits(claude_sessions(Path(tree), Path(home)), expected_claude_model))
     hits.extend(model_hits(codex_sessions(Path(tree), since, Path(home)), expected_codex_model))
     return hits
