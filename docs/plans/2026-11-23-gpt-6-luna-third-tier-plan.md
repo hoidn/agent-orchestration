@@ -1,0 +1,98 @@
+# `gpt-6-luna` as a third experiment model tier
+
+**Status: Plan; nothing built, no spend.** The owner's directive is recorded as an experiment rule
+([`AGENTS.md`](../../AGENTS.md), "Third model tier"). This page plans what makes the tier runnable in the seed-set
+kit ([`experiments/seed_set/README.md`](../../experiments/seed_set/README.md)) and records its decisions and spend
+in the [ledger](#ledger) below. The seed-set study's own plan and ledger
+([seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md)) stay the authority for that study.
+
+## Directive and scope
+
+Owner, 2026-11-23: "for the experiments, add gpt 6 luna a third dumb model tier after sonnet and haiku".
+
+- **The model** is `gpt-6-luna`, run by the Codex CLI on the owner's ChatGPT subscription login. No API key.
+- **In scope:** the seed-set kit and the comparison harness under it (`experiments/compare/`), and later the
+  mutation model set (`experiments/mutants/operators.py`).
+- **Not in scope:** the long-horizon ladder and the MLE-bench line. Both are approved for `claude-haiku-5-5` only
+  and run Claude Code in a container behind a host relay; Luna there would need a new agent, relay, recordings
+  and a new owner approval.
+- **No ordering is assumed** among the three tiers. Luna's placement on the calibrated tasks is observed
+  (rulings L-R1 and L-R5).
+
+## What exists and what blocks a Luna call today
+
+Read from `main` on 2026-11-23; nothing was run against a provider.
+
+- **The provider path exists.** The harness has a metered Codex template (`codex_unrestricted_workspace_metered`:
+  `codex exec --json … --model M --config model_reasoning_effort=E`), and `sandbox._providers` picks the CLI from
+  the template name, so a Codex providers file yields a unit with Codex only and Claude denied.
+- **Four things refuse a Luna call:** `sandbox.dependencies` accepts only Codex 0.163.0 (this machine has
+  0.171.0); `study.one_run` requires the record's Claude model to equal the arm's model; `launch_env` always sets
+  the Claude model list; `rules.bound_argv` expects Claude's `--effort` flag.
+- **Isolation is behind the Claude path.** The Codex home's `config.toml` turns off apps, hooks and plugins, but
+  not memories, history or tool suggestion; there is no tool allowlist check (Codex prints no init event); the
+  session audit ignores Codex rollouts, so it passes with nothing checked; the user's tmux skill is copied in;
+  the scanner's exemptions for tool output and for the unit's own files are Claude-only.
+- **Settlement would misread every Luna call.** `units.succeeded` needs Claude's `result` event, `units.call_cost`
+  prices in Claude's mode, and a usage limit arriving as a Codex `error` or `turn.failed` event is not seen, so a
+  limit would score as a natural failure, against ruling R1 of the seed-set plan.
+- **The credential is riskier than Claude's.** Codex refresh tokens are single-use: a unit that refreshed its copy
+  would log the owner out of every Codex client.
+- **No price row.** The spend cap refuses an unpriced model. The vendor's list price, read 2026-11-23
+  (`https://developers.openai.com/api/docs/pricing`, Standard tier): USD 0.10 input, 0.50 output, 0.01 cached
+  input, 0.125 cache write (30 minutes) per million tokens; above 272K input tokens 0.20, 0.75, 0.02 and 0.25.
+  The page's `gpt-5.6-luna` row read at the same time equals the frozen table's row.
+
+## Coordinator rulings
+
+| Id | Ruling | Why |
+| --- | --- | --- |
+| L-R1 | The seed-set calibration tranche runs as frozen on Haiku and Sonnet. Luna enters after it. The runtime at `dbe97cf0` does not move before the calibration ends | A Luna arm inside the calibration means every task below, a new freeze, a rehearsal and a fourth smoke first, and recounted frozen thresholds. The calibration qualifies the task set and the judge, not each model |
+| L-R2 | Tasks merge to `main` as they pass review; they take effect at one freeze after the calibration, with one anchors run for all of them | The runtime reads its own tree; the freeze binds the code trees, the price table's hash and the anchors record |
+| L-R3 | A unit's copy of the Codex login carries no refresh token; a start is refused unless the login is in ChatGPT mode with no API key, and unless the access token outlives the unit (the Codex form of ruling R16). If the CLI rejects such a copy, the route is an owner decision | A unit must never rotate the owner's single-use refresh token |
+| L-R4 | Luna's worst case is USD 0.50 a call, as Haiku's: the list rates for input and output are equal. Luna arms declare effort `medium`, as the Haiku arms do | One comparison varies the model, not the effort |
+| L-R5 | Before any Luna arm of the seed evaluation: a paid Luna smoke (tranche `luna_smoke`: at most 5 Luna calls and 1 judge call, ceiling USD 10), then a placement step (`direct` on Luna once per calibrated task, pooled and judged with the existing records: 20 Luna and at most 20 judge calls). Each needs its own row here before its first call | The route is new, and two Claude smokes failed on isolation and scanning before one passed. The placement step observes where Luna sits and shows whether the Claude judges behave on non-Claude patches |
+| L-R6 | Implementers run narrow test selectors with at most four workers while a paid seed-set tranche is running; the coordinator runs the whole suite at integration when the machine is free | Paid runs are timed; a loaded machine changes their outcomes |
+
+## Tasks
+
+"Freeze" means the change takes effect at the post-calibration freeze (L-R2). Order: Z0 and T1 first; T2 to T7
+after; T8 after the smoke's ledger row; T9 with the search launcher.
+
+| Id | Files | Change | Proof | Freeze | Size |
+| --- | --- | --- | --- | --- | --- |
+| Z0 | none | Zero-spend facts on Codex 0.171.0, in a scratch `CODEX_HOME` with no login and no network: the feature keys the harness config sets and the keys for memories, history and tool suggestion (`features list`, `--strict-config`); `mcp list`; the model catalog's export and schema | Recorded output in this ledger | no | S |
+| T1 | `orchestrator/providers/price_table.json`, and every file that pins its hash | The `gpt-6-luna` row; the note and source date; the pinned hashes recorded again where a kit's check reads them (long-horizon `ladder.json` and `manifest.json`, the MLE-bench manifests and tranche ladders); the concluded Phase 2 smoke's criterion keeps its historical hash | `tests/test_provider_usage.py` and each kit's own hash check | yes | S |
+| T2 | `experiments/compare/scan.py`, `shim/model-guard` | Admit the ID | Admitted only when named; the scan flags another model | yes | S |
+| T3 | `experiments/compare/sandbox.py`, a new catalog file for 0.171.0 | The CLI pin and catalog; the config's off-keys from Z0; no user skill in a seed-set unit | The prepared config parses with the keys off; another version refuses | yes | S |
+| T4 | `experiments/seed_set/units.py` | Per provider: success, error lines, the limit rule, call cost, the rollout audit (count, working directory, model, effort) and an allowlist of item types | Synthetic Codex output: a limit pauses, another model stops, a killed call is priced at the worst case | yes | L |
+| T5 | `units.py`, `study.py` | The Codex login check and expiry guard; the copy without a refresh token (L-R3) | A hand-made login file: an expired one refuses, an API-key one refuses, the copy lacks the token | yes | M |
+| T6 | `spend.py`, `layout.py`, `rules.py`, `study.py`, `blinding.py`, `programs/providers.codex.json`, `programs/arms.json` | The model table and a model-to-CLI map, a pin per CLI, the launch environment, the bound argv, the blind judge's word list | Luna is refused in the three existing tranches | yes | M |
+| T7 | `tests/experiments/seed_set_offline_support.py`, `rehearsal.py` | A stand-in `codex`; one Luna unit end to end | Through the real shims: settled, priced, scan and audit clean | yes | M |
+| T8 | `spend.py`, `layout.py`, `rules.py` | The `luna_smoke` caps and its smoke check | The rehearsal stage passes; a cut unit fails it | yes | M |
+| T9 | `experiments/mutants/operators.py` and its test | Luna in the mutation model set, with the launcher's rule that binds a role's provider by its model's CLI | The model tuple's test | no | S |
+
+## Owner decisions, with the defaults in force
+
+| Decision | Default until the owner says otherwise |
+| --- | --- |
+| Luna inside the calibration tranche, or after it | After it (L-R1) |
+| The Codex credential route | A per-unit copy without the refresh token (L-R3) |
+| Paid extra usage (credits) on the ChatGPT account during a Luna tranche | Required off; the kit reads the account's credit flag from the session record and stops a tranche that would draw on credits |
+| The placement step (20 Luna and at most 20 judge calls) before Luna arms of the seed evaluation | Yes (L-R5); requested with the seed evaluation's approval |
+| The share of the ChatGPT usage meter a Luna tranche may take | The 30-point rule of the seed-set plan's ruling R13, read from the session record |
+
+## Not resolved by reading
+
+- Whether Codex 0.171.0 accepts a login copy with no refresh token (T5 shows the copy; the smoke shows the call).
+- The shape of a failed or limited `exec --json` call at 0.171.0; the only fixture in the repository is older.
+- Whether an owner-side refresh revokes an access token that is still inside its lifetime.
+- Codex session records carry the account's id, so a Luna unit's transcripts stay private like its login.
+- Whether the Claude judges score non-Claude patches differently (the placement step's question).
+
+## Ledger
+
+| Date | Entry | Detail |
+| --- | --- | --- |
+| 2026-11-23 | Owner directive | "for the experiments, add gpt 6 luna a third dumb model tier after sonnet and haiku" (about 22:10 PST). Recorded in `AGENTS.md` ("Third model tier") and the roadmap's answered decisions (`dc0f6e92`). `codex login status` on this machine: "Logged in using ChatGPT" |
+| 2026-11-23 | The plan and rulings L-R1 to L-R6 (planning, read-only; zero spend) | Findings and task list from a read of `main`; the list price read from the vendor's page the same day. No task started |
