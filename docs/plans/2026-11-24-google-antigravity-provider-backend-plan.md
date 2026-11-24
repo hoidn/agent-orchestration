@@ -1,8 +1,8 @@
 # Google Antigravity (`agy`) Provider Backend Plan
 
-**Status:** plan; written 2026-11-24 by the coordinating session on the owner's goal "build a google
-antigravity provider backend". Not started. This page is a plan and a record, not copy-safe guidance:
-once the work lands, [specs/providers.md](../../specs/providers.md) owns the contract.
+**Status:** executed 2026-11-24 (Tasks 1 to 5); written by the coordinating session on the owner's goal "build a google
+antigravity provider backend". This page is a plan and a record, not copy-safe guidance:
+[specs/providers.md](../../specs/providers.md) owns the contract.
 
 ## Goal and scope
 
@@ -133,3 +133,7 @@ tool); the conversation store's format; `--output-format json`.
 | 2026-11-24 | Goal | Owner: "build a google antigravity provider backend". |
 | 2026-11-24 | Probe | Nine `agy` 1.5.16 invocations from a scratch repository, `GEMINI_API_KEY` unset: five completed model calls on `gemini-3.8-flash` (four at `low`, one at `high` with two tool calls), about 50,000 input, 1,900 output and 26,800 cache-read tokens in all; four refused before any request (two usage errors, an unknown model, a model and effort conflict). Run by the coordinator as development probes on the owner's Google login; no experiment, no quality claim. |
 | 2026-11-24 | Plan | This page; decisions D1 to D7. |
+| 2026-11-24 | Built | Tasks 1 and 2 by an implementer on a branch: templates `agy` and `agy_metered`, mode `agy_stream_json_stdout`, the codec, the usage reader, `env_unset` on the template applied where the executor composes the child environment, the spend-cap transport set, the test guard, tests with a stand-in `agy`, and the spec, matrix and README rows. Found: the template's session commands run through the executor, but no public step can use them, because agent turns require a native-store adapter (out of scope). |
+| 2026-11-24 | Review | Independent reviewer: ready after fixes. Accepted and fixed by the author: the zero-usage report is limited to the refused shape (no `init`, empty conversation id, status not `SUCCESS`); `complete` needs a `SUCCESS` result and, on a fresh conversation, step sums equal to the result's total; three more variables removed (`GOOGLE_GENAI_USE_ENTERPRISE`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`; seven in all), and the spec says which names are removed and that file-based credentials are not controlled, not that the login is used; a Claude model id served by `agy` that matches a price row is priced by it as a lower bound (no cache-write count); a loud failure when a metered insert would not sit before `-p ${PROMPT}`; `env_unset` validated. Declined: a shared base class for the Claude and `agy` codecs. D3 and D6 above are superseded on these points by the spec. |
+| 2026-11-24 | Live check | Two calls through the public command line from the branch, `gemini-3.8-flash` effort `low`, scratch workspace, `GEMINI_API_KEY` set in the parent: `agy_metered` exited 0, wrote its result, and `usage.json` (13,166 input, 201 output, 8,813 cache read, complete) equals the stream's step sums and the result line's total; `report` shows the tokens with no cost. Plain `agy` exited 0, wrote its result, usage `unknown` / `no_transport` as for every plain template. |
+| 2026-11-24 | Suite and merge | Whole suite on the branch merged with `main`: 24,953 passed, 72 failed. 71 are the known launch artefacts of a whole-suite run from a new tmux session (`test_prompt_resume_child` 55, the provider-isolation backend tests 10, `test_executor_retirement_cutoff` 2, nanoBragg 4). The other, `test_workflow_evaluated_item_io.py::test_nested_public_orchestrator_clears_parent_coordinate_in_own_serial_launch`, failed because the run was started without `PYTHONPATH` set to the tree, so its nested `python -m orchestrator` imported the stale editable install; its module passes with `PYTHONPATH` set (12 passed). No provider-guard hit. Fast-forwarded to `main` at `e5a4fb6f`. |
