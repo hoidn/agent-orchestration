@@ -221,7 +221,7 @@ def world(tmp_path, monkeypatch):
     git(main, "worktree", "add", "-q", "--detach", str(runtime), "HEAD")
     changed = []
     for relative in ('experiments/compare/shim/claude', 'experiments/compare/shim/model-guard',
-                     'experiments/compare/sandbox.py', 'experiments/compare/codex-models-0.163.0.json'):
+                     'experiments/compare/sandbox.py', 'experiments/compare/codex-models-0.171.0.json'):
         source, destination = REPO / relative, runtime / relative
         if not destination.exists() or destination.read_bytes() != source.read_bytes():
             destination.parent.mkdir(parents=True, exist_ok=True)

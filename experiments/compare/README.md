@@ -68,9 +68,16 @@ historical home interpretation. Scans and native receipt joins read the recorded
 backing, without searching other homes.
 
 Preparation copies only the required credential file into mode-0600 writable
-private storage, once. Resume preserves native atomic credential refreshes.
-Configuration uses the public native catalog, file credential storage and the
-declared public tmux skill plus native system skills; host plugins, hooks,
+private storage, once. The Codex login's copy carries an empty `tokens.refresh_token`
+(`sandbox.copy_codex_login`; Codex refresh tokens are single use, and Codex 0.171.0
+refuses a login file without the key), so a unit cannot refresh it; a Claude
+credential copy is unchanged, and resume preserves its native atomic refreshes.
+Configuration uses the public native catalog (`codex debug models --bundled` of
+the pinned Codex 0.171.0, `sandbox.CATALOG`), file credential storage and the
+declared public tmux skill plus native system skills (`skills=False` on
+`prepare.run_arm` or `sandbox.prepare_unit` copies no declared skill); it turns
+off memories, the history file, tool suggestion, sub-agents, cloud skills, apps,
+hooks, plugins and browser and computer use. Host plugins, hooks,
 memories, startup files and identity-bearing model caches are not copied.
 Every Claude launch also mounts `sandbox.CLAUDE_SETTINGS` read-only from memory as the sandbox's managed settings
 (`/etc/claude-code/managed-settings.json`, above every user, project and `--settings` value) and sets
@@ -180,7 +187,7 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 
 Model policy: experiment workflows default to the owner's Sonnet/Terra ceiling.
 The generic guard retains Sonnet for legacy Claude callers and Terra by default for Codex;
-explicit per-run Codex bindings may select exactly `gpt-5.6-luna` or `gpt-6.1-sol`, and an
+explicit per-run Codex bindings may select exactly `gpt-5.6-luna`, `gpt-6-luna` or `gpt-6.1-sol`, and an
 explicit Claude binding exactly `claude-haiku-5-5`.
 The owner-selected functional calibration uses Luna high versus Sol 6.1 low,
 with Sol 6.1 high judging, and prohibits Claude and native delegation.
@@ -516,7 +523,7 @@ a reference-free rubric, declared `arms` and `runs_per_arm`. Generate fresh
 independent solutions with the same direct workflow and task inputs, varying only
 the frozen model or effort binding. Use `prepare.run_arm` with the direct-task `ArmSpec`
 for each arm; custom final-patch arms enter the ordinary pool. Per-run
-`COMPARE_CODEX_MODELS` binds the exact Luna, Terra or Sol 6.1 model; unset policy retains
+`COMPARE_CODEX_MODELS` binds the exact Luna (5.6 or 6), Terra or Sol 6.1 model; unset policy retains
 Terra only. Native delegation remains disabled.
 
 Pool every declared natural output under blind clone IDs, then use the ordinary

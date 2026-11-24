@@ -17,7 +17,8 @@ import tempfile
 from pathlib import Path
 
 GUEST_HOME = Path('/home/compare')
-CATALOG = Path(__file__).with_name('codex-models-0.163.0.json')
+CODEX_VERSION = '0.171.0'  # the Codex CLI the default discovery admits, and its bundled public catalog
+CATALOG = Path(__file__).with_name(f'codex-models-{CODEX_VERSION}.json')  # `codex debug models --bundled`
 TMUX_FILES = ('SKILL.md', 'agents/openai.yaml', 'scripts/find-sessions.sh', 'scripts/wait-for-text.sh')
 PROTECTED = frozenset(('HOME', 'CODEX_HOME', 'PATH', 'PYTHONPATH', 'OLDPWD', 'BASH_ENV', 'ENV',
     'SSH_AUTH_SOCK', 'TMUX', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN_FILE',
@@ -103,8 +104,8 @@ def dependencies(environment=None):
         package = Path(codex).parent.parent
         metadata = package / 'package.json'
         if metadata.is_file() and _read(metadata).get('name') == '@openai/codex':
-            if _read(metadata).get('version') != '0.163.0':
-                raise ValueError('the default public catalog requires Codex 0.163.0; declare reviewed dependencies')
+            if _read(metadata).get('version') != CODEX_VERSION:
+                raise ValueError(f'the default public catalog requires Codex {CODEX_VERSION}; declare reviewed dependencies')
             readonly[str(package)] = str(package)
     if node:
         readonly[node] = node
@@ -178,11 +179,33 @@ def refuse_main_mounts(main, readonly):
                              "mount a path elsewhere")
 
 
+def copy_codex_login(source, destination):
+    """The unit's copy of a Codex login, mode 600, without its refresh token (ruling L-R3 of plan
+    2026-11-23-gpt-6-luna-third-tier): Codex refresh tokens are single use, so a unit that refreshed its copy would
+    log the owner out. `tokens.refresh_token` stays as an empty string because Codex 0.171.0 refuses a login file
+    without the key (Z0); every other field is kept. The source is only read, and no value is printed."""
+    login = json.loads(Path(source).read_text())
+    if isinstance(login.get('tokens'), dict) and 'refresh_token' in login['tokens']:
+        login['tokens']['refresh_token'] = ''
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    with os.fdopen(descriptor, 'w') as stream:
+        json.dump(login, stream)
+
+
+def _copy_skills(skills, native):
+    for skill in map(Path, skills):
+        if skill.name != 'tmux' or any(p.is_symlink() for p in skill.rglob('*')) or sorted(
+                str(p.relative_to(skill)) for p in skill.rglob('*') if p.is_file()) != sorted(TMUX_FILES):
+            raise ValueError('only the exact audited public tmux skill directory is admitted')
+        shutil.copytree(skill, native / 'skills/tmux')
+
+
 def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment=None, result_root=None,
-                 claude_model=SONNET, main=None):
+                 claude_model=SONNET, main=None, skills=True):
     """Create one home once; its declaration/marker bind launch, resume and receipt discovery. The declaration
     fixes the unit's one Claude model; a launch environment can only narrow it. With `main`, refuse read-only
-    mounts under or around the main checkout (`refuse_main_mounts`)."""
+    mounts under or around the main checkout (`refuse_main_mounts`). `skills=False` copies no skill into the
+    Codex home (the declaration records none)."""
     _bound_claude(claude_model)
     environment = os.environ if environment is None else environment
     tree, records, homes = (Path(p).resolve() for p in (tree, records, homes))
@@ -190,6 +213,8 @@ def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment
     if declaration.exists() or declaration.is_symlink():
         raise ValueError('sandbox unit already prepared; resume its recorded declaration')
     data = dependencies(environment)
+    if not skills:
+        data['skills'] = []
     _validate_dependencies(data)
     if main is not None:
         refuse_main_mounts(main, data['readonly'])
@@ -202,29 +227,31 @@ def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment
     native = home / '.codex'
     native.mkdir(mode=0o700)
     shutil.copyfile(data['catalog'], native / 'public-models.json')
+    # Off as well (keys of Codex 0.171.0, plan 2026-11-23-gpt-6-luna-third-tier Z0): memories (generation, use),
+    # the history file, tool suggestion, sub-agents, cloud skills, and browser and computer use.
     (native / 'config.toml').write_text('cli_auth_credentials_store = "file"\n'
         f'model_catalog_json = {json.dumps(str(GUEST_HOME / ".codex/public-models.json"))}\n'
         '[features]\napps = false\nhooks = false\nplugins = false\nrecommended_plugins = false\n'
-        'api_key_model_discovery = false\n')
-    for skill in map(Path, data.get('skills', [])):
-        if skill.name != 'tmux' or any(p.is_symlink() for p in skill.rglob('*')) or sorted(
-                str(p.relative_to(skill)) for p in skill.rglob('*') if p.is_file()) != sorted(TMUX_FILES):
-            raise ValueError('only the exact audited public tmux skill directory is admitted')
-        shutil.copytree(skill, native / 'skills/tmux')
+        'api_key_model_discovery = false\nmemories = false\ntool_suggest = false\nmulti_agent_v2 = false\n'
+        'browser_use = false\nbrowser_use_external = false\ncomputer_use = false\nin_app_browser = false\n'
+        '[memories]\ngenerate_memories = false\nuse_memories = false\n[history]\npersistence = "none"\n'
+        '[agents]\nenabled = false\n[cloud.skills]\nenabled = false\n')
+    _copy_skills(data.get('skills', []), native)
     selected = _providers(providers, data, environment)
     bin_dir = home / '.compare-bin'
     bin_dir.mkdir()
     for provider in selected:
         (bin_dir / provider).symlink_to(data[provider])
     source_home = Path(environment.get('HOME') or Path.home())
-    credentials = {'codex': (Path(environment.get('CODEX_HOME') or source_home / '.codex') / 'auth.json', native / 'auth.json'),
+    credentials = {'codex': (Path(environment.get('CODEX_HOME') or source_home / '.codex') / 'auth.json', native / 'auth.json',
+                             copy_codex_login),
                    'claude': (Path(environment.get('CLAUDE_CONFIG_DIR') or source_home / '.claude') / '.credentials.json',
-                              home / '.claude/.credentials.json')}
+                              home / '.claude/.credentials.json', shutil.copyfile)}
     for name in selected:
-        source, destination = credentials[name]
+        source, destination, copy = credentials[name]
         if source.is_file():
             destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            shutil.copyfile(source, destination)
+            copy(source, destination)
             destination.chmod(0o600)
     if 'claude' in selected:
         (home / '.claude.json').write_text('{"hasCompletedOnboarding":true}\n')

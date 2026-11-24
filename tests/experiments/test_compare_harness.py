@@ -722,8 +722,8 @@ def test_generic_command_arm_runs_behind_shims_and_records_arm_kind(world, capsy
     runtime_compare = world.runtime / "experiments/compare"
     shutil.copytree(REPO / "experiments/compare/shim", runtime_compare / "shim")  # untracked
     shutil.copy2(REPO / "experiments/compare/sandbox.py", runtime_compare / "sandbox.py")
-    shutil.copy2(REPO / "experiments/compare/codex-models-0.163.0.json",
-                 runtime_compare / "codex-models-0.163.0.json")
+    shutil.copy2(REPO / "experiments/compare/codex-models-0.171.0.json",
+                 runtime_compare / "codex-models-0.171.0.json")
     done = subprocess.run(["bash", "-c", capsys.readouterr().out], capture_output=True, text=True,
                           env={**os.environ, "PATH": closed_path(world.fakebin)})
     assert done.returncode == 0, done.stderr

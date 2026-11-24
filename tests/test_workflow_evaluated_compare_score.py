@@ -438,7 +438,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
     changed = []
     runtime_sources = ["experiments/compare/shim/claude", "experiments/compare/shim/codex",
                       "experiments/compare/shim/model-guard", "experiments/compare/sandbox.py",
-                      "experiments/compare/codex-models-0.163.0.json"]
+                      "experiments/compare/codex-models-0.171.0.json"]
     if functional:
         runtime_sources.append("experiments/compare/score_functional.orc")
     for relative in runtime_sources:

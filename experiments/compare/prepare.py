@@ -216,10 +216,12 @@ def write_commands(records, cwd, state, runtime, env, spec):
     return command
 
 
-def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec=None, *, environment=None):
+def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec=None, *, environment=None,
+            skills=True):
     """Build the run's agents' tree and records directory, print the command; return the records directory.
     `spec` replaces the ARMS lookup (`arm` then only names W/records/<arm>/); its paths face the runtime's
-    guards. A spec takes a name outside ARMS, whose special cases (best_of_n, review_once) it would meet."""
+    guards. A spec takes a name outside ARMS, whose special cases (best_of_n, review_once) it would meet.
+    `skills=False` prepares the unit without the declared skills (`sandbox.prepare_unit`)."""
     count = candidate_count(arm, candidates, spec)
     patch = patch_to_review(arm, apply)
     task, runtime, root = task.resolve(), runtime.resolve(), root.resolve()
@@ -245,7 +247,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec
     native = sandbox.prepare_unit(tree, records, homes=root / '.private-homes',
                                   providers=None if spec.command else spec.providers,
                                   result_root=state or cwd / '.orchestrate/runs', environment=environment,
-                                  claude_model=claude, main=main)
+                                  claude_model=claude, main=main, skills=skills)
     env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base, "TMPDIR": tree / "tmp"}
     env['COMPARE_SANDBOX'] = native['declaration']
     if inputs.get("model") in contamination.CODEX_MODELS:
