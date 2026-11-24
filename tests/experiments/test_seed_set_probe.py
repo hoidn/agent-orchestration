@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from experiments.compare.repos import load
-from experiments.seed_set import host, ladder, layout, probing, rules, spend, study
+from experiments.seed_set import host, ladder, layout, probing, rules, spend, study, units
 from tests.experiments.seed_set_offline_support import (
     committed_runtime, manifest_rows, stand_in_login, write_frozen_criterion,
 )
@@ -475,7 +475,8 @@ def test_a_probe_step_the_redraw_allowance_cannot_hold_is_a_stop(s):  # review3 
 
 def test_a_probe_run_the_token_would_not_outlive_is_refused_before_it_is_prepared(s, monkeypatch, tmp_path):  # R16
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "login"))
-    stand_in_login(tmp_path / "login", expires_in_sec=600)
+    stand_in_login(tmp_path / "login",
+                   expires_in_sec=study.unit_sec(1, study.CALL_SEC) + units.EXPIRY_MARGIN_SEC - 5)
     with pytest.raises(SystemExit, match="refreshed the login"):
         probing.probe(s, ["T1"])
     assert (spend.starts(spend.rows(s.ledger)), sorted(p.name for p in s.work.iterdir())) == ([], [])

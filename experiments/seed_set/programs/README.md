@@ -80,9 +80,9 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   route (ruling R9): see the kit's [README](../README.md), "The credential route".
 - A copy holds the access token of the moment it was made. A unit alive when that token expires either fails, when
   the owner's side refreshes first (two probe runs on 2026-11-23), or refreshes the token itself and rotates the
-  owner's. So a unit starts only if the token in the file it would copy outlives its reserved calls times its
-  provider timeout plus 10 minutes (ruling R16, `units.require_login`); the kit reads only the expiry time and
-  fails closed without one. A refresh before the expiry, such as a new login by the owner, is not seen: the units
+  owner's. So a unit starts only if the token in the file it would copy outlives its wall-clock limit
+  (`study.unit_sec`, at which the launch guard kills it) plus 15 minutes (ruling R16, `units.require_login`); the
+  kit reads only the expiry time and fails closed without one. A refresh before the expiry, such as a new login by the owner, is not seen: the units
   in flight then end as incidents.
 - A settlement removes the agents' tree after making its read-only directories writable. A tree that still cannot
   be removed is named in the run's `tree_left` and printed. The settlement and the credential clean-up stand, and

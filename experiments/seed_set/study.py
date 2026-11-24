@@ -38,10 +38,10 @@ tasks, a sound ledger, no stop) and `spend.reserve` (authorization, caps, planne
 a relaunch), and runs with `COMPARE_MAX_CALLS` at its reservation and `COMPARE_CLAUDE_MODELS` at its exact model;
 the harness's resume scripts are disabled (the study never resumes). Before a unit (candidate run, probe run or
 judge) is prepared or reserved, `units.require_login` refuses it unless the access token in the login file it would
-copy outlives its reserved calls times the provider timeout plus 10 minutes (ruling R16); only the expiry time is
-read. A settlement removes the credential copy first and the agents' tree last, read-only directories included; a
-tree it cannot remove is recorded as `tree_left`, and a settlement run again replaces the earlier copy of the run
-state. Candidate code runs on the host only behind
+copy outlives its wall-clock limit (`unit_sec`, at which its launch guard kills it) plus 15 minutes (ruling R16);
+only the expiry time is read. A settlement removes the credential copy first and the agents' tree last, read-only
+directories included and no link followed; a tree it cannot remove is recorded as `tree_left`, and a settlement run
+again replaces the earlier copy of the run state. Candidate code runs on the host only behind
 `host.guarded`. A forbidden-model answer, three contaminated tasks or too many incidents record a stop. The spend
 ledger is `~/.local/state/seed-set/spend-ledger.jsonl` whatever the paths given. Scan hits are adjudicated by hand
 (`prepare.py scan --verdict`); `pool`, `summarize` and `smoke-check` refuse before writing anything (no incident, no
@@ -94,6 +94,12 @@ JUDGE_PROVIDERS = "judge.providers.json"  # the judges' metered template (ruling
 INPUTS = ("task", "intent", "repo", "model", "effort")
 MAX_POOLS = 2
 CALL_SEC, JUDGE_SEC, SLACK_SEC = 1200, 3600, 600  # the programs' and score_functional.orc's :timeout-sec
+
+
+def unit_sec(calls, per_call):
+    """A unit's wall-clock limit: its launch guard kills its whole tree then, whatever runs (provider calls, the
+    checks between them), and the login check asks the token to outlive it (ruling R16)."""
+    return calls * per_call + SLACK_SEC
 
 
 def launch_env(model, calls, home=None, withheld=None):
@@ -254,7 +260,7 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
     it; return (records, the facts in its study.json). `extra` facts (a probe's step and rung) join them."""
     spend.refuse_closed(spend.rows(study.ledger))  # after a usage limit or a stop, no clone is built for nothing
     rules.require_free(study, study.work)
-    units.require_login(spec["max_calls"] * CALL_SEC)  # before its preparation copies the login (ruling R16)
+    units.require_login(unit_sec(spec["max_calls"], CALL_SEC))  # before its preparation copies the login (R16)
     env, programs = launch_env(spec["model"], spec["max_calls"]), study.programs
     arm_spec = prepare.ArmSpec(programs / spec["source"], spec["entry"], programs, programs / "providers.json",
                                INPUTS, command_boundaries=programs / "commands.json")
@@ -290,7 +296,7 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
         (records / "study.json").unlink()  # refused: nothing started, nothing left on disk
         shutil.rmtree(record["tree"])
         raise
-    facts["exit"] = launch(records / "command.sh", env, records / "run.log", spec["max_calls"] * CALL_SEC + SLACK_SEC)
+    facts["exit"] = launch(records / "command.sh", env, records / "run.log", unit_sec(spec["max_calls"], CALL_SEC))
     pause_on_limit(study, records, str(records))  # before the settlement's collect, scan and check (review3 minor 1)
     dump(records / "study.json", facts)
     return finish(study, records, facts, fix)
@@ -340,10 +346,10 @@ def settle(study, records, task, fix, cap, model, status):
     dump(records / "metering.json", receipt)
     out["metering_complete"] = receipt["consumption"] != metering.UNAVAILABLE
     if Path(record["state_root"]).is_dir():
-        if (records / "state").exists() and (why := units.remove_tree(records / "state")):
+        if (records / "state").exists() and (why := units.remove_tree(records / "state", records)):
             raise SystemExit(f"{records / 'state'}: an earlier settlement's copy cannot be replaced: {why}")
         shutil.copytree(record["state_root"], records / "state")
-    if why := units.remove_tree(record["tree"]):
+    if why := units.remove_tree(record["tree"], study.work):
         out["tree_left"] = why
         print(f"{records}: the agents' tree {record['tree']} is left ({why}); remove it by hand")
     return out
@@ -462,7 +468,7 @@ def retire(out):
     ledger name its judges). The copies go first: clones a judge's run left read-only are made writable; clones that
     still cannot be removed are refused, and the pool stays live."""
     units.forget_credentials(out / ".private-homes")
-    if why := units.remove_tree(out / "clones"):
+    if why := units.remove_tree(out / "clones", out):
         raise SystemExit(f"{out / 'clones'} is left ({why}); remove it by hand")
 
 
@@ -595,7 +601,7 @@ def judge_blocked(study, tranche, out, batches):
 def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     batches, records = len(mapping["batches"]), out / "records"
     rules.require_order(study, tranche)  # per unit (review3 minor 6)
-    units.require_login(batches * JUDGE_SEC)  # before its reservation and its copy of the login (ruling R16)
+    units.require_login(unit_sec(batches, JUDGE_SEC))  # before its reservation and its login copy (ruling R16)
     pooling.verify_pool(out)
     judged = blinding.judged_patches(out, mapping)  # what this judge reads, bound to its ratings in the readout
     ceiling, per_call, pin = layout.spend_terms(study, tranche, model)
@@ -608,7 +614,7 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     try:
         facts = {"judged_patches": judged, "exit": launch(records / f"score-{model}.sh", launch_env(
             model, batches, records / f"host-home-{model}"), records / f"judge-{model}.log",
-            batches * JUDGE_SEC + SLACK_SEC)}
+            unit_sec(batches, JUDGE_SEC))}
     finally:
         units.forget_credentials(home)
     limit = pause_on_limit(study, records / "judges" / model, f"{out}#{model}")  # before anything else (minor 1)

@@ -22,6 +22,8 @@ With `"usage_limit": {"task": id, "model": m, "reset": epoch}` (an implementer c
 A test lifts the limit by rewriting the plan in place (the sandbox binds the same file). With
 `"paid_usage": {"judge": m}` a judge call by that model first prints the CLI's paid-extra-usage `rate_limit_event`
 (experiments/long_horizon_tasks/fixtures/token-paid-extra-usage-normal-end.json), then answers normally. With
+`"auth_error": {"task": id, "model": m}` that implementer call ends as a login that expired mid-run does (an error
+result naming the OAuth failure, status 401) and exits 1. With
 `"sleep": seconds`
 every call waits that long before it answers. With `"stderr_warning": text` every call that succeeds also prints
 `text` on stderr (a CLI warning beside a successful call). With `"conftest_sleep": {"seconds": N, "pids": dir}` an
@@ -109,6 +111,11 @@ limit = plan.get("usage_limit") or {{}}
 if (clones and limit.get("judge") == model) or (key is not None and (limit.get("task"), limit.get("model")) == (
         key, model)):
     usage_limited(limit)
+auth = plan.get("auth_error") or {{}}
+if key is not None and (auth.get("task"), auth.get("model")) == (key, model):
+    ended(is_error=True, api_error_status=401,
+          result="Failed to authenticate: OAuth session expired and could not be refreshed")
+    sys.exit(1)
 if clones and (plan.get("paid_usage") or {{}}).get("judge") == model:
     emit({{"type": "rate_limit_event", "rate_limit_info": {{"status": "rejected", "rateLimitType": "five_hour",
            "overageStatus": "allowed", "isUsingOverage": True, "overageInUse": True}}}})

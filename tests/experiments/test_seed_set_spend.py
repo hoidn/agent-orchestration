@@ -1241,8 +1241,11 @@ def test_the_login_expiry_is_read_from_the_file_a_unit_copies(tmp_path, monkeypa
                                   '{"claudeAiOauth": {"accessToken": "stand-in-token"}}',
                                   '{"claudeAiOauth": {"accessToken": "stand-in-token", "expiresAt": "1900000000000"}}',
                                   '{"claudeAiOauth": {"accessToken": "stand-in-token", "expiresAt": true}}',
-                                  '{"claudeAiOauth": {"accessToken": "stand-in-token", "expiresAt": NaN}}'])
-def test_a_login_file_without_a_numeric_expiry_fails_closed_without_its_content(tmp_path, text):
+                                  '{"claudeAiOauth": {"accessToken": "stand-in-token", "expiresAt": NaN}}',
+                                  '{"claudeAiOauth": {"accessToken": "stand-in-token", "expiresAt": Infinity}}',
+                                  '{"claudeAiOauth": {"accessToken": "stand-in-token", "expiresAt": 1e300}}',
+                                  '{"claudeAiOauth": {"accessToken": "stand-in-token", "expiresAt": 1%s}}' % ("0" * 400)])
+def test_a_login_file_without_a_usable_expiry_fails_closed_without_its_content(tmp_path, text):
     path = tmp_path / ".credentials.json"
     if text is not None:
         path.write_text(text)
@@ -1251,30 +1254,39 @@ def test_a_login_file_without_a_numeric_expiry_fails_closed_without_its_content(
     assert (str(path) in str(refused.value), "stand-in-token" in str(refused.value)) == (True, False)
 
 
-@pytest.mark.parametrize("left, starts", [(1200 + units.EXPIRY_MARGIN_SEC, True),
-                                          (1200 + units.EXPIRY_MARGIN_SEC - 1, False)])
-def test_a_unit_starts_only_if_the_token_outlives_its_calls_and_the_margin(tmp_path, monkeypatch, left, starts):
+CANDIDATE_SEC = study.unit_sec(1, study.CALL_SEC)  # a one-call unit's launch limit: 1,800 s
+
+
+def test_a_units_login_check_and_its_launch_share_one_wall_clock_limit():
+    assert (study.unit_sec(1, study.CALL_SEC), study.unit_sec(3, study.CALL_SEC), study.unit_sec(2, study.JUDGE_SEC),
+            units.EXPIRY_MARGIN_SEC) == (1800, 4200, 7800, 900)
+
+
+@pytest.mark.parametrize("left, starts", [(CANDIDATE_SEC + units.EXPIRY_MARGIN_SEC, True),
+                                          (CANDIDATE_SEC + units.EXPIRY_MARGIN_SEC - 1, False)])
+def test_a_unit_starts_only_if_the_token_outlives_its_limit_and_the_margin(tmp_path, monkeypatch, left, starts):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
     now = 1_900_000_000.0
     (tmp_path / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {"expiresAt": (now + left) * 1000}}))
     if starts:
-        units.require_login(1200, now=now)
+        units.require_login(CANDIDATE_SEC, now=now)
     else:
-        with pytest.raises(SystemExit, match="expires .*, in 29 minutes"):
-            units.require_login(1200, now=now)
+        with pytest.raises(SystemExit, match="expires .*, in 44 minutes"):
+            units.require_login(CANDIDATE_SEC, now=now)
 
 
-def short_login(tmp_path, monkeypatch):
-    """A stand-in login whose token expires in ten minutes: no unit outlives it."""
+def short_login(tmp_path, monkeypatch, unit):
+    """A stand-in login whose token expires a few seconds before `unit` seconds plus the margin: the unit's launch
+    limit would outlive it, while its bare calls (the limit less its slack) plus the margin would not."""
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "login"))
-    stand_in_login(tmp_path / "login", expires_in_sec=600)
+    stand_in_login(tmp_path / "login", expires_in_sec=unit + units.EXPIRY_MARGIN_SEC - 5)
 
 
 def test_candidates_refuse_before_preparing_or_reserving_a_unit_the_token_would_not_outlive(
         runner, monkeypatch, tmp_path):
     monkeypatch.setenv(AUTH, "calibration")
     ready(runner)
-    short_login(tmp_path, monkeypatch)
+    short_login(tmp_path, monkeypatch, CANDIDATE_SEC)
     with pytest.raises(SystemExit, match="refreshed the login"):
         study.candidates(runner, "calibration", "direct", ["t1"])
     assert (spend.starts(spend.rows(runner.ledger)), sorted(p.name for p in runner.work.iterdir())) == ([], [])
@@ -1284,7 +1296,7 @@ def test_a_judge_refuses_before_its_reservation_when_the_token_would_not_outlive
     monkeypatch.setenv(AUTH, "calibration")
     ready(runner)
     pool_dir_of(runner, "t1", scan=[])
-    short_login(tmp_path, monkeypatch)
+    short_login(tmp_path, monkeypatch, study.unit_sec(1, study.JUDGE_SEC))
     monkeypatch.setattr(study, "launch", lambda *a, **k: pytest.fail("a judge was launched"))
     with pytest.raises(SystemExit, match="refreshed the login"):
         study.judge(runner, "calibration", "first", ["t1"])
@@ -1303,16 +1315,49 @@ def test_a_tree_with_read_only_directories_is_removed(tmp_path):  # ruling R16
     tree = tmp_path / "tree"
     (tree / "tmp" / "rootfs" / "workspace").mkdir(parents=True)
     (tree / "tmp" / "rootfs" / "workspace" / "file").write_text("x")
-    for path in (tree / "tmp" / "rootfs" / "workspace", tree / "tmp" / "rootfs"):
+    for path in (tree / "tmp" / "rootfs" / "workspace", tree / "tmp" / "rootfs", tree):
         path.chmod(0o555)
-    assert (units.remove_tree(tree), tree.exists()) == (None, False)
+    assert (units.remove_tree(tree, tmp_path), tree.exists()) == (None, False)
+
+
+def test_removing_a_tree_follows_no_link_inside_it(tmp_path):
+    outside = tmp_path / "outside"
+    (outside / "read-only").mkdir(parents=True)
+    (outside / "read-only" / "kept").write_text("x")
+    (outside / "read-only").chmod(0o555)
+    tree = tmp_path / "work" / "tree"
+    (tree / "rootfs").mkdir(parents=True)
+    (tree / "rootfs" / "linked-dir").symlink_to(outside / "read-only")
+    (tree / "rootfs" / "linked-file").symlink_to(outside / "read-only" / "kept")
+    (tree / "rootfs").chmod(0o555)
+    try:
+        assert (units.remove_tree(tree, tmp_path / "work"), tree.exists(), (outside / "read-only" / "kept").exists(),
+                oct((outside / "read-only").stat().st_mode & 0o777)) == (None, False, True, "0o555")
+    finally:
+        (outside / "read-only").chmod(0o755)
+
+
+@pytest.mark.parametrize("where", ["link", "outside"])
+def test_a_tree_that_is_a_link_or_outside_its_root_is_not_touched(tmp_path, where):
+    target = tmp_path / "elsewhere"
+    target.mkdir(mode=0o555)
+    (tmp_path / "work").mkdir()
+    tree = tmp_path / "work" / "tree" if where == "link" else target
+    if where == "link":
+        tree.symlink_to(target)
+    try:
+        why = units.remove_tree(tree, tmp_path / "work")
+        assert ("not touched" in (why or ""), target.is_dir(), oct(target.stat().st_mode & 0o777)) == (
+            True, True, "0o555")
+    finally:
+        target.chmod(0o755)
 
 
 def test_a_tree_that_cannot_be_removed_is_reported_not_raised(tmp_path):
     (tmp_path / "parent" / "tree").mkdir(parents=True)
     (tmp_path / "parent").chmod(0o555)
     try:
-        why = units.remove_tree(tmp_path / "parent" / "tree")
+        why = units.remove_tree(tmp_path / "parent" / "tree", tmp_path)
     finally:
         (tmp_path / "parent").chmod(0o755)
     assert (why or "").startswith("PermissionError")

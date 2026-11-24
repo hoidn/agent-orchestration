@@ -30,18 +30,18 @@
 - `priced`: a unit's metered usage priced by the frozen price table, for the spend guard's settlement
   (coordinator ruling R4); `cap_command` passes the unit's worst case to the runtime as `--max-cost-usd`.
 - `login_expiry`, `require_login`: the access token's expiry, the only thing read from the login file a unit
-  copies, and the refusal of a unit's start unless the token outlives the unit's provider calls plus
+  copies, and the refusal of a unit's start unless the token outlives the unit's wall-clock limit plus
   `EXPIRY_MARGIN_SEC` (coordinator ruling R16).
-- `remove_tree`: a unit's tree removed, read-only directories its agent's own tests left included; it reports a
-  tree it cannot remove instead of raising, so the settlement is not lost (ruling R16).
+- `remove_tree`: a unit's tree removed, read-only directories its agent's own tests left included, no link
+  followed and nothing outside its root touched; it reports a tree it cannot remove instead of raising, so the
+  settlement is not lost (ruling R16).
 """
 
 import json
-import math
 import os
 import re
 import shutil
-import subprocess
+import stat
 import time
 from datetime import datetime
 from pathlib import Path
@@ -73,7 +73,7 @@ PROVIDER_ERRORS = re.compile(
     r"\b(?:429|529|401|403)\b|rate.?limit|overloaded|unauthori[sz]ed|authenticat|invalid (?:api|x-api)"
     r"[ -]key|oauth|credit balance|quota|api error|connection error|econnreset|etimedout|eai_again|"
     r"refused by COMPARE_MAX_CALLS|" + "|".join(LIMIT_WORDINGS), re.I)
-EXPIRY_MARGIN_SEC = 600  # a unit's preparation and settlement around its provider calls (ruling R16)
+EXPIRY_MARGIN_SEC = 900  # a unit's preparation before its launch, and the CLI refreshing ahead of expiry (R16)
 REFUSAL = """#!/bin/sh
 echo "seed-set: $0 is disabled: the study never resumes a unit (a resume has no reservation and no call cap)" >&2
 exit 64
@@ -119,16 +119,18 @@ def login_expiry(path=None):
     """Epoch seconds at which the access token in the login file (`login_file`) expires: `claudeAiOauth.expiresAt`,
     epoch milliseconds. Only that number leaves this function, never the token, and no message holds the file's
     content. Fails closed (SystemExit) on a missing or unreadable file, a missing field, or a field that is not a
-    finite number."""
+    number of a time the clock can name (NaN, infinite or past the calendar)."""
     path = Path(path or login_file())
     try:
         expires = json.loads(path.read_text())["claudeAiOauth"]["expiresAt"]
-    except (OSError, ValueError, KeyError, TypeError):
-        expires = None
-    if isinstance(expires, bool) or not isinstance(expires, (int, float)) or not math.isfinite(expires):
+        if isinstance(expires, bool) or not isinstance(expires, (int, float)):
+            raise TypeError("not a number")
+        expires /= 1000
+        datetime.fromtimestamp(expires)  # OverflowError, ValueError or OSError for a time it cannot name
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
         raise SystemExit(f"{path}: no access-token expiry could be read (claudeAiOauth.expiresAt, epoch "
-                         "milliseconds); no unit starts")
-    return expires / 1000
+                         "milliseconds); no unit starts") from None
+    return expires
 
 
 def expiry_text(expires, now=None):
@@ -139,9 +141,9 @@ def expiry_text(expires, now=None):
 
 
 def require_login(seconds, now=None):
-    """Refuse a unit's start (SystemExit) unless the login's access token outlives `seconds` (the unit's reserved
-    calls times its provider timeout) plus `EXPIRY_MARGIN_SEC` (ruling R16): a unit alive at the expiry fails when
-    the owner's side refreshes first, or refreshes the token itself and rotates the owner's."""
+    """Refuse a unit's start (SystemExit) unless the login's access token outlives `seconds` (the unit's wall-clock
+    limit, at which its launch guard kills it) plus `EXPIRY_MARGIN_SEC` (ruling R16): a unit alive at the expiry
+    fails when the owner's side refreshes first, or refreshes the token itself and rotates the owner's."""
     expires = login_expiry()
     if expires - (time.time() if now is None else now) < seconds + EXPIRY_MARGIN_SEC:
         raise SystemExit(f"the login's access token {expiry_text(expires, now)}; a unit needs "
@@ -149,11 +151,20 @@ def require_login(seconds, now=None):
                          "the owner's own session has refreshed the login")
 
 
-def remove_tree(path):
-    """Remove a unit's tree, read-only directories its agent's own tests left included (`chmod -R u+rwx` first, as
-    `host.sweep` does); None once removed, else why the tree is left."""
-    subprocess.run(["chmod", "-R", "u+rwx", str(path)], check=False)
+def remove_tree(path, root):
+    """Remove a unit's tree under `root`, read-only directories its agent's own tests left included: each directory
+    gets u+rwx before it is entered, and no symbolic link is followed (`os.walk` lists a linked directory without
+    entering it, and it is skipped; `shutil.rmtree` unlinks links). A tree that is a link, or that does not resolve
+    under `root`, is not touched. None once removed, else why the tree is left."""
+    path = Path(path)
+    if path.is_symlink() or not path.resolve().is_relative_to(Path(root).resolve()):
+        return f"{path} is a symbolic link or not under {root}: not touched"
     try:
+        os.chmod(path, os.lstat(path).st_mode | stat.S_IRWXU)
+        for parent, directories, _ in os.walk(path):
+            for name in directories:
+                if not os.path.islink(child := os.path.join(parent, name)):
+                    os.chmod(child, os.lstat(child).st_mode | stat.S_IRWXU)
         shutil.rmtree(path)
     except OSError as error:
         return f"{type(error).__name__}: {error}"

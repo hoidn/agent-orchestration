@@ -72,9 +72,11 @@ its call. The owner kept this route on 2026-11-17 (ruling R9 in the plan's ledge
 A copy goes stale when the owner's side refreshes the login, so no unit may live across the access token's expiry
 (ruling R16). Before a candidate run, a probe run or a judge is prepared or reserved, the kit reads the expiry time,
 and nothing else, from the login file the unit would copy (`units.login_expiry`: `claudeAiOauth.expiresAt`) and
-refuses the start unless the token outlives the unit's reserved calls times its provider timeout (1,200 s a
-candidate call, 3,600 s a judge batch) plus 10 minutes (`units.EXPIRY_MARGIN_SEC`). A file without a numeric expiry
-refuses too. After a refusal nothing is reserved; start again once the owner's own session has refreshed the
+refuses the start unless the token outlives the unit's wall-clock limit plus 15 minutes
+(`units.EXPIRY_MARGIN_SEC`: the preparation before the launch and the CLI's refresh ahead of the expiry). The limit
+is `study.unit_sec`, the same value at which the launch guard kills the unit's whole tree, checks between calls
+included: 1,200 s a candidate call or 3,600 s a judge batch, plus 600 s. A file without a numeric expiry refuses
+too. After a refusal nothing is reserved; start again once the owner's own session has refreshed the
 login. `study.py login-expiry` prints `expires <ISO time>, in <N> minutes` without opening anything else. A
 refresh before the expiry, such as a new login by the owner, still ends the units in flight as incidents.
 

@@ -849,22 +849,28 @@ def test_offline_a_summary_whose_harness_hangs_past_the_per_clone_bound_makes_it
 
 
 def after_launch(monkeypatch, then):
-    """Run each unit's real launch, then `then(records, record)`: what the agent or an interruption leaves."""
-    real = study.launch
+    """Run each unit's real launch, then `then(records, record)`: what the agent or an interruption leaves. Returns
+    the wall-clock limits the launches were given."""
+    real, limits = study.launch, []
 
     def launched(command, env, log, timeout):
+        limits.append(timeout)
         status = real(command, env, log, timeout)
         records = Path(log).parent
         then(records, json.loads((records / "record.json").read_text()))
         return status
     monkeypatch.setattr(study, "launch", launched)
+    return limits
 
 
 def read_only_leftover(record):
-    """A read-only directory under the unit's tmp, as the agent's own tests leave a sandbox snapshot (ruling R16)."""
+    """A read-only directory under the unit's tmp, as the agent's own tests leave a sandbox snapshot (ruling R16), with
+    absolute links out of the tree as a snapshot's rootfs holds them."""
     workspace = Path(record["tree"]) / "tmp" / "snapshots" / "rootfs" / "workspace"
     workspace.mkdir(parents=True)
     (workspace / "file").write_text("x")
+    (workspace.parent / "usr").symlink_to("/usr")
+    (workspace.parent / "python").symlink_to(sys.executable)
     for path in (workspace, workspace.parent):
         path.chmod(0o555)
 
@@ -900,7 +906,7 @@ def test_offline_a_tree_that_cannot_be_removed_keeps_the_settlement_and_removes_
     def unremovable(records, record):
         locked.append(Path(record["tree"]).parent)
         locked[0].chmod(0o555)
-    after_launch(monkeypatch, unremovable)
+    limits = after_launch(monkeypatch, unremovable)
     try:
         study.candidates(s, "calibration", "direct_sonnet", [task])
     finally:
@@ -910,4 +916,29 @@ def test_offline_a_tree_that_cannot_be_removed_keeps_the_settlement_and_removes_
     (unit,) = [row["unit"] for row in spend.starts(spend.rows(s.ledger))]
     settled = [row for row in spend.rows(s.ledger) if row.get("event") == "settle" and row["unit"] == unit]
     assert (facts["calls"], facts["outcome"], facts["tree_left"].startswith("PermissionError"), credentials(s),
-            len(settled)) == (1, "completed", True, [], 1)
+            len(settled), limits) == (1, "completed", True, [], 1, [study.unit_sec(1, study.CALL_SEC)])
+
+
+def test_offline_a_second_settlement_of_a_run_whose_login_failed_is_an_incident(world, monkeypatch):
+    """The stuck probe run's shape (ruling R16): the call ends on an expired login, the tree holds read-only
+    directories, and an interrupted settlement left `records/state`; settling it again records the incident."""
+    s, task = world.study, "a0a0a0a0a0"
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    Path(world.plan).write_text(json.dumps(json.loads(Path(world.plan).read_text()) | {
+        "auth_error": {"task": task, "model": S}}))
+
+    def interrupted(records, record):
+        read_only_leftover(record)
+        shutil.copytree(record["state_root"], records / "state")
+        raise SystemExit("the runner was interrupted")
+    after_launch(monkeypatch, interrupted)
+    with pytest.raises(SystemExit, match="interrupted"):
+        study.candidates(s, "calibration", "direct_sonnet", [task])
+    (records,) = [path.parent for path in study.study_runs(s)]
+    study.settle_runs(s, [records])
+    facts = json.loads((records / "study.json").read_text())
+    tree = Path(json.loads((records / "record.json").read_text())["tree"])
+    assert (facts["calls"], "authenticat" in facts.get("incident", "").lower(), "tree_left" in facts, tree.exists(),
+            credentials(s)) == (1, True, False, False, [])
