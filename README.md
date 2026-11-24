@@ -186,7 +186,7 @@ and the normative [spec index](specs/index.md).
 | Python in `orchestrator/` | 226,951 code lines; 257,091 total lines in 443 files |
 | Test source | 572 test modules; 8,328 test function definitions |
 | Contract history at the measured snapshot | DSL v1.1 through v2.38; current source admission is described above |
-| Agent CLIs driven | Codex, Claude Code, Gemini CLI, oh-my-pi |
+| Agent CLIs driven | Codex, Claude Code, Google Antigravity (`agy`), Gemini CLI, oh-my-pi |
 | Runtime dependencies | `jsonschema`, `PyYAML`; Python 3.11+ and `bash` |
 
 Counts are pinned to `6005b5c1` (2026-10-15), using committed files.

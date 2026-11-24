@@ -31,12 +31,22 @@ schema notation, not authored workflow files.
   - `defaults`: map of provider parameters (e.g., `model`).
   - v2.10 session-capable templates may also declare `session_support`:
     - `metadata_mode`, one of `codex_exec_jsonl_stdout`, `omp_json_stdout`,
-      or `claude_stream_json_stdout`. The last decodes
+      `claude_stream_json_stdout` or `agy_stream_json_stdout`.
+      `claude_stream_json_stdout` decodes
       `claude -p --output-format stream-json --verbose` stdout: it binds
       `session_id` from the `system/init` and later events, assistant text
       from `assistant` events, and completion from the terminal `result`
-      event (finalize metadata adds `result_subtype` and `is_error`). It has
-      no resume-boundary observation, so `turn_boundary_resume` stays `false`.
+      event (finalize metadata adds `result_subtype` and `is_error`).
+      `agy_stream_json_stdout` decodes `agy --output-format stream-json`
+      stdout (one JSON object per line, keyed by `event`): `session_id` is
+      every non-empty `conversation_id` (top level, in `step_update`, in
+      `result`; two different ids are a conflict), assistant text is the
+      `text_delta` strings of `agent_response` steps joined, tool activity is
+      `Tool started: <name>` on a `tool` step's first `ACTIVE` line and
+      `Tool completed: <name>` on its `DONE` line, and completion is the
+      `result` line (`result_subtype` is its `status`; `is_error` is true for
+      any status but `SUCCESS`). Neither has resume-boundary observation, so
+      `turn_boundary_resume` stays `false`.
     - `fresh_command`
     - optional `resume_command`
     - optional boolean `turn_boundary_resume` (default `false`)
@@ -314,6 +324,31 @@ schema notation, not authored workflow files.
     "${SESSION_ID}", "--output-format", "stream-json", "--verbose", "--model",
     "${model}", "--effort", "${effort}", "--permission-mode",
     "bypassPermissions"]`. Ordinary (non-session) calls keep `command`.
+  - `agy` (Google Antigravity's command-line agent) uses argv, defaults
+    `model: gemini-3.8-flash` and `effort: low`, binds `model -> model` and
+    `effort -> effort`, and has exact command `["agy", "--model", "${model}",
+    "--effort", "${effort}", "--dangerously-skip-permissions", "-p",
+    "${PROMPT}"]`. `-p` takes the next argument as the prompt whatever it
+    looks like, so every other flag comes before it and `-p ${PROMPT}` is
+    last in every variant; the prompt cannot come from stdin. The model is
+    the base model and the effort a separate flag: a model id with an effort
+    suffix (`gemini-3.8-flash-low`) conflicts with `--effort`. It declares
+    `session_support` with metadata mode `agy_stream_json_stdout`,
+    `turn_boundary_resume: false`, fresh command `command` with
+    `"--output-format", "stream-json"` before `-p`, and resume command the
+    fresh command with `"--conversation", "${SESSION_ID}"` before `-p`. The
+    bypass flag sets `agy`'s permission mode to `always-proceed`; as with the
+    built-in `codex` template, use it only for trusted workflow workspaces.
+    Agent turns cannot use it: there is no native-store adapter for `agy`
+    conversations, and no `interactive_session_support`.
+  - Built-in `agy` calls never pass `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
+    `GOOGLE_GENAI_USE_VERTEXAI` or `GOOGLE_APPLICATION_CREDENTIALS` to the
+    child: the names are removed from the child environment after the
+    parent environment, step `env` and secrets are composed, on the plain,
+    metered, session fresh and session resume launches alike, so `agy` signs
+    in with its account login. The command's first token stays `agy`. A
+    workflow that wants key-based access declares its own template, which
+    passes its environment unchanged.
   - These profiles are generic provider data. Their presence does not prove
     workflow-family parity or promotion eligibility.
 
@@ -1099,7 +1134,8 @@ steps:
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
 | codex | `codex exec --dangerously-bypass-approvals-and-sandbox --model ${model} --config model_reasoning_effort=${reasoning_effort}` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Built-in defaults are `model: gpt-5.5`, `reasoning_effort: high` (can be overridden in workflow/defaults/provider_params). Use only for trusted workflow workspaces because it disables Codex's own approval and sandbox layer. |
 | claude_unrestricted_workspace | `claude -p --model ${model} --effort ${effort} --permission-mode bypassPermissions` (prompt via stdin) | stdin | Session-capable (`claude_stream_json_stdout`); used by agent sessions at 2.38. |
-| `<name>_metered` | the plain `claude*`/`codex*` command plus `--output-format stream-json --verbose` (Claude) or `--json` (Codex) | as `<name>` | One per built-in plain `claude*`/`codex*` template (`claude_metered`, `codex_metered`, ...); records usage. See [Metered templates and usage](#metered-templates-and-usage). |
+| agy | `agy --model ${model} --effort ${effort} --dangerously-skip-permissions -p ${PROMPT}` | argv | Google Antigravity CLI. Defaults `model: gemini-3.8-flash`, `effort: low`. Session-capable (`agy_stream_json_stdout`; resume by `--conversation ${SESSION_ID}`). Google credential variables are removed from the child environment. Trusted workspaces only (permission prompts bypassed). |
+| `<name>_metered` | the plain `claude*`/`codex*`/`agy` command plus `--output-format stream-json --verbose` (Claude, after `-p`), `--json` (Codex) or `--output-format stream-json` (agy, before `-p ${PROMPT}`) | as `<name>` | One per built-in plain `claude*`/`codex*`/`agy` template (`claude_metered`, `codex_metered`, `agy_metered`, ...); records usage. See [Metered templates and usage](#metered-templates-and-usage). |
 
 ## Metered templates and usage
 
@@ -1120,8 +1156,9 @@ per run ([observability](observability.md#report-usage)).
   `unknown` / `no_transport`, as do OMP and phased providers. A workflow meters a provider step by
   binding its provider extern to the metered template, e.g. `{"providers.review": "claude_metered"}`
   in the `--provider-externs-file` manifest. Each `<name>_metered` is `<name>` with its CLI's
-  structured-output flags and a plain-call `command_metadata_mode` (`claude_stream_json_stdout` or
-  `codex_exec_jsonl_stdout`); defaults, input mode and call-policy bindings are unchanged. Agent-turn
+  structured-output flags and a plain-call `command_metadata_mode` (`claude_stream_json_stdout`,
+  `codex_exec_jsonl_stdout` or `agy_stream_json_stdout`); defaults, input mode and call-policy
+  bindings are unchanged. Agent-turn
   attempts already use a transport and record usage from it.
 - A metered attempt's `stdout.txt` is the raw transport JSON. The terminal shows what the decoder
   streams: every assistant message as it arrives, joined without a separator, and tool activity lines
@@ -1141,7 +1178,25 @@ per run ([observability](observability.md#report-usage)).
   - `turn.completed.usage`, `complete: true`: Codex's last `turn.completed`. The model is the call's
     policy model, and charged input is input minus cached and cache-write tokens (`turn.completed`
     reports no total; the rule is unverified for nonzero cache writes).
+  - `step_update.usage`: an `agy` call, one row whose model is `init.model` (the call's policy model
+    when there is no `init` line). `input`, `output` and `cache_read` are the sums over the call's
+    `step_update` lines that carry `usage` (one per model request, on the `DONE` line of an
+    `agent_response` step), the last such line per `step_index`; `cache_write` is 0, since `agy`
+    reports no cache-write count. In every usage `agy` prints, `total_tokens` is `input_tokens` plus
+    `output_tokens`, `thinking_tokens` is inside `output_tokens`, and `cache_read_tokens` is outside
+    `input_tokens`; a usage whose total disagrees, or a counter that is not a non-negative integer,
+    makes the attempt `malformed` rather than guessing another arithmetic. `complete` is true when the
+    `result` line was seen. The `result` line's own `usage` is never the source: it is cumulative over
+    the conversation, so a resumed call's `result.usage` includes every earlier turn.
+  - `result.usage`, `complete: true`, no rows: an `agy` call refused before any model request (an
+    unknown model, a model and effort conflict). It prints one `result` line with `status: "ERROR"`,
+    an empty `conversation_id` and all-zero usage, and exits 1. Without step usage, any other `result`
+    reads as `unknown` / `no_usage_event`.
   - `not_dispatched`, `complete: true`, no rows: preparation failed and nothing was launched.
+- `agy` and `agy_metered` calls run with the Google credential variables removed from the child
+  environment (see the `agy` profile above), so their usage is the account login's. Their prompt
+  travels as one argv string, which Linux caps at about 128 KB (`MAX_ARG_STRLEN`): a longer prompt
+  fails at launch. `agy --input-format stream-json` might lift the cap and is not used.
 - Prices: `orchestrator/providers/price_table.json` (`orchestrator.providers.pricing`) is a frozen copy
   of the vendors' public list prices, with its `source`, `date` and `notes`; it is a list-price
   equivalent, not billed spend. Claude `cache_write` is the 1-hour cache-write rate (what Claude Code
@@ -1151,7 +1206,9 @@ per run ([observability](observability.md#report-usage)).
   rates twice, output one and a half times). A usage row sums its requests, so `priced` uses the
   ordinary rates and is low for long prompts; the spend cap uses `cap_cost`, the larger of the CLI's
   `reported_cost_usd` and the price at the highest tier. A model without four rates (for example
-  `gpt-5.5`, `gpt-5.4`, or an alias such as `haiku`) prices as `None`, never 0. A table is refused unless
+  `gpt-5.5`, `gpt-5.4`, an alias such as `haiku`, or any Gemini model `agy` runs: the table has no
+  Gemini rows) prices as `None`, never 0, so `report` shows an `agy` step's tokens with an unknown,
+  partial cost and a spend cap refuses an `agy` call as `model_unpriced`. A table is refused unless
   every rate is finite, nonnegative and at most USD 1 per token (`MAX_USD_PER_TOKEN`) and
   `tokens_per_unit` is at least 1.
 
