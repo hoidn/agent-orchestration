@@ -111,7 +111,8 @@ def test_cap_refuses_a_plain_template_before_its_first_call(tmp_path):
     ("codex_metered", ':model "gpt-5.5"'), ("claude_metered", ':model "haiku"'),
     ("claude_haiku_summary_metered", ""),             # the template's default model is the alias `haiku`
     ("claude_unrestricted_workspace_metered", ""),    # no model at all
-], ids=["unpriced", "alias", "default-alias", "missing"])
+    ("agy_metered", ':model "gemini-3.8-flash"'),     # metered, but the price table has no Gemini rows
+], ids=["unpriced", "alias", "default-alias", "missing", "agy"])
 def test_cap_refuses_an_unpriced_model_before_its_call(tmp_path, template, model):
     root = _capped(tmp_path, template=template, source=TWO_CALLS.replace(':model "claude-haiku-5-5"', model))
     stopped = _run(root, "--max-cost-usd", "1")

@@ -4,7 +4,7 @@ The seed changes after every passing run. A run that fails or is interrupted kee
 its seed, so the next `--sample` run repeats the same tests until they pass.
 
 Provider guard: for the whole session the test process's own PATH starts with a directory of blocking
-`claude`, `codex`, `omp` and `pi` stubs (`<basetemp>/provider-guard/bin`). A stub logs its name, argv, the
+`claude`, `codex`, `omp`, `pi` and `agy` stubs (`<basetemp>/provider-guard/bin`). A stub logs its name, argv, the
 current test (`PYTEST_CURRENT_TEST`, when the environment kept it) and its parent's command line to
 `<basetemp>/provider-guard/calls.log` and exits 97, and the controller fails the run when that log is not
 empty. Tests that install their own stand-ins put them before the stubs, and tests that need "no provider on
@@ -20,7 +20,7 @@ import pytest
 
 from tests.sampling import choose_seed, keep, record_outcome
 
-GUARDED_CLIS = ("claude", "codex", "omp", "pi")
+GUARDED_CLIS = ("claude", "codex", "omp", "pi", "agy")
 GUARD_LOG_ENV = "ORC_TEST_PROVIDER_GUARD_LOG"
 GUARD_STUB = """#!/bin/sh
 printf '%s argv=[%s] test=[%s] parent=[%s]\\n' "$(basename "$0")" "$*" "${{PYTEST_CURRENT_TEST:-unknown}}" \\

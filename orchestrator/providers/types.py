@@ -151,6 +151,7 @@ class ProviderSessionMetadataMode(str, Enum):
     CODEX_EXEC_JSONL_STDOUT = "codex_exec_jsonl_stdout"
     OMP_JSON_STDOUT = "omp_json_stdout"
     CLAUDE_STREAM_JSON_STDOUT = "claude_stream_json_stdout"
+    AGY_STREAM_JSON_STDOUT = "agy_stream_json_stdout"
 
 
 @dataclass(frozen=True)
@@ -468,6 +469,8 @@ class ProviderTemplate:
         session_support: Optional session-capable command variants
         interactive_session_support: Optional queued interactive-session
             capability
+        env_unset: Environment variable names removed from the child's
+            environment on every launch of this template
     """
     name: str
     command: List[str]
@@ -477,6 +480,7 @@ class ProviderTemplate:
     call_policy_bindings: Mapping[str, CallPolicyBinding] = field(default_factory=dict)
     interactive_session_support: Optional[InteractiveSessionSupport] = None
     command_metadata_mode: Optional[str] = None
+    env_unset: Tuple[str, ...] = ()
 
     def validate(self) -> List[str]:
         """
@@ -842,6 +846,7 @@ class ProviderInvocation:
         metadata_mode: Session metadata transport mode for session-enabled invocations
         session_request: Resolved provider-session request, if any
         turn_boundary_resume: Validated structural live-resume capability
+        env_unset: Names removed from the child environment after every overlay
     """
     command: List[str]
     input_mode: InputMode
@@ -861,3 +866,4 @@ class ProviderInvocation:
     omp_transport_expectation: Optional[OmpTransportExpectation] = None
     inherited_fds: Tuple[int, ...] = ()
     inherited_fd_authority: Any = None
+    env_unset: Tuple[str, ...] = ()

@@ -21,16 +21,20 @@ from .types import (
 
 logger = logging.getLogger(__name__)
 
-# Structured-output flags per CLI, inserted after the subcommand prefix (`claude -p`, `codex exec`).
+# Structured-output flags per CLI, inserted at an index of the plain command: after the subcommand prefix
+# (`claude -p`, `codex exec`), or before the trailing `-p ${PROMPT}` (`agy`, whose `-p` takes the next argument).
 _TRANSPORTS = {
     "claude": (2, ("--output-format", "stream-json", "--verbose"),
                ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value),
     "codex": (2, ("--json",), ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value),
+    "agy": (-2, ("--output-format", "stream-json"), ProviderSessionMetadataMode.AGY_STREAM_JSON_STDOUT.value),
 }
+# Credentials `agy` would read instead of the account login; a built-in `agy` call never passes them on.
+AGY_ENV_UNSET = ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS")
 
 
 def metered_templates(builtins: Dict[str, ProviderTemplate]) -> Dict[str, ProviderTemplate]:
-    """`<name>_metered` for each plain built-in `claude`/`codex` template: the same call, printing transport JSON.
+    """`<name>_metered` for each plain built-in `claude`/`codex`/`agy` template: the same call, printing transport JSON.
 
     The plain command gains its CLI's structured-output flags and `command_metadata_mode`, so the
     attempt's `usage.json` reports tokens; everything else is the original template's.
@@ -158,6 +162,27 @@ class ProviderRegistry:
                 },
             )
 
+        def agy_provider() -> ProviderTemplate:
+            flags = ["--model", "${model}", "--effort", "${effort}", "--dangerously-skip-permissions"]
+            stream = ["--output-format", "stream-json"]
+            return ProviderTemplate(
+                name="agy",
+                command=["agy", *flags, "-p", "${PROMPT}"],
+                defaults={"model": "gemini-3.8-flash", "effort": "low"},
+                input_mode=InputMode.ARGV,
+                call_policy_bindings={
+                    "model": CallPolicyBinding(target_param="model"),
+                    "effort": CallPolicyBinding(target_param="effort"),
+                },
+                session_support=ProviderSessionSupport(
+                    metadata_mode=ProviderSessionMetadataMode.AGY_STREAM_JSON_STDOUT.value,
+                    fresh_command=["agy", *flags, *stream, "-p", "${PROMPT}"],
+                    resume_command=["agy", *flags, *stream, "--conversation", "${SESSION_ID}", "-p", "${PROMPT}"],
+                    turn_boundary_resume=False,
+                ),
+                env_unset=AGY_ENV_UNSET,
+            )
+
         builtins = {
             "claude": claude_provider("claude", "claude-opus-4-6"),
             "claude_sonnet_summary": claude_provider(
@@ -251,6 +276,7 @@ class ProviderRegistry:
                     turn_boundary_resume=False,
                 ),
             ),
+            "agy": agy_provider(),
             **omp_templates(),
         }
         builtins.update(metered_templates(builtins))

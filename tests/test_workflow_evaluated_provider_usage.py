@@ -313,6 +313,41 @@ def test_a_run_never_resolves_a_provider_cli_outside_its_stand_ins(tmp_path, mon
             sorted(inherited.glob("*.ran"))) == (1, "provider_exit_nonzero", True, []), result.stderr
 
 
+AGY_STANDIN = r'''import json, os, sys
+from pathlib import Path
+argv = sys.argv[1:]
+keys = sorted(key for key in os.environ if key.startswith(("GEMINI_", "GOOGLE_")))
+with open("argv.jsonl", "a", encoding="utf-8") as log:
+    log.write(json.dumps({"tool": "agy", "argv": argv, "keys": keys}) + "\n")
+sys.stdout.buffer.write(Path(os.environ["STANDIN_REPLAY"]).read_bytes())
+sys.stdout.flush()
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text('{"ok": true}', encoding="utf-8")
+'''
+AGY_REPLAY = ROOT / "tests" / "fixtures" / "agy" / "model_effort.jsonl"     # `agy` 1.5.16 capture
+
+
+def test_agy_metered_step_writes_step_usage_and_report_shows_it_unpriced(tmp_path, monkeypatch):
+    for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS"):
+        monkeypatch.setenv(key, "parent-secret")
+    root = _workspace(tmp_path / "w", "agy_metered", "gemini-3.8-flash")
+    (root / "bin" / "agy").write_text(f"#!{sys.executable}\n" + AGY_STANDIN, encoding="utf-8")
+    (root / "bin" / "agy").chmod(0o700)
+    result = _run(root, replay=str(AGY_REPLAY))
+    assert (result.returncode, result.stdout) == (0, 'a\n{"ok":true}\n'), result.stderr
+    (call,) = [json.loads(line) for line in (root / "argv.jsonl").read_text().splitlines()]
+    prompt = (_attempts(root)[0] / "prompt.txt").read_text()
+    assert (call["argv"][-2:], call["keys"]) == (["-p", prompt], [])
+    tokens = {"input": 10508, "output": 1, "cache_read": 0, "cache_write": 0}
+    assert _usage(_attempts(root)[0]) == {"status": "reported", "source": "step_update.usage",
+                                          "reported_cost_usd": None, "complete": True,
+                                          "rows": [{"model": "gemini-3.8-flash", "tokens": tokens}]}
+    report = _orchestrator(root, "report", "--format", "json")
+    assert report.returncode == 0, report.stderr
+    (step,) = json.loads(report.stdout)["steps"]
+    assert step["usage"] == {"tokens": tokens, "cost_usd": None, "attempts": 1, "unknown_attempts": 0,
+                             "partial": True}
+
+
 def test_timed_out_turn_records_incomplete_usage(tmp_path):
     root = _workspace(tmp_path / "w", "claude_metered")
     (root / "main.orc").write_text(SOURCE.replace("MODEL", "claude-haiku-5-5").replace(

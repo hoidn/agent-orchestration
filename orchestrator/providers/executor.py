@@ -516,6 +516,7 @@ class ProviderExecutor:
                     else ()
                 ),
                 inherited_fd_authority=attempt_authority,
+                env_unset=tuple(provider.env_unset),
             )
         except (TypeError, ValueError) as exc:
             self._remove_prepared_omp_roots(empty_cwd, attempt_authority)
@@ -1493,6 +1494,8 @@ class ProviderExecutor:
             process_env.update(invocation.env)
         if execution_env_overlay:
             process_env.update(execution_env_overlay)
+        for name in invocation.env_unset:
+            process_env.pop(name, None)
         process_env.pop("ORCHESTRATOR_WORKSPACE_ROOT", None)
         if logical_workspace_root is not None:
             if (

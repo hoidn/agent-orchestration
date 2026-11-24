@@ -16,6 +16,12 @@ usage it could not read, and never raises. Sources:
   assistant lines carry the output count of the first streamed chunk, not of the finished message.
 - Codex `exec --json`: the last `turn.completed` line's `usage`; the model is the call's policy model.
   Charged input is input minus cached and cache-write tokens.
+- `agy --output-format stream-json`: one row for `init.model` (the call's policy model without an `init`
+  line) summing the `step_update` lines that carry `usage`, the last such line per `step_index`; never
+  `result.usage`, which is cumulative over the whole conversation. Each usage must have
+  `total_tokens == input_tokens + output_tokens` (thinking inside output, `cache_read_tokens` outside
+  input); cache-write is 0. `complete` is whether a `result` line was seen. Without step usage, a `result`
+  line with all-zero usage (the CLI refused the call before any request) is reported with no rows.
 
 A cut final line (a killed writer) is ignored; any other undecodable line makes usage `malformed`.
 `usage_from_stdout` reads nothing but its arguments; `spent` and `run_usage` read a run's `usage.json` files.
@@ -40,6 +46,7 @@ _MODEL_USAGE_FIELDS = dict(zip(("inputTokens", "outputTokens", "cacheCreationInp
                                CLAUDE_FIELDS))
 _CLAUDE = ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value
 _CODEX = ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+_AGY = ProviderSessionMetadataMode.AGY_STREAM_JSON_STDOUT.value
 
 
 class _Malformed(ValueError):
@@ -177,11 +184,54 @@ def _codex(events: list[dict], model: str | None) -> dict | None:
     return _reported("turn.completed.usage", [_row(model, codex_charge_tokens(usage))], None)
 
 
+def _agy(events: list[dict], model: str | None) -> dict | None:
+    init = next((event.get("init") for event in events if event.get("event") == "init"), None)
+    if isinstance(init, dict) and isinstance(init.get("model"), str):
+        model = init["model"]
+    per_step = _agy_step_usages(events)
+    results = [event.get("result") for event in events if event.get("event") == "result"]
+    if not per_step:
+        last = results[-1] if results and isinstance(results[-1], dict) else {}
+        if "usage" in last and not any(_agy_tokens(last["usage"]).values()):     # refused before any request
+            return _reported("result.usage", [], None)
+        return None
+    tokens = dict.fromkeys(("input", "output", "cache_read", "cache_write"), 0)
+    for usage in per_step.values():
+        for key, value in _agy_tokens(usage).items():
+            tokens[key] += value
+    return _reported("step_update.usage", [{"model": model, "tokens": tokens}], None, complete=bool(results))
+
+
+def _agy_step_usages(events: list[dict]) -> dict[int, Any]:
+    """The `usage` of each `step_update` that carries one, the last per `step_index`."""
+    per_step: dict[int, Any] = {}
+    for event in events:
+        step = event.get("step_update") if event.get("event") == "step_update" else None
+        if isinstance(step, dict) and "usage" in step:
+            if type(step.get("step_index")) is not int:
+                raise _Malformed
+            per_step[step["step_index"]] = step["usage"]
+    return per_step
+
+
+def _agy_tokens(usage: Any) -> dict:
+    """The four charged counts of one `agy` usage object; `_Malformed` unless its counters and total agree."""
+    required = ("input_tokens", "output_tokens", "cache_read_tokens", "total_tokens")
+    if not isinstance(usage, dict) or not all(_is_int(usage.get(key)) for key in required):
+        raise _Malformed
+    if any(key.endswith("_tokens") and not _is_int(value) for key, value in usage.items()):
+        raise _Malformed
+    if usage["total_tokens"] != usage["input_tokens"] + usage["output_tokens"]:
+        raise _Malformed
+    return {"input": usage["input_tokens"], "output": usage["output_tokens"],
+            "cache_read": usage["cache_read_tokens"], "cache_write": 0}
+
+
 def _reported(source: str, rows: list[dict], cost: float | None, *, complete: bool = True) -> dict:
     return {"status": "reported", "source": source, "reported_cost_usd": cost, "complete": complete, "rows": rows}
 
 
-_READERS = {_CLAUDE: _claude, _CODEX: _codex}
+_READERS = {_CLAUDE: _claude, _CODEX: _codex, _AGY: _agy}
 
 
 def usage_from_stdout(metadata_mode: str | None, raw_stdout: bytes, *, model: str | None) -> dict:

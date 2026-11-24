@@ -161,3 +161,84 @@ def test_spent_counts_regular_files_only_and_never_follows_links(tmp_path):
     (linked / "usage.json").symlink_to(real / "usage.json")
     (tmp_path / "effects" / "b").symlink_to(tmp_path / "effects" / "a")
     assert spent(tmp_path, load_price_table()) == (cap_cost(usage, load_price_table()), ["effects/a/attempt-2"])
+
+
+AGY = ProviderSessionMetadataMode.AGY_STREAM_JSON_STDOUT.value
+AGY_FIXTURES = Path(__file__).parent / "fixtures" / "agy"     # `agy` 1.5.16 captures, paths rewritten
+
+
+def _agy(name: str, *, drop: str | None = None) -> bytes:
+    lines = (AGY_FIXTURES / f"{name}.jsonl").read_bytes().splitlines(keepends=True)
+    return b"".join(line for line in lines if json.loads(line)["event"] != drop)
+
+
+def _agy_usage(model: str, input: int, output: int, cache_read: int, *, complete: bool = True) -> dict:
+    return {"status": "reported", "source": "step_update.usage", "reported_cost_usd": None, "complete": complete,
+            "rows": [{"model": model, "tokens": {"input": input, "output": output, "cache_read": cache_read,
+                                                 "cache_write": 0}}]}
+
+
+@pytest.mark.parametrize(("name", "expected"), [
+    ("fresh", _agy_usage("gemini-3.8-flash-low", 10501, 1, 0)),
+    # The resumed call's own request, not its `result.usage` (12,761 input over both turns).
+    ("resumed", _agy_usage("gemini-3.8-flash-low", 2260, 1, 8457)),
+    # Three usage-bearing responses around two tool steps; their sum is the call's `result.usage`.
+    ("tools", _agy_usage("gemini-3.8-flash-high", 16278, 1860, 18328)),
+])
+def test_agy_rows_sum_the_calls_own_step_usage(name, expected):
+    assert usage_from_stdout(AGY, _agy(name), model="gemini-3.8-flash") == expected
+
+
+def test_agy_refused_call_reports_no_rows():
+    assert usage_from_stdout(AGY, _agy("refused"), model="no-such-model-xyz") == {
+        "status": "reported", "source": "result.usage", "reported_cost_usd": None, "complete": True, "rows": []}
+
+
+def test_agy_stream_cut_before_its_result_is_incomplete():
+    expected = _agy_usage("gemini-3.8-flash-high", 16278, 1860, 18328, complete=False)
+    assert usage_from_stdout(AGY, _agy("tools", drop="result"), model=None) == expected
+    cut = _agy("tools", drop="result") + b'{"event":"result","res'
+    assert usage_from_stdout(AGY, cut, model=None) == expected
+
+
+def test_agy_without_init_uses_the_policy_model():
+    assert usage_from_stdout(AGY, _agy("fresh", drop="init"), model="gemini-3.8-flash")["rows"][0]["model"] == (
+        "gemini-3.8-flash")
+
+
+def test_agy_last_usage_line_of_a_step_wins():
+    step = (b'{"event":"step_update","step_update":{"step_index":1,"usage":{"input_tokens":%d,"output_tokens":1,'
+            b'"cache_read_tokens":0,"total_tokens":%d}}}\n')
+    raw = step % (5, 6) + step % (9, 10) + b'{"event":"result","result":{"status":"SUCCESS"}}\n'
+    assert usage_from_stdout(AGY, raw, model="m") == _agy_usage("m", 9, 1, 0)
+
+
+def _agy_step(usage) -> bytes:
+    return json.dumps({"event": "step_update", "step_update": {"step_index": 1, "usage": usage}}).encode() + b"\n"
+
+
+GOOD_AGY_USAGE = {"input_tokens": 10, "output_tokens": 3, "thinking_tokens": 2, "cache_read_tokens": 4,
+                  "total_tokens": 13}
+
+
+@pytest.mark.parametrize(("raw", "reason"), [
+    (_agy_step({**GOOD_AGY_USAGE, "input_tokens": -1, "total_tokens": 2}), "malformed"),
+    (_agy_step({**GOOD_AGY_USAGE, "thinking_tokens": 1.5}), "malformed"),
+    (_agy_step({**GOOD_AGY_USAGE, "total_tokens": 17}), "malformed"),        # total is not input + output
+    (_agy_step({key: value for key, value in GOOD_AGY_USAGE.items() if key != "cache_read_tokens"}), "malformed"),
+    (_agy_step("x"), "malformed"),
+    (b'{"event":"step_update","step_update":{"step_index":"1","usage":{}}}\n', "malformed"),
+    (b"plain reply\n", "malformed"),
+    (_agy("fresh", drop="step_update"), "no_usage_event"),     # init and a result with non-zero usage
+    (_agy("fresh", drop="result").splitlines(keepends=True)[0], "no_usage_event"),
+    (b'{"event":"result","result":{"status":"ERROR"}}\n', "no_usage_event"),
+    (b"", "no_usage_event"),
+], ids=["negative", "fraction", "total-mismatch", "missing-counter", "usage-not-object", "index-not-int", "prose",
+        "result-usage-only", "init-only", "result-without-usage", "empty"])
+def test_agy_unreadable_usage_is_unknown_not_zero(raw, reason):
+    assert usage_from_stdout(AGY, raw, model="m") == {"status": "unknown", "reason": reason}
+
+
+def test_agy_good_step_usage_is_charged_as_read():
+    raw = _agy_step(GOOD_AGY_USAGE) + b'{"event":"result","result":{"status":"SUCCESS"}}\n'
+    assert usage_from_stdout(AGY, raw, model="m") == _agy_usage("m", 10, 3, 4)

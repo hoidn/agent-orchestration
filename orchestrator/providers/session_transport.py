@@ -657,6 +657,12 @@ def create_session_transport_accumulator(
             assistant_text_callback=assistant_text_callback,
             tool_activity_callback=tool_activity_callback,
         )
+    if metadata_mode == ProviderSessionMetadataMode.AGY_STREAM_JSON_STDOUT.value:
+        from .session_transport_agy import AgyStreamJsonAccumulator
+        return AgyStreamJsonAccumulator(
+            assistant_text_callback=assistant_text_callback,
+            tool_activity_callback=tool_activity_callback,
+        )
     if metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
         if expectation is None:
             raise TypeError(

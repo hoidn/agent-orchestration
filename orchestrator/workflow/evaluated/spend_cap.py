@@ -17,7 +17,8 @@ from orchestrator.providers.usage import spent
 
 CAPPED_CLASSES = frozenset({"provider", "provider_phased", "agent_turn", "run_ref"})
 METERED_TRANSPORTS = frozenset({ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value,
-                                ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value})
+                                ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+                                ProviderSessionMetadataMode.AGY_STREAM_JSON_STDOUT.value})
 
 
 # Why a `spend_cap_unmetered` refusal was raised; `orchestrator/cli/recovery.py` names the fix for each.
