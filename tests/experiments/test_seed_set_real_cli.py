@@ -131,8 +131,10 @@ def test_the_audit_accepts_the_clis_one_transcript_and_still_flags_an_mcp_server
 
 
 def smoke_checks(records, home):
-    """The smoke's call checks on one settled run, its facts as `study.settle` records them."""
-    facts = {"scan_hits": len(hits(records, home))}
+    """The smoke's call checks on one settled run, its scan and facts as the kit records them."""
+    found = hits(records, home)
+    (records / "record.json").write_text(json.dumps({"scan": {"hits": found, "verdict": None}}))
+    facts = {"scan_hits": len(found)}
     if reason := units.isolation_breach(records):
         facts["incident"] = f"session audit: {reason}"
     return rules.call_checks([("direct", records, spend.HAIKU, "medium", facts)], {rules.unit_of(records): 1})
