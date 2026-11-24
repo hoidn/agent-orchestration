@@ -194,6 +194,52 @@ def test_a_probed_task_that_is_drawn_keeps_its_probe_run_as_a_first_haiku_run(s,
     assert study.candidates(s, "calibration", "direct", ["T3-00"]) == []
 
 
+def refreeze(s, programs_changed):
+    """A second freeze after the probe: the programs edited and committed first when `programs_changed`, else a
+    code-only freeze with the same programs."""
+    if programs_changed:
+        with (s.programs / "direct.orc").open("a") as program:
+            program.write("# edited after the probe\n")
+        for args in (["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "edit"]):
+            subprocess.run(["git", "-C", str(s.runtime), *args], check=True, capture_output=True)
+        write_frozen_criterion(s)
+    rules.record_freeze(s, reason="an apparatus fix")
+
+
+def probe_run_counts(s, task="T3-00"):
+    """(planned Haiku direct starts of `task`, its probe run in its pool's runs, in the readout's run records)."""
+    probe_run = s.work / "records" / "direct" / f"run-first-{task}"
+    (probe_run / "study.json").write_text(json.dumps(load(probe_run / "study.json") | {"scan_hits": []}))
+    planned, _ = study.slot_limits(s, [], "calibration", "direct", [task])
+    records, _ = study.load_records(s, {"direct": H}, [task])
+    return planned[task], probe_run in study.runs_to_pool(s, task), str(probe_run) in {r["run"] for r in records}
+
+
+def test_with_one_freeze_a_drawn_task_counts_its_probe_run_and_plans_three_starts(s):
+    chosen_world(s)
+    assert probe_run_counts(s) == (3, True, True)
+
+
+def test_after_a_freeze_with_other_programs_a_drawn_task_plans_four_starts_without_its_probe_run(s):
+    chosen_world(s)
+    refreeze(s, programs_changed=True)
+    assert probe_run_counts(s) == (4, False, False)  # ruling R17: the programs' text is part of the form
+
+
+def test_after_a_code_only_freeze_a_drawn_task_still_counts_its_probe_run(s):
+    chosen_world(s)
+    refreeze(s, programs_changed=False)
+    assert probe_run_counts(s) == (3, True, True)
+
+
+def test_after_a_freeze_with_other_programs_the_calibration_plans_its_whole_haiku_cap_without_refusing(s):
+    tasks = chosen_world(s)
+    refreeze(s, programs_changed=True)
+    planned, limits = study.slot_limits(s, [], "calibration", "direct", tasks)
+    jobs = study.due_jobs([], "calibration", "direct", layout.load_arms(s)["direct"], planned, limits)
+    assert (len(tasks), len(jobs)) == (ladder.CALIBRATION_TASKS, spend.CAPS["calibration"]["candidate"][H])  # 20, 80
+
+
 def early_pool(s, task, base, upstream):
     directory = s.results / "pools" / f"{task}-first"
     directory.mkdir(parents=True)

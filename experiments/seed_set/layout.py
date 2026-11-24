@@ -143,6 +143,20 @@ def study_runs(study):
     return sorted(study.work.glob("records/*/run-*/study.json"))
 
 
+def counted_runs(study):
+    """`study_runs` without the probe runs whose form is not the current one: the calibration's slots, pools and
+    readout count a probe run only when the programs of the freeze in force at its reservation (the last `freeze`
+    before its row) are those of the latest freeze (ruling R17: the programs' text is part of the form)."""
+    entries = spend.rows(study.ledger)
+    freezes = [row for row in entries if row["kind"] == "event" and row["event"] == "freeze"]
+    latest = freezes[-1].get("programs") if freezes else None
+    def programs(seq):
+        return next((row.get("programs") for row in reversed(freezes) if row["seq"] < seq), None)
+    stale = {row["unit"] for row in spend.starts(entries)
+             if row["tranche"] == "redraw" and programs(row["seq"]) != latest}
+    return [path for path in study_runs(study) if str(path.parent) not in stale]
+
+
 def judge_units(study):
     """(task, kind, pool, judge) of every judge unit with a records directory under the pools root (a rebuilt
     pool's kind is its pool's)."""

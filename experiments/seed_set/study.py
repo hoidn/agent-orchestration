@@ -86,7 +86,7 @@ from orchestrator.providers.pricing import load_price_table
 from experiments.seed_set import blinding, gates, host, ladder, layout, reaper, readout, rules, selection, spend, units
 from experiments.seed_set.layout import (
     PLANNED, RETESTS, WIDTH, Study, chosen, load_arms, load_criterion, require_tasks, study_runs,
-    task_dir, task_rows, tranche_tasks,
+    counted_runs, task_dir, task_rows, tranche_tasks,
 )
 
 BOUNDARIES = ("dev_check.py", "reset_clone.py")  # copied into the clone and excluded from its patch
@@ -212,9 +212,10 @@ def candidates(study, tranche, arm, tasks):
 
 def slot_limits(study, entries, tranche, arm, tasks):
     """({task: planned starts of `arm`}, {task: the starts it may have}). A probe run of a chosen package (the same
-    id is the same form) that is not an incident is the first of its Haiku direct runs; a planned slot cut by a
-    usage limit runs once more, except in the smoke (a cut fails the smoke)."""
-    facts = {str(path.parent): load(path) for path in study_runs(study)}
+    id and the same frozen programs are the same form, `layout.counted_runs`) that is not an incident is the first
+    of its Haiku direct runs; a planned slot cut by a usage limit runs once more, except in the smoke (a cut fails
+    the smoke)."""
+    facts = {str(path.parent): load(path) for path in counted_runs(study)}
     probed = [f for f in facts.values() if f["tranche"] == "redraw" and "incident" not in f and "cut" not in f]
     planned = {task: PLANNED[tranche][arm] - (sum(f["task"] == task and f["arm"] == arm for f in probed)
                                               if tranche == "calibration" else 0) for task in tasks}
@@ -506,7 +507,7 @@ def pool_to_build(study, task, kind):
 
 def runs_to_pool(study, task):
     """The task's collected, scanned runs that are neither incidents nor cut by a usage limit."""
-    return [path.parent for path in study_runs(study) if (facts := load(path))["task"] == task
+    return [path.parent for path in counted_runs(study) if (facts := load(path))["task"] == task
             and "scan_hits" in facts and "incident" not in facts and "cut" not in facts]
 
 
@@ -712,7 +713,7 @@ def load_records(study, models, tasks):
         records += found
         pools.append(info)
     pooled = {r["run"] for r in records if r["pool"] == "first"}
-    facts = {str(path.parent): load(path) for path in study_runs(study)}
+    facts = {str(path.parent): load(path) for path in counted_runs(study)}
     return records + unpooled_runs(facts, pooled, tasks), pools
 
 
@@ -750,7 +751,7 @@ def write_readout(study):
     retests, rungs = tasks[:RETESTS["calibration"]], ladder.rung_counts([task["rung"] for task in chosen(study)])
     records, pools = load_records(study, models, tasks)
     runs = {str(path.parent): load(path) | {"wall_clock_sec": load(path.parent / "record.json").get(
-        "wall_clock_sec")} for path in study_runs(study)}
+        "wall_clock_sec")} for path in counted_runs(study)}
     runs = {run: facts for run, facts in runs.items() if facts["task"] in tasks}  # probe runs of other tasks out
     report = readout.report(records, pools, tasks, retests, rungs, runs, spend.totals(study.ledger), programs,
                             rules.planned_runs(study, "calibration"))
