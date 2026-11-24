@@ -11,12 +11,12 @@
   (defprompt implement-prompt
     (:fills (task :text) (repo :text))
     -> Change
-    "Work in the git repository at {repo} and nowhere else. Implement this change there:\n\n{task}\n\nReport two things. `summary`: one sentence. `account`: what you changed and why.")
+    "Work in the git repository at {repo} and nowhere else. This call ends after 20 minutes of wall-clock time; work that is not finished and reported by then is lost. Implement this change there:\n\n{task}\n\nReport two things. `summary`: one sentence. `account`: what you changed and why.")
 
   (defprompt repair-prompt
     (:fills (task :text) (repo :text) (excerpt :text))
     -> Change
-    "Work in the git repository at {repo} and nowhere else. Your change for the task below fails its check. Fix the cause.\n\nTask: {task}\n\nCheck output:\n{excerpt}\n\nReport two things. `summary`: one sentence. `account`: the state of the whole change now.")
+    "Work in the git repository at {repo} and nowhere else. This call ends after 20 minutes of wall-clock time; work that is not finished and reported by then is lost. Your change for the task below fails its check. Fix the cause.\n\nTask: {task}\n\nCheck output:\n{excerpt}\n\nReport two things. `summary`: one sentence. `account`: the state of the whole change now.")
 
   (defworkflow run
     ((task String) (intent String) (repo String) (model String) (effort String))

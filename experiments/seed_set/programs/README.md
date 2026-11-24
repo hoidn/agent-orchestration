@@ -4,7 +4,8 @@ The four workflow programs of the [seed-set calibration plan](../../../docs/plan
 (Step 1, "1c. Programs"). Each is one `.orc` file at target 2.40 with the entry
 `run ((task String) (intent String) (repo String) (model String) (effort String)) -> Outcome`;
 `common.orc` holds the shared types. All four use the same implementer prompt,
-so they differ in structure only. Every provider call has `:timeout-sec 1200`.
+so they differ in structure only. Every provider call has `:timeout-sec 1200`, and every
+prompt says so in one sentence (ruling R17 in the plan's ledger: the agent is told its 20 minutes).
 
 | Program | Lines | Max provider calls | Different from `direct` |
 | --- | --- | --- | --- |
