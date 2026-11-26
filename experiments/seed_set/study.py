@@ -22,6 +22,8 @@
   study.py smoke-check [--tranche luna_smoke]             the smoke's mechanical checklist, pass or fail, in the ledger
                                                           (the Luna smoke's: its own event, `luna_smoke`)
   study.py readout                                        anchors first, then V1-V4, G1-G4, incidents, baselines
+  study.py seed-tasks                                     the seed evaluation's tasks and judge, written once from a
+                                                          qualified calibration (results/seed-tasks.json)
   study.py ledger                                         calls reserved and made, and the events
   study.py login-expiry [--provider codex]                when the login's access token expires (`expires <ISO>, in
                                                           <N> minutes`), read from the file a unit would copy (the
@@ -217,7 +219,7 @@ def candidates(study, tranche, arm, tasks):
     if tranche == "redraw":
         raise SystemExit("the redraw cap serves the ladder probe only: use `probe`")
     tasks = list(dict.fromkeys(tasks))
-    fixes = require_tasks(study, tranche, tasks)
+    fixes = require_tasks(study, tranche, tasks, arm=arm)
     if arm not in PLANNED[tranche]:
         raise SystemExit(f"{tranche} runs {sorted(PLANNED[tranche])}, not {arm}")
     rules.enforce(study, tranche)
@@ -878,6 +880,25 @@ def write_readout(study):
     return report
 
 
+def write_seed_tasks(study):
+    """`seed-tasks`: the seed evaluation's task list (`layout.SEED_TASKS`), written once from the calibration's result
+    (`results/calibration.json` as `readout` wrote it): its survivors in the chosen list's order (cut at 16 there,
+    `gates.task_gates`), the selected judge, `insensitive` and `v4_note`. Refused unless the calibration's decision is
+    `qualified`, and once the file or a `seed_tasks` event exists. Records a `seed_tasks` event with the sha256 of
+    both files, as `probe-readout` does for the calibration's tasks; the calibration `readout` refuses after it."""
+    path, source = study.results / layout.SEED_TASKS, study.results / "calibration.json"
+    if path.exists() or spend.latest(spend.rows(study.ledger), "seed_tasks"):
+        raise SystemExit(f"{path} is written once: it or a seed_tasks event exists")
+    calibration = load(source)["calibration"] or {}
+    if calibration.get("decision") != "qualified":
+        raise SystemExit(f"{source}: the calibration's decision is {calibration.get('decision')!r}, not qualified; "
+                         "no seed evaluation")
+    dump(path, {key: calibration[name] for key, name in (("tasks", "survivors"), ("judge", "selected"),
+                                                          ("insensitive", "insensitive"), ("v4_note", "v4_note"))})
+    return spend.record(study.ledger, "seed_tasks", tasks_sha256=sha256_file(path),
+                        calibration_sha256=sha256_file(source))
+
+
 def ledger_report(study):
     """Reserved and physical calls per tranche, kind and model, and the events; a breach refuses."""
     rules.audit_ledger(study)
@@ -916,7 +937,7 @@ def parser():
                                  help=f"{layout.LUNA_POOL}: the Luna smoke's pool")
         command.add_argument("tasks", nargs="+")
     sub.add_parser("settle").add_argument("runs", nargs="+", help="records directories")
-    for name in ("probe-readout", "early-look", "readout", "ledger"):
+    for name in ("probe-readout", "early-look", "readout", "seed-tasks", "ledger"):
         sub.add_parser(name)
     sub.add_parser("smoke-check").add_argument("--tranche", choices=layout.SMOKES, default="smoke",
                                                help="whose smoke: the Claude smoke (default) or the Luna smoke")
@@ -976,6 +997,7 @@ def main(argv=None):
                                                                                   a.runs))),
         "early-look": lambda: print(json.dumps(rules.early_look(study), indent=2)),
         "readout": lambda: write_readout(study),
+        "seed-tasks": lambda: print(json.dumps(write_seed_tasks(study))),
         "ledger": lambda: ledger_report(study),
         "login-expiry": lambda: print(units.expiry_text(units.login_expiry(provider=a.provider))),
         "resume-after-limit": lambda: print(json.dumps(spend.resume_after_limit(

@@ -1,12 +1,15 @@
 """The seed evaluation's two judge batches per task (`study.seed_batches`) on hand-built usable runs, its tranche kept
-apart from the calibration's (`study.runs_to_pool`, `study.write_readout`) on a fabricated work root. No harness, no
-provider."""
+apart from the calibration's (`study.runs_to_pool`, `study.write_readout`) on a fabricated work root, its report
+(`seeds.report`) on hand-built records, and its task list, pool kind and judge criterion (`study.write_seed_tasks`,
+`layout.arm_tasks`, `layout.require_pool_kind`, `layout.load_seed_criterion`, the freeze's binding of
+`judge-seeds.json`). No pool is built here and no provider is called."""
 
 import pytest
 
-from experiments.compare.repos import dump, load
+from experiments.compare.repos import dump, load, sha256_file
 from experiments.orc_structural_search import metering
-from experiments.seed_set import gates, layout, seeds, spend, study
+from experiments.seed_set import gates, layout, rules, seeds, spend, study
+from tests.experiments.seed_set_offline_support import committed_runtime, write_frozen_criterion
 
 ARMS = ["direct", "retry_until_check", "implement_check_repair", "implement_review_revise"]  # arms.json order
 PLANNED = {"direct": 6, "retry_until_check": 2, "implement_check_repair": 3, "implement_review_revise": 3}
@@ -554,3 +557,165 @@ def test_the_seed_section_renders_on_every_branch_with_its_decision(edit):
     edit(w)
     result = seed_report(w)
     assert f"Decision: {result['decision']}." in seeds.markdown(result)
+
+
+# --- the seed task list, pool kind and judge criterion (B1) ------------------------------------------------
+
+SURVIVORS = [f"t{i:02d}" for i in (3, 1, 7, 0, 2, 5, 4, 6)]  # in the chosen list's order
+
+
+def calibrated(tmp_path, decision="qualified"):
+    """A fabricated study whose results hold a calibration.json with `decision`, the survivors and the judge."""
+    s = fabricated_study(tmp_path, [])
+    s.results.mkdir()
+    dump(s.results / "calibration.json", {"calibration": {"decision": decision, "selected": J, "insensitive": None,
+                                                          "v4_note": "v4", "survivors": SURVIVORS}})
+    return s
+
+
+def test_seed_tasks_writes_the_survivors_in_order_with_the_judge_and_records_both_hashes(tmp_path):
+    s = calibrated(tmp_path)
+    row = study.write_seed_tasks(s)
+    path = s.results / layout.SEED_TASKS
+    assert (load(path), row["event"], row["tasks_sha256"], row["calibration_sha256"]) == (
+        {"tasks": SURVIVORS, "judge": J, "insensitive": None, "v4_note": "v4"}, "seed_tasks",
+        sha256_file(path), sha256_file(s.results / "calibration.json"))
+
+
+@pytest.mark.parametrize("decision", ["stop: G4 failed", None])
+def test_seed_tasks_refuses_a_calibration_that_did_not_qualify(tmp_path, decision):
+    s = calibrated(tmp_path, decision)
+    with pytest.raises(SystemExit, match="not qualified"):
+        study.write_seed_tasks(s)
+    assert (s.results / layout.SEED_TASKS).exists() is False
+
+
+def test_seed_tasks_refuses_a_calibration_without_a_decision(tmp_path):  # an anchor failure leaves no calibration
+    s = calibrated(tmp_path)
+    dump(s.results / "calibration.json", {"calibration": None})
+    with pytest.raises(SystemExit, match="not qualified"):
+        study.write_seed_tasks(s)
+
+
+@pytest.mark.parametrize("left", ["file and event", "event", "file"])
+def test_seed_tasks_is_written_once(tmp_path, left):
+    s = calibrated(tmp_path)
+    study.write_seed_tasks(s)
+    if left == "event":
+        (s.results / layout.SEED_TASKS).unlink()
+    if left == "file":
+        s.ledger.unlink()
+    with pytest.raises(SystemExit, match="written once"):
+        study.write_seed_tasks(s)
+
+
+def test_the_seed_evaluations_tasks_are_the_seed_task_list_and_none_before_it(tmp_path):
+    s = calibrated(tmp_path)
+    before = layout.tranche_tasks(s, layout.SEED_EVALUATION)
+    study.write_seed_tasks(s)
+    assert (before, layout.tranche_tasks(s, layout.SEED_EVALUATION)) == ([], SURVIVORS)
+
+
+def test_retry_runs_on_the_first_six_survivors_and_every_other_arm_on_all(tmp_path):
+    s = calibrated(tmp_path)
+    study.write_seed_tasks(s)
+    assert {arm: layout.arm_tasks(s, layout.SEED_EVALUATION, arm) for arm in ARMS} == {
+        "direct": SURVIVORS, "retry_until_check": SURVIVORS[:6], "implement_check_repair": SURVIVORS,
+        "implement_review_revise": SURVIVORS}
+
+
+def test_a_retry_start_beyond_the_first_six_survivors_is_refused(tmp_path):
+    s = calibrated(tmp_path)
+    study.write_seed_tasks(s)
+    with pytest.raises(SystemExit, match="takes tasks among"):
+        layout.require_tasks(s, layout.SEED_EVALUATION, [SURVIVORS[6]], arm="retry_until_check")
+
+
+@pytest.mark.parametrize("tranche, kind", [(layout.SEED_EVALUATION, "first"), (layout.SEED_EVALUATION, "retest"),
+                                           (layout.SEED_EVALUATION, layout.LUNA_POOL), ("calibration", layout.SEED_POOL),
+                                           ("smoke", layout.SEED_POOL), (layout.LUNA_SMOKE, layout.SEED_POOL)])
+def test_a_pool_kind_the_tranche_does_not_build_is_refused(tranche, kind):
+    with pytest.raises(SystemExit, match="pools, not"):
+        layout.require_pool_kind(tranche, kind)
+
+
+def test_the_seed_evaluation_builds_seed_pools():
+    assert layout.require_pool_kind(layout.SEED_EVALUATION, layout.SEED_POOL) is None
+
+
+GOOD = {"judges": [J], "rubric": layout.RUBRIC, "primary": [], "secondary": []}  # judge-seeds.json as frozen
+
+
+def seed_criterion(tmp_path, value):
+    """A study with its seed task list (judge `J`) and `value` as its judge-seeds.json."""
+    s = calibrated(tmp_path)
+    study.write_seed_tasks(s)
+    dump(s.seed_criterion, value)
+    return s
+
+
+def test_a_seed_pool_is_built_and_summarized_under_judge_seeds_json(tmp_path):
+    s = seed_criterion(tmp_path, GOOD)
+    assert (layout.pool_criterion(s, layout.SEED_POOL), s.seed_criterion.name) == (s.seed_criterion,
+                                                                                   "judge-seeds.json")
+
+
+@pytest.mark.parametrize("change", [{"judges": [gates.HAIKU, gates.SONNET]}, {"judges": [gates.SONNET]},
+                                    {"judges": []}, {"calibration": {"margin": 1}}, {"purpose": "calibration"},
+                                    {"rubric": {"workflow": "score.orc"}}])
+def test_a_seed_judge_criterion_other_than_the_selected_judge_alone_and_the_functional_rubric_is_refused(
+        tmp_path, change):
+    s = seed_criterion(tmp_path, GOOD | change)
+    with pytest.raises(SystemExit, match="names one judge, the selected"):
+        layout.pool_criterion(s, layout.SEED_POOL)
+
+
+def test_the_seed_judge_criterion_is_refused_before_the_seed_task_list(tmp_path):
+    s = fabricated_study(tmp_path, [])
+    dump(s.seed_criterion, GOOD)
+    with pytest.raises(SystemExit, match="seed-tasks"):
+        layout.pool_criterion(s, layout.SEED_POOL)
+
+
+@pytest.fixture
+def frozen(tmp_path, monkeypatch):
+    """A study whose runtime is a git checkout holding the programs, the rubric and a task list, with the criterion
+    files and `judge-seeds.json` written into the runtime after its commit (as on the machine) and criterion.json
+    naming the seed judge criterion's sha256; frozen."""
+    runtime = tmp_path / "runtime"
+    tasks = committed_runtime(runtime, [{"id": "t1", "set": "smoke", "commit": "f" * 40, "tier": "T3",
+                                         "form": "in-tree"}])
+    monkeypatch.setattr(rules, "loaded_elsewhere", lambda runtime: [])  # the tests import this checkout's modules
+    seed_set = runtime / "experiments" / "seed_set"
+    s = layout.Study(runtime, tmp_path / "work", tmp_path / "pools", seed_set / "results", tasks,
+                     seed_set / "judge-calibration.json", tmp_path / "state")
+    dump(s.criterion, {"judges": [gates.HAIKU, gates.SONNET], "rubric": layout.RUBRIC})
+    dump(s.seed_criterion, GOOD)
+    write_frozen_criterion(s, sha256=rules.required_hashes(s) | {"judge-seeds.json": sha256_file(s.seed_criterion)})
+    rules.record_freeze(s)
+    return s
+
+
+def test_a_named_seed_judge_criterion_written_into_the_runtime_freezes_and_lets_a_start_pass(frozen):
+    assert rules.require_order(frozen, "smoke") is None
+
+
+def test_an_edit_to_the_seed_judge_criterion_after_the_freeze_refuses_the_next_start(frozen):
+    dump(frozen.seed_criterion, GOOD | {"primary": ["edited"]})
+    with pytest.raises(SystemExit, match=r"does not name the current sha256 of \['judge-seeds.json'\]"):
+        rules.require_order(frozen, "smoke")
+
+
+def test_a_named_seed_judge_criterion_that_is_missing_refuses_the_next_start(frozen):
+    frozen.seed_criterion.unlink()
+    with pytest.raises(SystemExit, match=r"does not name the current sha256 of \['judge-seeds.json'\]"):
+        rules.require_order(frozen, "smoke")
+
+
+def test_a_criterion_that_does_not_name_the_seed_judge_criterion_does_not_bind_it(frozen):
+    named = load(frozen.frozen)["sha256"]
+    named.pop("judge-seeds.json")
+    write_frozen_criterion(frozen, sha256=named)
+    rules.record_freeze(frozen)
+    dump(frozen.seed_criterion, GOOD | {"primary": ["edited"]})
+    assert rules.require_order(frozen, "smoke") is None
