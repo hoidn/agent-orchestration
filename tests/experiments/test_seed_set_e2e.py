@@ -911,6 +911,22 @@ def unit_processes(world):
     return [int(pid) for pid in found.split()]
 
 
+CHILD_LOAD = (0.5, 0.5, 0.5)  # the load averages a launcher child reads: a quiet machine
+
+
+def launch_candidates(s, task):
+    """A launcher child process running `candidates` for one Sonnet run of `task` on the study `s`, as the operator's
+    command does. It reads `CHILD_LOAD` as the machine's load averages: the kit refuses `candidates` above the core
+    count (`units.require_quiet`), and conftest.py's quiet reading reaches this process only, not a child."""
+    paths = [str(p) for p in (s.runtime, s.work, s.pools, s.results, s.tasks_file, s.criterion, s.state)]
+    code = (f"import os\nos.getloadavg = lambda: {CHILD_LOAD!r}\n"
+            f"from pathlib import Path\nfrom experiments.seed_set import layout, rules, study\n"
+            f"rules.loaded_elsewhere = lambda runtime: []\n"
+            f"s = layout.Study(*map(Path, {paths!r}), min_free=10**9)\n"
+            f"study.candidates(s, 'calibration', 'direct_sonnet', [{task!r}])\n")
+    return subprocess.Popen([sys.executable, "-c", code], cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO)})
+
+
 def test_offline_a_killed_launcher_takes_its_agent_with_it_and_the_next_command_removes_the_copy(world, monkeypatch):
     """Review 3 X5: kill -9 of the launcher while the stand-in agent is in its call (it would answer after a
     minute). The unit's session dies with the launcher, the next study command starts by removing the unit's
@@ -921,12 +937,7 @@ def test_offline_a_killed_launcher_takes_its_agent_with_it_and_the_next_command_
     monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
     choose(s, [task])
     spend.record(s.ledger, "smoke", passed=True)
-    paths = [str(p) for p in (s.runtime, s.work, s.pools, s.results, s.tasks_file, s.criterion, s.state)]
-    code = (f"from pathlib import Path\nfrom experiments.seed_set import layout, rules, study\n"
-            f"rules.loaded_elsewhere = lambda runtime: []\n"
-            f"s = layout.Study(*map(Path, {paths!r}), min_free=10**9)\n"
-            f"study.candidates(s, 'calibration', 'direct_sonnet', [{task!r}])\n")
-    launcher = subprocess.Popen([sys.executable, "-c", code], cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO)})
+    launcher = launch_candidates(s, task)
     deadline = time.time() + 600
     while time.time() < deadline and not list(s.work.glob("records/*/run-*/calls/1/prompt.txt")):
         time.sleep(0.5)
@@ -967,12 +978,7 @@ def in_the_visible_check(world, monkeypatch, pids, task="a0a0a0a0a0"):
     monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
     choose(s, [task])
     spend.record(s.ledger, "smoke", passed=True)
-    paths = [str(p) for p in (s.runtime, s.work, s.pools, s.results, s.tasks_file, s.criterion, s.state)]
-    code = (f"from pathlib import Path\nfrom experiments.seed_set import layout, rules, study\n"
-            f"rules.loaded_elsewhere = lambda runtime: []\n"
-            f"s = layout.Study(*map(Path, {paths!r}), min_free=10**9)\n"
-            f"study.candidates(s, 'calibration', 'direct_sonnet', [{task!r}])\n")
-    launcher = subprocess.Popen([sys.executable, "-c", code], cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO)})
+    launcher = launch_candidates(s, task)
     deadline = time.time() + 600
     while time.time() < deadline and not running(pids) and launcher.poll() is None:
         time.sleep(0.5)
