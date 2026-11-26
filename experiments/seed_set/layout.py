@@ -13,7 +13,11 @@ the ledger holds. The Luna smoke (`LUNA_SMOKE`, ruling L-R8 of the Luna plan) ru
 Luna arms once each, then one pool of its own kind (`LUNA_POOL`, beside the smoke's `first`) with its runs alone,
 judged by the tranche's judges (`tranche_judges`: Haiku) under the judge criterion naming those judges only
 (`pool_criterion`). `STUDY_TRANCHES` are the calibration study's own: every freeze carries their spend terms, and
-the readout lists their programs; the Luna smoke gates none of them.
+the readout lists their programs; the Luna smoke gates none of them. The seed evaluation (`SEED_EVALUATION`, Step 3)
+runs on the task list `seed-tasks` wrote once from the calibration's result (`SEED_TASKS`: the survivors in the
+chosen list's order and the selected judge), retry parity on its first `PARITY_TASKS` (`arm_tasks`); it builds pools
+of its own kind (`SEED_POOL`) alone, under `judge-seeds.json` (`SEED_CRITERION`, beside the judge-calibration
+criterion, written and frozen after the calibration), which names the selected judge alone (`load_seed_criterion`).
 """
 
 import json
@@ -37,6 +41,10 @@ RETESTS = {"smoke": 0, "calibration": 10, "redraw": 0, LUNA_SMOKE: 0}  # the fir
 STUDY_TRANCHES = ("smoke", "calibration", "redraw")
 SMOKES = ("smoke", LUNA_SMOKE)  # on the smoke task; a slot a usage limit cut never runs again
 CHOSEN = "calibration-tasks.json"  # under the results directory
+SEED_TASKS = "seed-tasks.json"  # under the results directory: the seed evaluation's tasks and judge (`seed-tasks`)
+SEED_CRITERION = "judge-seeds.json"  # beside the judge-calibration criterion: the seed pools' one-judge criterion
+PARITY_TASKS = 6  # retry parity runs "on the first six survivors" (Step 3)
+OWN_POOLS = {LUNA_SMOKE: (LUNA_POOL,), SEED_EVALUATION: (SEED_POOL,)}  # tranche: the pool kinds it alone builds
 MIN_FREE = 20 * 10**9
 WIDTH = 2  # units in flight at a time (coordinator ruling R3): a usage limit cuts at most two
 RUBRIC = {"workflow": "score_functional.orc", "entry": "score_functional::score", "criteria": ["quality"],
@@ -67,6 +75,10 @@ class Study:
         return self.criterion.parent / "criterion.json"
 
     @property
+    def seed_criterion(self):
+        return self.criterion.parent / SEED_CRITERION
+
+    @property
     def host_temp(self):
         """The record of the host-side checks' temporary directories (`host.temporary`, `host.sweep`)."""
         return self.state / "host-temp.jsonl"
@@ -86,9 +98,18 @@ def chosen(study):
     return load(path)["tasks"] if path.is_file() else []
 
 
+def seed_task_list(study):
+    """The seed task list {"tasks", "judge", "insensitive", "v4_note"} as `seed-tasks` wrote it, or None before."""
+    path = study.results / SEED_TASKS
+    return load(path) if path.is_file() else None
+
+
 def tranche_tasks(study, tranche):
     """The tasks a tranche may run, in order: the smoke task for either smoke, every ladder package for the probe,
-    the chosen tasks for the calibration."""
+    the seed task list's survivors for the seed evaluation ([] before `seed-tasks`), the chosen tasks for the
+    calibration."""
+    if tranche == SEED_EVALUATION:
+        return (seed_task_list(study) or {}).get("tasks", [])
     rows = task_rows(study)
     if tranche in SMOKES:
         return [row["id"] for row in rows if row.get("set") == "smoke"]
@@ -97,9 +118,17 @@ def tranche_tasks(study, tranche):
     return [task["id"] for task in chosen(study)]
 
 
-def require_tasks(study, tranche, tasks, kind="first"):
-    """{package: fix commit}; refuse tasks outside the tranche (or outside its retest tasks)."""
-    allowed = tranche_tasks(study, tranche)
+def arm_tasks(study, tranche, arm):
+    """The tasks `arm` runs in `tranche`, in order: the seed evaluation's retry parity on its first `PARITY_TASKS`
+    tasks, every other arm on all the tranche's tasks."""
+    tasks = tranche_tasks(study, tranche)
+    return tasks[:PARITY_TASKS] if (tranche, arm) == (SEED_EVALUATION, "retry_until_check") else tasks
+
+
+def require_tasks(study, tranche, tasks, kind="first", arm=None):
+    """{package: fix commit}; refuse tasks outside the tranche (outside `arm`'s, `arm_tasks`, when it is named; or
+    outside its retest tasks)."""
+    allowed = arm_tasks(study, tranche, arm) if arm else tranche_tasks(study, tranche)
     if kind == "retest":
         allowed = allowed[:RETESTS[tranche]]
     if not tasks or set(tasks) - set(allowed):
@@ -108,22 +137,28 @@ def require_tasks(study, tranche, tasks, kind="first"):
 
 
 def require_pool_kind(tranche, kind):
-    """Refuse a pool kind the tranche does not build: the Luna smoke's is `LUNA_POOL` alone, every other tranche's
-    `first` or `retest`."""
-    if (tranche == LUNA_SMOKE) != (kind == LUNA_POOL):
-        raise SystemExit(f"{tranche} builds {'the ' + LUNA_POOL if tranche == LUNA_SMOKE else 'first or retest'} "
-                         f"pools, not {kind}")
+    """Refuse a pool kind the tranche does not build: the Luna smoke's is `LUNA_POOL` alone, the seed evaluation's
+    `SEED_POOL` alone (`OWN_POOLS`), every other tranche's `first` or `retest`."""
+    kinds = OWN_POOLS.get(tranche, ("first", "retest"))
+    if kind not in kinds:
+        raise SystemExit(f"{tranche} builds {' or '.join(kinds)} pools, not {kind}")
 
 
 def tranche_judges(tranche):
-    """The judges a tranche's caps give calls (`spend.CAPS`), in `gates.JUDGES` order."""
+    """The judges a tranche's caps give calls (`spend.CAPS`), in `gates.JUDGES` order; refused for a tranche without
+    caps (one not authorized yet)."""
+    if tranche not in spend.CAPS:
+        raise SystemExit(f"{tranche} has no caps: it is not authorized yet, so it has no judges")
     return [judge for judge in gates.JUDGES if spend.CAPS[tranche]["judge"].get(judge)]
 
 
 def pool_criterion(study, kind):
-    """The judge criterion a pool of `kind` is built and summarized under: the study's, or for the Luna smoke's pool
-    a copy naming only the Luna smoke's judges (summarize.py takes the criterion's judges to be the pool's), written
-    to `results/` from the study's on every call, so both steps read the same bytes."""
+    """The judge criterion a pool of `kind` is built and summarized under: the study's; for a seed pool
+    `judge-seeds.json` once its shape is checked (`load_seed_criterion`); for the Luna smoke's pool a copy naming
+    only the Luna smoke's judges (summarize.py takes the criterion's judges to be the pool's), written to `results/`
+    from the study's on every call, so both steps read the same bytes."""
+    if kind == SEED_POOL:
+        return load_seed_criterion(study)
     if kind != LUNA_POOL:
         return study.criterion
     path = study.results / f"{LUNA_SMOKE}-criterion.json"
@@ -143,15 +178,51 @@ def load_arms(study):
     return arms
 
 
+def functional(value):
+    """A judge criterion with the functional rubric and no calibration purpose or block (summarize.py skips hidden
+    tests for purpose "calibration")."""
+    return value.get("purpose") != "calibration" and "calibration" not in value and value.get("rubric") == RUBRIC
+
+
 def load_criterion(study):
-    """The judge-calibration criterion: both judges, the functional rubric, and no calibration purpose or block
-    (summarize.py skips hidden tests for purpose "calibration")."""
+    """The judge-calibration criterion: both judges, and `functional`."""
     value = load(study.criterion)
-    if (value.get("purpose") == "calibration" or "calibration" in value or value.get("rubric") != RUBRIC
-            or sorted(value.get("judges", [])) != sorted(gates.JUDGES)):
+    if not functional(value) or sorted(value.get("judges", [])) != sorted(gates.JUDGES):
         raise SystemExit(f"{study.criterion}: the judge-calibration criterion names both judges and the functional "
                          "rubric, without a calibration purpose or block")
     return value
+
+
+def load_seed_criterion(study):
+    """The path of `judge-seeds.json` (`Study.seed_criterion`) for a seed pool, its judge or its summary: the seed
+    task list must exist (`seed_task_list`) and the criterion name its judge alone (`check_seed_criterion`)."""
+    listed = seed_task_list(study)
+    if listed is None:
+        raise SystemExit(f"no {SEED_TASKS} under {study.results}: `seed-tasks` writes it from the calibration's result")
+    return check_seed_criterion(study, listed["judge"])
+
+
+def selected_judge(study):
+    """The calibration's selected judge: the seed task list's, else `results/calibration.json`'s, else None (no
+    readout yet)."""
+    if (listed := seed_task_list(study)) is not None:
+        return listed["judge"]
+    path = study.results / "calibration.json"
+    return (load(path)["calibration"] or {}).get("selected") if path.is_file() else None
+
+
+def check_seed_criterion(study, judge):
+    """The path of `judge-seeds.json`, refused unless it exists, is `functional` and names exactly one judge, one of
+    `gates.JUDGES` and, when `judge` is known, that judge (the calibration's selected one)."""
+    if not study.seed_criterion.is_file():
+        raise SystemExit(f"{study.seed_criterion} is missing: the coordinator writes it after the calibration")
+    value = load(study.seed_criterion)
+    judges = value.get("judges")
+    if not functional(value) or not (isinstance(judges, list) and len(judges) == 1 and judges[0] in gates.JUDGES
+                                     and judge in (None, judges[0])):
+        raise SystemExit(f"{study.seed_criterion}: the seed judge criterion names one judge, the selected "
+                         f"{judge or 'one'}, and the functional rubric, without a calibration purpose or block")
+    return study.seed_criterion
 
 
 def spend_terms(study, tranche, model):

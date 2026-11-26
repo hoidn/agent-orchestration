@@ -26,7 +26,7 @@ import pytest
 
 from experiments.compare import pool as pooling, prepare, scan
 from experiments.compare.repos import sha256_file
-from experiments.seed_set import forms, host, layout, probing, rules, spend, study, units
+from experiments.seed_set import forms, host, layout, probing, readout, rules, seeds, spend, study, units
 from tests.experiments.compare_harness_support import (
     OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up, skip_without_sandbox, write_test_sandbox_config,
 )
@@ -1165,3 +1165,169 @@ def test_offline_a_second_settlement_of_a_run_whose_login_failed_is_an_incident(
     tree = Path(json.loads((records / "record.json").read_text())["tree"])
     assert (facts["calls"], "authenticat" in facts.get("incident", "").lower(), "tree_left" in facts, tree.exists(),
             credentials(s)) == (1, True, False, False, [])
+
+
+# --- the seed evaluation's pools (seed evaluation apparatus plan, B3) ---------------------------------------
+
+SEED = layout.SEED_EVALUATION
+SEED_ARMS = {"direct": 6, "retry_until_check": 2, "implement_check_repair": 3, "implement_review_revise": 3}
+SEED_TASK = "a0a0a0a0a0"
+SEED_TASKS = ["b1b1b1b1b1", SEED_TASK]  # the seed task list: `SEED_TASK` second, so its deal starts on batch 1
+
+
+def fabricated_seed_run(world, arm, k, facts=()):
+    """Run `k` of `arm` on `SEED_TASK` in the seed evaluation, prepared by the harness and never launched: its
+    collection written by hand (a completed run whose final patch is the task's reference fix; no call, so the scan
+    covers none), then scanned by the harness, and its start reserved. Its study.json says one call; `facts` join
+    it."""
+    s = world.study
+    spec = layout.load_arms(s)[arm]
+    arm_spec = prepare.ArmSpec(s.programs / spec["source"], spec["entry"], s.programs,
+                               s.programs / study.PROVIDERS["claude"], study.INPUTS,
+                               command_boundaries=s.programs / "commands.json")
+    records = prepare.run_arm(study.task_dir(s, SEED_TASK), arm, s.work, s.runtime, spec=arm_spec,
+                              sets=(f"model={H}", "effort=medium"), environment=study.launch_env(H, spec["max_calls"]))
+    record = json.loads((records / "record.json").read_text())
+    units.forget_credentials(record["sandbox"]["home"])
+    (records / "collected").mkdir()
+    (records / "collected" / "final.diff").write_bytes(
+        (study.task_dir(s, SEED_TASK) / "anchors" / f"{SEED_TASK}-upstream.diff").read_bytes())
+    (records / "record.json").write_text(json.dumps(record | {
+        "outcome": "completed", "failure": None, "selected": None, "variant": None, "calls": 0,  # none launched
+        "wall_clock_sec": 1.0, "patches": {"final": "collected/final.diff"}}))
+    prepare.scan(records, world.fixes[SEED_TASK])
+    spend.reserve(s.ledger, SEED, "candidate", H, spec["max_calls"], records, price=(50.0, 0.25), task=SEED_TASK,
+                  arm=arm)
+    (records / "study.json").write_text(json.dumps({
+        "tranche": SEED, "task": SEED_TASK, "arm": arm, "model": H, "effort": "medium",
+        "max_calls": spec["max_calls"], "calls": 1, "outcome": "completed", "failure": None, "scan_hits": 0,
+        **dict(facts)}))
+    return records
+
+
+@pytest.fixture
+def seed_world(world, monkeypatch):
+    """The world with the seed evaluation authorized and capped in this process only (Haiku the selected judge),
+    a stored calibration result, the task list `SEED_TASKS` with its `seed_tasks` event, judge-seeds.json naming
+    Haiku and frozen, and the planned 14 runs on `SEED_TASK` fabricated and started."""
+    from tests.experiments.test_seed_set import world as calibration_world
+    s = world.study
+    monkeypatch.setattr(spend, "UNAUTHORIZED", ("extension",))
+    monkeypatch.setitem(spend.CAPS, SEED, {"candidate": {H: 420}, "judge": {H: 32}})
+    monkeypatch.setitem(layout.PLANNED, SEED, SEED_ARMS)  # the freeze bounds each priced tranche's units
+    monkeypatch.setenv(spend.AUTHORIZATION, SEED)
+    s.results.mkdir(parents=True, exist_ok=True)
+    records, pools = calibration_world()
+    tasks = [f"t{i:02d}" for i in range(20)]
+    (s.results / study.CALIBRATION).write_text(json.dumps(readout.report(records, pools, tasks, tasks[:10],
+                                                                           {"T3": 20}, {}, {}, {}, 100)))
+    (s.results / layout.SEED_TASKS).write_text(json.dumps({"tasks": SEED_TASKS, "judge": H, "insensitive": None,
+                                                           "v4_note": None}))
+    spend.record(s.ledger, "seed_tasks", tasks_sha256=sha256_file(s.results / layout.SEED_TASKS),
+                 calibration_sha256=sha256_file(s.results / study.CALIBRATION))
+    s.seed_criterion.write_text(json.dumps({"judges": [H], "rubric": layout.RUBRIC, "primary": [], "secondary": []}))
+    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(world.fakebin, ceiling_usd={
+        **SPEND_TERMS["ceiling_usd"], SEED: 50.0}), sha256=rules.required_hashes(s) | {
+        layout.SEED_CRITERION: sha256_file(s.seed_criterion)})
+    rules.record_freeze(s)
+    world.runs = [fabricated_seed_run(world, arm, k, SETTLED | {"visible": {"passed": k > 0}})
+                  for arm, n in SEED_ARMS.items() for k in range(n)]
+    return world
+
+
+SETTLED = {"priced": {"usd": 0.01, "missing": []}, "nested_sessions": 0, "tokens": 1000}  # what a settlement adds
+
+def test_offline_a_seed_pool_of_fourteen_runs_is_two_batches_judged_by_one_judge_and_summarized(seed_world):
+    s = seed_world.study
+    study.build_pools(s, SEED, layout.SEED_POOL, [SEED_TASK])
+    out = s.pools / SEED_TASK / layout.SEED_POOL
+    mapping = json.loads((out / "records" / "mapping.json").read_text())
+    anchors = {cid for cid, clone in mapping["clones"].items() if clone["arm"] == "anchor"}
+    assert ([(len(batch), len(anchors & set(batch))) for batch in mapping["batches"]], list(mapping["judges"]),
+            sorted(c["run"] for c in mapping["clones"].values() if c["run"])) == (
+        [(9, 2), (9, 2)], [H], sorted(str(r.resolve()) for r in seed_world.runs))
+    first_direct = str(seed_world.runs[0].resolve())  # dealt first, to batch (task index 1 + arm 0 + run 0) mod 2
+    assert [any(mapping["clones"][cid]["run"] == first_direct for cid in batch) for batch in mapping["batches"]] == [
+        False, True]
+
+    study.judge(s, SEED, layout.SEED_POOL, [SEED_TASK])
+    starts = [row for row in spend.starts(spend.rows(s.ledger)) if row["kind"] == "judge"]
+    assert ([(row["kind"], row["model"], row["calls"]) for row in starts],
+            json.loads((out / "records" / f"study-{H}.json").read_text())["calls"]) == ([("judge", H, 2)], 2)
+
+    study.summarize_pools(s, layout.SEED_POOL, [SEED_TASK])
+    kept = s.results / "pools" / f"{SEED_TASK}-{layout.SEED_POOL}"
+    results = json.loads((kept / "results.json").read_text())
+    assert (len(results["clones"]), {(c["arm"] == "anchor", tuple(c["ratings"]), c["hidden"] is None)
+                                     for c in results["clones"].values()},
+            json.loads((kept / "mapping.json").read_text())["batches"]) == (
+        18, {(True, (H,), False), (False, (H,), False)}, mapping["batches"])
+
+
+def test_offline_a_seed_pool_is_refused_for_a_tranche_that_builds_none(seed_world):
+    with pytest.raises(SystemExit, match="pools, not seed"):
+        study.build_pools(seed_world.study, "calibration", layout.SEED_POOL, [SEED_TASK])
+
+
+def incident_slots(s, task):
+    """Every planned slot of `task` started and settled as an incident (nothing collected), and its pool an
+    incident."""
+    for arm, planned in SEED_ARMS.items():
+        for k in range(planned):
+            records = s.work / "records" / f"{task}-{arm}" / f"run-{k}"
+            records.mkdir(parents=True)
+            spend.reserve(s.ledger, SEED, "candidate", H, 1, records, price=(50.0, 0.25), task=task, arm=arm)
+            (records / "study.json").write_text(json.dumps({"tranche": SEED, "task": task, "arm": arm, "model": H,
+                                                            "effort": "medium", "max_calls": 1, "calls": 0,
+                                                            "incident": "provider: a stand-in incident"}))
+            (records / "record.json").write_text("{}")
+    study.pool_incident(s, task, layout.SEED_POOL, "not pooled: no completed, uncontaminated run to pool")
+
+
+def test_offline_the_seed_readout_waits_for_the_whole_tranche_then_reads_the_real_pool(seed_world):
+    """The seed readout (B4) over the real pool: while the first seed task never ran it refuses and writes nothing;
+    once that task's slots ended as incidents and its pool as an incident, two of four batches are missing, no
+    quality claim is made, and the outputs and one `seed_decision` (no stop) are written."""
+    s = seed_world.study
+    study.build_pools(s, SEED, layout.SEED_POOL, [SEED_TASK])
+    study.judge(s, SEED, layout.SEED_POOL, [SEED_TASK])
+    study.summarize_pools(s, layout.SEED_POOL, [SEED_TASK])
+    spend.record(s.ledger, study.VISIBLE_EVENT, failed=1, checked=6, rate=1 / 6, launch=True)  # C2's event, assumed
+    with pytest.raises(SystemExit, match=r"planned seed slots are open .*b1b1b1b1b1/direct: 6 of 6"):
+        study.seed_readout(s)
+    assert ((s.results / "seeds.json").exists(), spend.latest(spend.rows(s.ledger), "seed_decision")) == (False, None)
+    incident_slots(s, SEED_TASKS[0])
+    out = study.seed_readout(s)
+    decision = [row for row in spend.rows(s.ledger) if row.get("event") in ("seed_decision", "stop")]
+    commit = spend.latest(spend.rows(s.ledger), "freeze")["runtime_commit"]
+    assert (out["stop"], out["hashes"]["runtime_commit"], [row["event"] for row in decision],
+            "## Seed evaluation" in (s.results / "readout.md").read_text()) == (
+        f"{seeds.NO_CLAIM}: 2 of 4 batches have reference minus base under 4",
+        {"first_seed_start": commit, "latest": commit}, ["seed_decision"], True)
+
+
+def test_offline_a_seed_pool_refuses_a_run_of_another_seeded_commit(seed_world):
+    s = seed_world.study
+    path = seed_world.runs[3] / "record.json"
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"compare_base": "0" * 40}))
+    study.build_pools(s, SEED, layout.SEED_POOL, [SEED_TASK])
+    reason = json.loads((s.results / "pools" / f"{SEED_TASK}-{layout.SEED_POOL}" / "incident.json").read_text())
+    assert reason["reason"] == "not pooled: runs in one pool must share the task and the seeded commit"
+
+
+def test_offline_a_settled_run_with_a_nested_session_counts_it(world, monkeypatch):
+    s = world.study
+    monkeypatch.setenv(spend.AUTHORIZATION, "smoke")
+    Path(world.plan).write_text(json.dumps(json.loads(Path(world.plan).read_text()) | {"nested_session": True}))
+    study.candidates(s, "smoke", "direct", [SMOKE])
+    (path,) = study.study_runs(s)
+    facts = json.loads(path.read_text())
+    unavailable = json.loads((path.parent / "metering.json").read_text())["consumption"] == "unavailable"
+    assert (facts.get("incident"), facts["sessions"], facts["nested_sessions"], unavailable, facts["tokens"]) == (
+        None, 2, 1, True, None)  # the Claude stand-in reports no usage: no tokens, never 0
+
+
+def test_offline_a_settled_run_records_its_metered_tokens(luna_world):
+    records, facts = luna_unit(luna_world)  # the stand-in `codex` reports complete usage; the Claude stand-in none
+    metered = seeds.metered_tokens(json.loads((records / "metering.json").read_text()))
+    assert (metered is not None, facts["tokens"], facts["nested_sessions"]) == (True, metered, 0)

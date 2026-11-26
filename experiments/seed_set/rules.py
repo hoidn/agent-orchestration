@@ -18,10 +18,11 @@ the runtime commit, the git tree of the study's and the harness's code (`experim
 `criterion.json` and `judge-calibration.json`. It refuses, at the freeze and before every start, when a loaded
 module of either package is not the runtime's file (run with the runtime as the working directory and PYTHONPATH),
 when the task list lies outside the runtime, when the code or the packages hold an untracked file (the criterion
-files and the results directory, written after the commit, excepted), and when
+files, `judge-seeds.json` among them, and the results directory, written after the commit, excepted), and when
 `criterion.json` does not name, under "sha256", the current sha256 of the task list, every program, the rubric
-`score_functional.orc`, the price table `orchestrator/providers/price_table.json` (coordinator ruling R4) and
-`judge-calibration.json` (plan Step 1f; keys are runtime-relative paths, the judge criterion by its file name), and
+`score_functional.orc`, the price table `orchestrator/providers/price_table.json` (coordinator ruling R4),
+`judge-calibration.json` (plan Step 1f; keys are runtime-relative paths, the judge criteria by their file names) and,
+once `criterion.json` names it, the seed judge criterion `judge-seeds.json` (written after the calibration), and
 when a package the study can draw, probe or smoke on has no stable entry at its
 current hash and the scoring path of the runtime's files in `anchor_stability.json` (`anchors.py`; coordinator
 rulings, 2026-11-12 and 2026-11-15). A second freeze after a start needs a reason, which the ledger keeps.
@@ -72,19 +73,20 @@ def frozen_identity(study):
 
 
 def require_tracked(study, runtime, packages):
-    """Refuse an untracked file in the runtime's code or task packages (the criterion files and the results,
-    written after the commit, excepted)."""
+    """Refuse an untracked file in the runtime's code or task packages (the criterion files, `judge-seeds.json`
+    among them, and the results, written after the commit, excepted)."""
     written = [f":(exclude){path.resolve().relative_to(runtime)}" for path in (study.frozen, study.criterion,
-               study.results) if path.resolve().is_relative_to(runtime)]  # written after the commit (Step 1f)
+               study.seed_criterion, study.results) if path.resolve().is_relative_to(runtime)]  # after the commit
     if untracked := git(runtime, "--no-optional-locks", "status", "--porcelain", "--untracked-files=all", "--",
                         *CODE, str(packages), *written):
         raise SystemExit(f"untracked files in the runtime's code or task packages:\n{untracked}")
 
 
 def require_named_hashes(study):
-    """Refuse a criterion.json that does not name the current sha256 of every file it must (`required_hashes`)."""
+    """Refuse a criterion.json that does not name the current sha256 of every file it must (`required_hashes`); a
+    named file that is missing refuses whatever it is named by."""
     named, required = load(study.frozen).get("sha256", {}), required_hashes(study)
-    if wrong := sorted(key for key, digest in required.items() if named.get(key) != digest):
+    if wrong := sorted(key for key, digest in required.items() if digest is None or named.get(key) != digest):
         raise SystemExit(f"{study.frozen} does not name the current sha256 of {wrong} (plan Step 1f)")
 
 
@@ -118,12 +120,15 @@ def loaded_elsewhere(runtime):
 
 def required_hashes(study):
     """{key: sha256} that criterion.json must name: the task list, every program, the rubric, the price table, the
-    judge criterion."""
-    runtime = study.runtime.resolve()
+    judge criterion, and the seed judge criterion (`judge-seeds.json`, None when missing) whenever criterion.json
+    names it."""
+    runtime, seeds = study.runtime.resolve(), study.seed_criterion
     paths = [study.tasks_file.resolve(), *sorted(study.programs.resolve().glob("*.orc")), runtime / RUBRIC_FILE,
              runtime / PRICE_TABLE]
+    named = seeds.name in (load(study.frozen).get("sha256", {}) if study.frozen.is_file() else {})
     return {str(path.relative_to(runtime)): sha256_file(path) for path in paths} | {
-        study.criterion.name: sha256_file(study.criterion)}
+        study.criterion.name: sha256_file(study.criterion)} | (
+        {seeds.name: sha256_file(seeds) if seeds.is_file() else None} if named else {})
 
 
 def check_cli(declaration, pin, cli="claude"):
@@ -194,9 +199,13 @@ def require_spend_bounds(study):
 
 def record_freeze(study, reason=None):
     """Record the freeze's identity in the ledger: the first spend needs it, and spend terms the runtime or two
-    units in flight would breach refuse it (`require_spend_bounds`). Once a start exists, a new freeze needs a reason
-    (an apparatus fix the plan's ledger records), which the event keeps."""
+    units in flight would breach refuse it (`require_spend_bounds`), as does a `judge-seeds.json` that criterion.json
+    names and whose shape is wrong (`layout.check_seed_criterion`, against the selected judge once one is known).
+    Once a start exists, a new freeze needs a reason (an apparatus fix the plan's ledger records), which the event
+    keeps."""
     layout.load_criterion(study)
+    if study.frozen.is_file() and layout.SEED_CRITERION in load(study.frozen).get("sha256", {}):
+        layout.check_seed_criterion(study, layout.selected_judge(study))
     if spend.starts(spend.rows(study.ledger)) and not reason:
         raise SystemExit("starts exist: a new freeze needs --reason (the apparatus fix it records)")
     identity = frozen_identity(study)

@@ -21,7 +21,7 @@ are the only authorized spend (`AGENTS.md`, "Experiment rules"); the seed evalua
 | The caps, the priced ceiling and the pause events | The docstring of `spend.py` |
 | The task packages and the difficulty ladder | `build_tasks.py`, `tiers.py`, `tasks.jsonl`, `tasks/` |
 | The anchors' stability record | `anchors.py`, `anchor_stability.json`, and the section below |
-| The seed evaluation's report (anchor and control checks per batch, arm figures, the selection rule, `seeds.json`); not yet wired to a command | The docstring of `seeds.py`, and the [seed evaluation apparatus plan](../../docs/plans/2026-11-25-seed-evaluation-apparatus-plan.md) |
+| The seed evaluation: its task list, judge criterion, pools and report (anchor and control checks per batch, arm figures, the selection rule, `seeds.json`) | "The seed evaluation" below, the docstring of `seeds.py`, and the [seed evaluation apparatus plan](../../docs/plans/2026-11-25-seed-evaluation-apparatus-plan.md) |
 
 ## Before a tranche's first start
 
@@ -31,9 +31,10 @@ same steps repeat after any change to the kit's code, with `record-freeze --reas
 1. **The freeze recorded again on the merged commit:** the runtime worktree, the anchors' stability run on that
    code, `judge-calibration.json`, the price table read again, `criterion.json` with its `spend` and `sha256`
    blocks and the CLI pins (`spend.cli`: one path and version per CLI, `{"claude": …, "codex": …}`; a single pin
-   is the Claude CLI's), `study.py record-freeze`, and the hashes in the ledger. `judge-seeds.json`
-   is not part of the freeze: it names the judge the calibration selects (plan Step 1f). A CLI self-update before
-   the first start means recording the freeze again.
+   is the Claude CLI's), `study.py record-freeze`, and the hashes in the ledger. `judge-seeds.json` names the
+   judge the calibration selects (plan Step 1f), so it is written after the calibration, beside
+   `judge-calibration.json`, and bound from the freeze whose `criterion.json` names its sha256 (see "The seed
+   evaluation" below). A CLI self-update before the first start means recording the freeze again.
 2. **The tranche's spend row** in the ledger, with the meter reading ruling R13 asks for.
 3. **The tranche**, through `study.py` with `SEED_SET_AUTHORIZED_TRANCHE` set to its name.
 
@@ -127,6 +128,63 @@ Each run's metering completeness is recorded in the row and decides nothing. It 
 fail, which stays; the `smoke` event the probe and the calibration require is the Claude smoke's alone, so the
 Luna smoke gates none of the three other tranches, and the calibration's readout reads no `luna` pool. A cut slot
 is not run again, as in the smoke.
+
+## The seed evaluation
+
+The tranche `seed_evaluation` (plan Step 3; the
+[seed evaluation apparatus plan](../../docs/plans/2026-11-25-seed-evaluation-apparatus-plan.md)) is not authorized:
+`spend.py` refuses every start of it, and it has no caps and no planned runs yet. What it will read is built:
+
+- **Its task list** comes from the calibration's result, never from code. After a readout whose decision is
+  `qualified`, `study.py seed-tasks` writes `results/seed-tasks.json` once: the survivors in the chosen list's
+  order (at most 16), the selected judge, `insensitive` and `v4_note`. It records a `seed_tasks` event with the
+  sha256 of that file and of `results/calibration.json`. It refuses unless the ledger agrees (its latest `decision`
+  event says `qualified` and no `stop` is recorded), and refuses a second write; a crash between the file and its
+  event is completed when the file is what `calibration.json` gives, and otherwise refused with what to do. The
+  calibration `readout` refuses for good once the event exists, so **the operator runs `seed-tasks` only after the
+  coordinator has accepted the calibration's report.** Retry parity runs on the first six of those tasks
+  (`layout.arm_tasks`), every other arm on all of them.
+- **Its judge criterion** is `judge-seeds.json`, written by the coordinator beside `judge-calibration.json` after
+  the calibration: the functional rubric and exactly one judge, the one `seed-tasks.json` names, with no
+  calibration purpose or block (`layout.load_seed_criterion`, checked at `pool`, `judge` and `summarize --kind
+  seed`; `record-freeze` checks the shape whenever `criterion.json` names the file, against the calibration's
+  selected judge once one is known). It is untracked in the runtime like the other criterion files, and once
+  `criterion.json` names its sha256 under `sha256`, every start refuses after an edit to it or once it is missing,
+  as for `judge-calibration.json`.
+- **Its pools** are of their own kind, `seed` (`<pools>/<task>/seed`, `results/pools/<task>-seed`), hold the seed
+  evaluation's runs alone, and the tranche builds no other kind. `pool --tranche seed_evaluation --kind seed`
+  deals each arm's usable runs alternately into two batches of at most eight (`study.seed_batches`; the first batch
+  of the deal alternates by the task's place in the seed task list) and gives each batch both anchors
+  (`study.seed_pool`, through the harness's `pool.write_pool`); more than 16 usable runs, or a run of another task
+  or seeded commit, make the pool an incident. The blinding scan, the incident rules, the two live pools and the
+  disk check are those of every pool. `judge --kind seed` makes one call a batch, so a pool's judge reserves two
+  calls. That the selected judge judges alone is enforced today only by the criterion's shape check (the pool's
+  criterion names the seed task list's judge alone); the pool's judges themselves are the tranche's caps
+  (`layout.tranche_judges`), which do not exist until the authorization, and no check yet compares the caps' judge
+  with the other two; `summarize --kind seed` keeps the pool's `mapping.json`, whose `batches` name each batch's
+  clones, beside its `results.json`.
+- **Its readout** is `study.py seed-readout` (plan Step 4), over a finished tranche only. It refuses while a
+  planned slot (`layout.PLANNED` over `layout.arm_tasks`, a withheld arm at zero) has no settled run closing it (an
+  incident closes its slot; a run cut by a usage limit closes it only as the slot's re-run), while a seed task has
+  neither a summarized seed pool nor a pool incident, without a `visible_power` event (the visible-check
+  checkpoint, recorded by a later task; its latest event's `launch` false withholds retry parity and
+  implement-check-repair), when `criterion.json` or the task list differs from the latest freeze's,
+  `seed-tasks.json` or `calibration.json` from the `seed_tasks` event's, or `judge-seeds.json` from the sha256
+  `criterion.json` names, and once a `seed_decision` exists unless `--reason` is given. It runs the report of
+  `seeds.py` over the summarized seed pools, one record per seed run no seed pool holds (a failure scores 0, an
+  incident is listed), each run's settled facts (its `settle` event's priced figures; `nested_sessions` and
+  `tokens`, which a candidate unit's settlement records: `tokens` None when the usage is unavailable, and a Codex
+  unit's `nested_sessions` 0 means only that no Claude session lies below the top level), the judge units'
+  physical calls and priced cost, and the judge and tasks of `seed-tasks.json`. It keeps the calibration's reported
+  page once as `results/calibration-readout.md` (never overwritten), then writes, each atomically,
+  `results/seeds.json` (the decision, the selected programs with their sha256, `q`, `c`, difference from direct and
+  interval, or the stop that prevented a seed set, the judge, the tasks, the visible check's rate, and under
+  `hashes` the sha256 of `criterion.json`, the task list, `seed-tasks.json`, `calibration.json` and
+  `judge-seeds.json` with the runtime commits of the freeze in force at the first seed start and of the latest)
+  and `results/readout.md` (the calibration's page, rebuilt from the stored `calibration.json` with its re-roll
+  baselines headed as the calibration's, then the seed section). It records a `seed_decision` event with the
+  decision, the seeds, the stop and any reason; "no workflow qualified at this size" is a decision, never a `stop`
+  event.
 
 ## Usage limits and paid extra usage
 

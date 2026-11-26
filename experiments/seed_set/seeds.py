@@ -9,7 +9,8 @@
   pool's copied `mapping.json`, or `{"task", "pool", "incident"}` for a pool incident (a blinding hit among them);
 - `runs`: {records path: study.json facts} (`readout.report`'s shape); only the seed evaluation's runs of `tasks`
   are read. Besides `study.settle`'s facts a settled run carries `priced` (its `settle` event: {"usd", "missing"}),
-  `nested_sessions` (session files below the top level of its project store) and `tokens` (`metered_tokens` of its
+  `nested_sessions` (`units.nested_sessions`: session files below the top level of its Claude project store; a
+  Codex unit's 0 means no Claude session there, not a measured count) and `tokens` (`metered_tokens` of its
   metering.json, None when unavailable);
 - `judge`: the selected judge; `tasks`: the seed task list in its order (two batches planned per task);
 - `programs`: {arm: {"source", "lines", "model", "effort", ...}} in `arms.json` order, every key of an arm's entry
@@ -62,8 +63,8 @@ LIMITS = (
 
 def metered_tokens(receipt):
     """A run's metered tokens from its metering.json (`metering.receipts`): the providers' token sums, or None when
-    the consumption is unavailable. The run facts' `tokens` that `report` reads; the seed readout command (task B4 of
-    the seed evaluation apparatus plan) sets it with this function."""
+    the consumption is unavailable: the run facts' `tokens` that `report` reads, which `study.settle` records with
+    this function."""
     found = receipt["consumption"]
     if found == metering.UNAVAILABLE:
         return None
