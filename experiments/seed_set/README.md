@@ -38,17 +38,27 @@ same steps repeat after any change to the kit's code, with `record-freeze --reas
 2. **The tranche's spend row** in the ledger, with the meter reading ruling R13 asks for.
 3. **The tranche**, through `study.py` with `SEED_SET_AUTHORIZED_TRANCHE` set to its name.
 
-A freeze whose programs differ from the previous freeze's supersedes the probe and calibration runs reserved
-before it (rulings R17 and R19: the programs' text is part of a run's form; `layout.superseded`). A superseded run
-holds no slot, so its task and arm get a fresh start in its place, and no pool, record, early look or readout reads
-it (`layout.counted_runs`); the incident stop, the ledger audit and the spend totals still count it, and so do the
+A probe or calibration run is superseded while the programs of the freeze in force at its reservation (the last
+`freeze` before its start) differ from the latest freeze's (rulings R17 and R19: the programs' text is part of a
+run's form; `layout.superseded`). The comparison is with the latest freeze, not with the next one: programs changed
+and then changed back (A, then B, then A) bring the runs reserved under A back. A superseded run holds no slot, so
+its task and arm get a fresh start in its place, and no pool, record, early look or readout reads it
+(`layout.counted_runs`); the incident stop, the ledger audit and the spend totals still count it, and so do the
 caps (the calibration's Haiku candidate cap holds the 20 runs superseded by ruling R19). A freeze that keeps the
-programs supersedes nothing. The smoke's runs are never superseded.
+programs supersedes nothing. The smoke's runs are never superseded. `record-freeze` refuses a freeze with other
+programs while calibration runs reserved under the latest programs exist, unless `--supersede` is given beside
+`--reason`; the freeze event records it.
 
-`candidates` refuses, before it plans or reserves anything and without writing to the ledger, while the
-machine's 5-minute load average is above its core count (`units.require_quiet`, ruling R19); the operator runs the
-command again later. Pools, judges and summaries have no such guard. Each candidate run records the 1-minute load
-average at its reservation and at its settlement (`load_1min` in its `study.json`); nothing reads it.
+Operator rules:
+
+- **No freeze between a calibration's first call and its readout** unless the plan's ledger records why first.
+- **The load guard:** `candidates` refuses, before it plans or reserves anything and without writing to the
+  ledger, while the machine's 5-minute load average is above its core count (`units.require_quiet`, ruling R19).
+  The refusal ends the command with the same non-zero exit as any other refusal; the operator runs the same command
+  again later. Pools, judges and summaries have no such guard.
+
+Each candidate run records the 1-minute load average just before it is prepared and after it is settled
+(`load_1min` in its `study.json`, `reservation` and `settlement`); nothing reads it.
 
 ## Running a tranche again after a stop or a failed smoke
 
