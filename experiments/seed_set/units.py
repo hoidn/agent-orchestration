@@ -577,7 +577,8 @@ def audit_sessions(home, tree, made, model):
 def nested_sessions(home, sessions):
     """How many of a unit's session files (`audit_sessions`' or `audit_rollouts`' third value) lie below the top
     level of its private home's Claude project store (`.claude/projects/<project>/<deeper>/...`: a session an agent
-    started inside its own, such as a subagent's); a Codex rollout lies outside the store and counts none."""
+    started inside its own, such as a subagent's). A Codex rollout lies outside the store and counts none, so a
+    Codex unit's 0 means "no Claude session below the top level", not a measured count of nested Codex sessions."""
     projects = Path(home) / ".claude" / "projects"
     return sum(path.is_relative_to(projects) and len(path.relative_to(projects).parts) > 2 for path in sessions)
 

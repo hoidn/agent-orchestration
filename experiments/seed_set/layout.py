@@ -145,7 +145,10 @@ def require_pool_kind(tranche, kind):
 
 
 def tranche_judges(tranche):
-    """The judges a tranche's caps give calls (`spend.CAPS`), in `gates.JUDGES` order."""
+    """The judges a tranche's caps give calls (`spend.CAPS`), in `gates.JUDGES` order; refused for a tranche without
+    caps (one not authorized yet)."""
+    if tranche not in spend.CAPS:
+        raise SystemExit(f"{tranche} has no caps: it is not authorized yet, so it has no judges")
     return [judge for judge in gates.JUDGES if spend.CAPS[tranche]["judge"].get(judge)]
 
 
@@ -191,15 +194,34 @@ def load_criterion(study):
 
 
 def load_seed_criterion(study):
-    """The path of `judge-seeds.json` (`Study.seed_criterion`), refused unless it is `functional` and names exactly
-    one judge: the calibration's selected judge as the seed task list records it (`seed_task_list`, which must
-    exist)."""
+    """The path of `judge-seeds.json` (`Study.seed_criterion`) for a seed pool, its judge or its summary: the seed
+    task list must exist (`seed_task_list`) and the criterion name its judge alone (`check_seed_criterion`)."""
     listed = seed_task_list(study)
     if listed is None:
         raise SystemExit(f"no {SEED_TASKS} under {study.results}: `seed-tasks` writes it from the calibration's result")
-    if not functional(value := load(study.seed_criterion)) or value.get("judges") != [listed["judge"]]:
+    return check_seed_criterion(study, listed["judge"])
+
+
+def selected_judge(study):
+    """The calibration's selected judge: the seed task list's, else `results/calibration.json`'s, else None (no
+    readout yet)."""
+    if (listed := seed_task_list(study)) is not None:
+        return listed["judge"]
+    path = study.results / "calibration.json"
+    return (load(path)["calibration"] or {}).get("selected") if path.is_file() else None
+
+
+def check_seed_criterion(study, judge):
+    """The path of `judge-seeds.json`, refused unless it exists, is `functional` and names exactly one judge, one of
+    `gates.JUDGES` and, when `judge` is known, that judge (the calibration's selected one)."""
+    if not study.seed_criterion.is_file():
+        raise SystemExit(f"{study.seed_criterion} is missing: the coordinator writes it after the calibration")
+    value = load(study.seed_criterion)
+    judges = value.get("judges")
+    if not functional(value) or not (isinstance(judges, list) and len(judges) == 1 and judges[0] in gates.JUDGES
+                                     and judge in (None, judges[0])):
         raise SystemExit(f"{study.seed_criterion}: the seed judge criterion names one judge, the selected "
-                         f"{listed['judge']}, and the functional rubric, without a calibration purpose or block")
+                         f"{judge or 'one'}, and the functional rubric, without a calibration purpose or block")
     return study.seed_criterion
 
 

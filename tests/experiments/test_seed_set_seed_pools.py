@@ -566,15 +566,26 @@ def test_the_seed_section_renders_on_every_branch_with_its_decision(edit):
 # --- the seed task list, pool kind and judge criterion (B1) ------------------------------------------------
 
 SURVIVORS = [f"t{i:02d}" for i in (3, 1, 7, 0, 2, 5, 4, 6)]  # in the chosen list's order
+SEED = layout.SEED_EVALUATION
 
 
-def calibrated(tmp_path, decision="qualified"):
-    """A fabricated study whose results hold a calibration.json with `decision`, the survivors and the judge."""
+def calibrated(tmp_path, decision="qualified", ledger=("qualified",)):
+    """A fabricated study whose results hold a calibration.json with `decision`, the survivors and the judge, and
+    whose ledger holds a `decision` event per entry of `ledger` (as the calibration readout records it)."""
     s = fabricated_study(tmp_path, [])
     s.results.mkdir()
     dump(s.results / "calibration.json", {"calibration": {"decision": decision, "selected": J, "insensitive": None,
                                                           "v4_note": "v4", "survivors": SURVIVORS}})
+    for value in ledger:
+        spend.record(s.ledger, "decision", decision=value)
     return s
+
+
+LISTED = {"tasks": SURVIVORS, "judge": J, "insensitive": None, "v4_note": "v4"}
+
+
+def seed_tasks_events(s):
+    return [row for row in spend.rows(s.ledger) if row.get("event") == "seed_tasks"]
 
 
 def test_seed_tasks_writes_the_survivors_in_order_with_the_judge_and_records_both_hashes(tmp_path):
@@ -582,12 +593,11 @@ def test_seed_tasks_writes_the_survivors_in_order_with_the_judge_and_records_bot
     row = study.write_seed_tasks(s)
     path = s.results / layout.SEED_TASKS
     assert (load(path), row["event"], row["tasks_sha256"], row["calibration_sha256"]) == (
-        {"tasks": SURVIVORS, "judge": J, "insensitive": None, "v4_note": "v4"}, "seed_tasks",
-        sha256_file(path), sha256_file(s.results / "calibration.json"))
+        LISTED, "seed_tasks", sha256_file(path), sha256_file(s.results / "calibration.json"))
 
 
 @pytest.mark.parametrize("decision", ["stop: G4 failed", None])
-def test_seed_tasks_refuses_a_calibration_that_did_not_qualify(tmp_path, decision):
+def test_seed_tasks_refuses_a_calibration_file_that_did_not_qualify(tmp_path, decision):
     s = calibrated(tmp_path, decision)
     with pytest.raises(SystemExit, match="not qualified"):
         study.write_seed_tasks(s)
@@ -601,56 +611,121 @@ def test_seed_tasks_refuses_a_calibration_without_a_decision(tmp_path):  # an an
         study.write_seed_tasks(s)
 
 
-@pytest.mark.parametrize("left", ["file and event", "event", "file"])
-def test_seed_tasks_is_written_once(tmp_path, left):
+@pytest.mark.parametrize("ledger", [(), ("qualified", "stop: G4 failed")])
+def test_seed_tasks_refuses_a_qualified_file_the_ledgers_latest_decision_does_not_confirm(tmp_path, ledger):
+    s = calibrated(tmp_path, ledger=ledger)
+    with pytest.raises(SystemExit, match="the ledger's latest decision"):
+        study.write_seed_tasks(s)
+    assert (s.results / layout.SEED_TASKS).exists() is False
+
+
+def test_seed_tasks_refuses_once_a_stop_is_recorded(tmp_path):
+    s = calibrated(tmp_path)
+    spend.record(s.ledger, "stop", reason="three contaminated tasks")
+    with pytest.raises(SystemExit, match="a stop is recorded"):
+        study.write_seed_tasks(s)
+
+
+def test_seed_tasks_refuses_without_calibration_json_naming_it(tmp_path):
+    s = calibrated(tmp_path)
+    (s.results / "calibration.json").unlink()
+    with pytest.raises(SystemExit, match=r"calibration\.json is missing"):
+        study.write_seed_tasks(s)
+
+
+def test_seed_tasks_is_written_once(tmp_path):
     s = calibrated(tmp_path)
     study.write_seed_tasks(s)
-    if left == "event":
-        (s.results / layout.SEED_TASKS).unlink()
-    if left == "file":
-        s.ledger.unlink()
     with pytest.raises(SystemExit, match="written once"):
         study.write_seed_tasks(s)
 
 
+def test_a_seed_task_list_whose_event_was_lost_gets_its_event(tmp_path):
+    s = calibrated(tmp_path)
+    dump(s.results / layout.SEED_TASKS, LISTED)  # a crash between the dump and the event
+    row = study.write_seed_tasks(s)
+    assert (row["tasks_sha256"], len(seed_tasks_events(s))) == (sha256_file(s.results / layout.SEED_TASKS), 1)
+
+
+def test_a_seed_task_list_without_its_event_that_the_calibration_does_not_give_refuses(tmp_path):
+    s = calibrated(tmp_path)
+    dump(s.results / layout.SEED_TASKS, LISTED | {"tasks": SURVIVORS[:4]})
+    with pytest.raises(SystemExit, match="move it aside, report it"):
+        study.write_seed_tasks(s)
+    assert seed_tasks_events(s) == []
+
+
+def test_a_seed_task_list_lost_after_its_event_is_written_again(tmp_path):
+    s = calibrated(tmp_path)
+    row = study.write_seed_tasks(s)
+    (s.results / layout.SEED_TASKS).unlink()
+    assert (study.write_seed_tasks(s), load(s.results / layout.SEED_TASKS), len(seed_tasks_events(s))) == (
+        row, LISTED, 1)
+
+
+def test_a_seed_task_list_lost_after_its_event_refuses_when_the_calibration_changed(tmp_path):
+    s = calibrated(tmp_path)
+    study.write_seed_tasks(s)
+    (s.results / layout.SEED_TASKS).unlink()
+    dump(s.results / "calibration.json", load(s.results / "calibration.json") | {"edited": True})
+    with pytest.raises(SystemExit, match="cannot be rebuilt"):
+        study.write_seed_tasks(s)
+    assert (s.results / layout.SEED_TASKS).exists() is False
+
+
 def test_the_seed_evaluations_tasks_are_the_seed_task_list_and_none_before_it(tmp_path):
     s = calibrated(tmp_path)
-    before = layout.tranche_tasks(s, layout.SEED_EVALUATION)
+    before = layout.tranche_tasks(s, SEED)
     study.write_seed_tasks(s)
-    assert (before, layout.tranche_tasks(s, layout.SEED_EVALUATION)) == ([], SURVIVORS)
+    assert (before, layout.tranche_tasks(s, SEED)) == ([], SURVIVORS)
 
 
 def test_retry_runs_on_the_first_six_survivors_and_every_other_arm_on_all(tmp_path):
     s = calibrated(tmp_path)
     study.write_seed_tasks(s)
-    assert {arm: layout.arm_tasks(s, layout.SEED_EVALUATION, arm) for arm in ARMS} == {
+    assert {arm: layout.arm_tasks(s, SEED, arm) for arm in ARMS} == {
         "direct": SURVIVORS, "retry_until_check": SURVIVORS[:6], "implement_check_repair": SURVIVORS,
         "implement_review_revise": SURVIVORS}
-
-
-@pytest.mark.parametrize("command", [["pool", "--tranche", layout.SEED_EVALUATION], ["judge", "--tranche",
-                                     layout.SEED_EVALUATION], ["summarize"]])
-def test_pool_judge_and_summarize_take_the_seed_kind(command):
-    assert study.parser().parse_args([*command, "--kind", layout.SEED_POOL, "t00"]).kind == layout.SEED_POOL
 
 
 def test_a_retry_start_beyond_the_first_six_survivors_is_refused(tmp_path):
     s = calibrated(tmp_path)
     study.write_seed_tasks(s)
     with pytest.raises(SystemExit, match="takes tasks among"):
-        layout.require_tasks(s, layout.SEED_EVALUATION, [SURVIVORS[6]], arm="retry_until_check")
+        layout.require_tasks(s, SEED, [SURVIVORS[6]], arm="retry_until_check")
 
 
-@pytest.mark.parametrize("tranche, kind", [(layout.SEED_EVALUATION, "first"), (layout.SEED_EVALUATION, "retest"),
-                                           (layout.SEED_EVALUATION, layout.LUNA_POOL), ("calibration", layout.SEED_POOL),
-                                           ("smoke", layout.SEED_POOL), (layout.LUNA_SMOKE, layout.SEED_POOL)])
+def test_candidates_refuse_retry_beyond_its_six_tasks_before_anything_else(tmp_path, monkeypatch):
+    s = calibrated(tmp_path)
+    study.write_seed_tasks(s)
+    monkeypatch.setattr(spend, "UNAUTHORIZED", ("extension",))  # this process only: the tranche is not authorized
+    monkeypatch.setitem(spend.CAPS, SEED, {"candidate": {J: 420}, "judge": {J: 32}})
+    monkeypatch.setitem(layout.PLANNED, SEED, PLANNED)
+    monkeypatch.setenv(spend.AUTHORIZATION, SEED)
+    with pytest.raises(SystemExit, match="takes tasks among"):
+        study.candidates(s, SEED, "retry_until_check", [SURVIVORS[6]])
+
+
+@pytest.mark.parametrize("command", [["pool", "--tranche", SEED], ["judge", "--tranche", SEED], ["summarize"]])
+def test_pool_judge_and_summarize_take_the_seed_kind(command):
+    assert study.parser().parse_args([*command, "--kind", layout.SEED_POOL, "t00"]).kind == layout.SEED_POOL
+
+
+@pytest.mark.parametrize("tranche, kind", [(SEED, "first"), (SEED, "retest"), (SEED, layout.LUNA_POOL),
+                                           ("calibration", layout.SEED_POOL), ("smoke", layout.SEED_POOL),
+                                           (layout.LUNA_SMOKE, layout.SEED_POOL)])
 def test_a_pool_kind_the_tranche_does_not_build_is_refused(tranche, kind):
     with pytest.raises(SystemExit, match="pools, not"):
         layout.require_pool_kind(tranche, kind)
 
 
 def test_the_seed_evaluation_builds_seed_pools():
-    assert layout.require_pool_kind(layout.SEED_EVALUATION, layout.SEED_POOL) is None
+    assert layout.require_pool_kind(SEED, layout.SEED_POOL) is None
+
+
+def test_a_tranche_without_caps_has_no_judges_and_says_it_is_not_authorized():
+    with pytest.raises(SystemExit, match="not authorized yet"):
+        layout.tranche_judges(SEED)
 
 
 GOOD = {"judges": [J], "rubric": layout.RUBRIC, "primary": [], "secondary": []}  # judge-seeds.json as frozen
@@ -670,13 +745,33 @@ def test_a_seed_pool_is_built_and_summarized_under_judge_seeds_json(tmp_path):
                                                                                    "judge-seeds.json")
 
 
-@pytest.mark.parametrize("change", [{"judges": [gates.HAIKU, gates.SONNET]}, {"judges": [gates.SONNET]},
-                                    {"judges": []}, {"calibration": {"margin": 1}}, {"purpose": "calibration"},
-                                    {"rubric": {"workflow": "score.orc"}}])
+BAD = [{"judges": [gates.HAIKU, gates.SONNET]}, {"judges": [gates.SONNET]}, {"judges": []}, {"judges": "x"},
+       {"calibration": {"margin": 1}}, {"purpose": "calibration"}, {"rubric": {"workflow": "score.orc"}}]
+
+
+@pytest.mark.parametrize("change", BAD)
 def test_a_seed_judge_criterion_other_than_the_selected_judge_alone_and_the_functional_rubric_is_refused(
         tmp_path, change):
     s = seed_criterion(tmp_path, GOOD | change)
     with pytest.raises(SystemExit, match="names one judge, the selected"):
+        layout.pool_criterion(s, layout.SEED_POOL)
+
+
+def test_judge_kind_seed_refuses_a_seed_judge_criterion_of_the_wrong_shape_before_any_reservation(tmp_path,
+                                                                                                    monkeypatch):
+    s = seed_criterion(tmp_path, GOOD | {"judges": [gates.HAIKU, gates.SONNET]})
+    s.tasks_file.write_text("".join(json.dumps({"id": t, "commit": "f" * 40}) + "\n" for t in SURVIVORS))
+    authorize_here(monkeypatch)
+    monkeypatch.setenv(spend.AUTHORIZATION, SEED)
+    with pytest.raises(SystemExit, match="names one judge, the selected"):
+        study.judge(s, SEED, layout.SEED_POOL, SURVIVORS[:1])
+    assert spend.starts(spend.rows(s.ledger)) == []
+
+
+def test_a_missing_seed_judge_criterion_is_refused_naming_it(tmp_path):
+    s = calibrated(tmp_path)
+    study.write_seed_tasks(s)
+    with pytest.raises(SystemExit, match=r"judge-seeds\.json is missing"):
         layout.pool_criterion(s, layout.SEED_POOL)
 
 
@@ -701,9 +796,15 @@ def frozen(tmp_path, monkeypatch):
                      seed_set / "judge-calibration.json", tmp_path / "state")
     dump(s.criterion, {"judges": [gates.HAIKU, gates.SONNET], "rubric": layout.RUBRIC})
     dump(s.seed_criterion, GOOD)
-    write_frozen_criterion(s, sha256=rules.required_hashes(s) | {"judge-seeds.json": sha256_file(s.seed_criterion)})
+    name_seed_criterion(s, sha256_file(s.seed_criterion))
     rules.record_freeze(s)
     return s
+
+
+def name_seed_criterion(s, value):
+    """criterion.json naming every hash the freeze requires and `value` for judge-seeds.json."""
+    named = {key: digest for key, digest in rules.required_hashes(s).items() if key != layout.SEED_CRITERION}
+    write_frozen_criterion(s, sha256=named | {layout.SEED_CRITERION: value})
 
 
 def test_a_named_seed_judge_criterion_written_into_the_runtime_freezes_and_lets_a_start_pass(frozen):
@@ -722,6 +823,17 @@ def test_a_named_seed_judge_criterion_that_is_missing_refuses_the_next_start(fro
         rules.require_order(frozen, "smoke")
 
 
+@pytest.mark.parametrize("value", [None, "not a digest"])
+def test_a_seed_judge_criterion_named_by_anything_but_its_digest_refuses_missing_or_not(frozen, value):
+    frozen.seed_criterion.unlink()
+    name_seed_criterion(frozen, value)
+    with pytest.raises(SystemExit, match=r"does not name the current sha256 of \['judge-seeds.json'\]"):
+        rules.frozen_identity(frozen)
+    dump(frozen.seed_criterion, GOOD)
+    with pytest.raises(SystemExit, match=r"does not name the current sha256 of \['judge-seeds.json'\]"):
+        rules.frozen_identity(frozen)
+
+
 def test_a_criterion_that_does_not_name_the_seed_judge_criterion_does_not_bind_it(frozen):
     named = load(frozen.frozen)["sha256"]
     named.pop("judge-seeds.json")
@@ -731,10 +843,33 @@ def test_a_criterion_that_does_not_name_the_seed_judge_criterion_does_not_bind_i
     assert rules.require_order(frozen, "smoke") is None
 
 
+@pytest.mark.parametrize("change", [c for c in BAD if c != {"judges": [gates.SONNET]}])  # no judge selected yet
+def test_the_freeze_refuses_a_named_seed_judge_criterion_of_the_wrong_shape(frozen, change):
+    dump(frozen.seed_criterion, GOOD | change)
+    name_seed_criterion(frozen, sha256_file(frozen.seed_criterion))
+    with pytest.raises(SystemExit, match="names one judge"):
+        rules.record_freeze(frozen, reason="x")
+
+
+def test_the_freeze_refuses_a_seed_judge_other_than_the_calibrations_selected_one(frozen):
+    frozen.results.mkdir()
+    dump(frozen.results / "calibration.json", {"calibration": {"selected": gates.SONNET}})
+    with pytest.raises(SystemExit, match=f"the selected {gates.SONNET}"):
+        rules.record_freeze(frozen, reason="x")
+
+
+def test_the_freeze_does_not_check_a_seed_judge_criterion_it_does_not_name(frozen):
+    named = load(frozen.frozen)["sha256"]
+    named.pop("judge-seeds.json")
+    write_frozen_criterion(frozen, sha256=named)
+    dump(frozen.seed_criterion, GOOD | {"judges": []})
+    assert rules.record_freeze(frozen, reason="x")["event"] == "freeze"
+
+
 # --- the seed readout (B4) on fixture pools ----------------------------------------------------------------
 
 REPO = Path(__file__).resolve().parents[2]
-SEED = layout.SEED_EVALUATION
+CALIBRATION_PAGE = "# the calibration's reported page\n"
 
 
 def label(r):
@@ -768,36 +903,45 @@ def write_pool(s, w, task, paths):
     dump(dest / f"study-{J}.json", {"judged_patches": judged})
 
 
+def authorize_here(monkeypatch):
+    """The seed evaluation authorized, capped and planned in this process only."""
+    monkeypatch.setitem(layout.PLANNED, SEED, PLANNED)
+    monkeypatch.setitem(spend.CAPS, SEED, {"candidate": {J: 1000}, "judge": {J: 64}})
+    monkeypatch.setattr(spend, "UNAUTHORIZED", ("extension",))
+
+
+def reserve(s, unit, kind, calls, **facts):
+    spend.reserve(s.ledger, SEED, kind, J, calls, unit, {spend.AUTHORIZATION: SEED}, price=(10**6, 1.0), **facts)
+
+
 def written(tmp_path, monkeypatch, w):
-    """The in-memory seed world `w` (`seed_world`) as a study on disk: a runtime holding this checkout's programs;
-    the calibration's stored result (a qualified synthetic calibration); the seed task list (`w`'s tasks, judge
-    `J`); the criterion files; each pool summarized (`write_pool`); each run's study.json and record.json under the
-    work root, its priced figures in its `settle` event only; one judge unit per pool reserved (the tranche
-    authorized and capped in this process only) with its two calls and its `settle` event; a freeze."""
+    """The in-memory seed world `w` (`seed_world`) as a finished tranche on disk: a runtime holding this checkout's
+    programs; the calibration's stored result and its reported page; the seed task list (`w`'s tasks, judge `J`)
+    and its `seed_tasks` event; criterion.json naming judge-seeds.json, and a freeze naming criterion.json and the
+    task list; per run its start, study.json and record.json, its priced figures in its `settle` event only; each
+    pool summarized (`write_pool`) with its judge unit's start, two calls and `settle` event; a `visible_power`
+    event that launched every arm."""
     from tests.experiments.test_seed_set import world as calibration_world
     s = layout.Study(tmp_path / "rt", tmp_path / "work", tmp_path / "pools", tmp_path / "results",
                      tmp_path / "tasks.jsonl", tmp_path / "judge-calibration.json", tmp_path / "state")
     shutil.copytree(REPO / layout.PROGRAMS, s.programs, ignore=shutil.ignore_patterns("__pycache__"))
-    monkeypatch.setitem(layout.PLANNED, SEED, PLANNED)
-    monkeypatch.setitem(spend.CAPS, SEED, {"candidate": {J: 420}, "judge": {J: 32}})
-    monkeypatch.setattr(spend, "UNAUTHORIZED", ("extension",))
+    authorize_here(monkeypatch)
     s.results.mkdir()
-    s.tasks_file.write_text("{}\n")
-    dump(s.frozen, {"sha256": {}})
+    s.tasks_file.write_text("".join(json.dumps({"id": t, "commit": "f" * 40}) + "\n" for t in w["tasks"]))
     dump(s.seed_criterion, GOOD)
+    dump(s.frozen, {"sha256": {layout.SEED_CRITERION: sha256_file(s.seed_criterion)}})
     records, pools = calibration_world()
     tasks = [f"t{i:02d}" for i in range(20)]
     dump(s.results / "calibration.json", readout.report(records, pools, tasks, tasks[:10], {"T3": 20}, {}, {}, {}, 100))
+    (s.results / "readout.md").write_text(CALIBRATION_PAGE)
     dump(s.results / layout.SEED_TASKS, {"tasks": w["tasks"], "judge": J, "insensitive": None, "v4_note": None})
-    spend.record(s.ledger, "freeze", runtime_commit="c0ffee")
+    spend.record(s.ledger, "seed_tasks", tasks_sha256=sha256_file(s.results / layout.SEED_TASKS),
+                 calibration_sha256=sha256_file(s.results / "calibration.json"))
+    freeze(s, "c0ffee")
     paths = {}
     for old, facts in w["runs"].items():
         _, task, arm, run = old.split("/")[1:]
-        records_dir = s.work / "records" / f"{task}-{arm}" / run
-        records_dir.mkdir(parents=True)
-        paths[old] = str(records_dir)
-        dump(records_dir / "study.json", {k: v for k, v in facts.items() if k != "priced"})
-        dump(records_dir / "record.json", {"wall_clock_sec": 60.0})
+        paths[old] = add_run(s, f"{task}-{arm}", run, {k: v for k, v in facts.items() if k != "priced"})
         spend.record(s.ledger, "settle", unit=paths[old], **facts["priced"])
     for task in w["tasks"]:
         write_pool(s, w, task, paths)
@@ -805,34 +949,61 @@ def written(tmp_path, monkeypatch, w):
         for n in (1, 2):
             (unit / "records" / "judges" / J / "calls" / str(n)).mkdir(parents=True)
             (unit / "records" / "judges" / J / "calls" / str(n) / "prompt.txt").write_text("p")
-        spend.reserve(s.ledger, SEED, "judge", J, 2, f"{unit}#{J}", {spend.AUTHORIZATION: SEED}, price=(1000.0, 1.0),
-                      task=task, pool=layout.SEED_POOL)
+        reserve(s, f"{unit}#{J}", "judge", 2, task=task, pool=layout.SEED_POOL)
         spend.record(s.ledger, "settle", unit=f"{unit}#{J}", usd=0.5, missing=[])
+    spend.record(s.ledger, "visible_power", failed=16, checked=80, rate=0.2, launch=True)  # C2's event, assumed
     return s
+
+
+def freeze(s, commit):
+    spend.record(s.ledger, "freeze", runtime_commit=commit, criterion_sha256=sha256_file(s.frozen),
+                 tasks_sha256=sha256_file(s.tasks_file))
+
+
+def add_run(s, group, run, facts):
+    """A seed run's records directory under the work root with its start, study.json `facts` and record.json."""
+    records_dir = s.work / "records" / group / run
+    records_dir.mkdir(parents=True)
+    reserve(s, records_dir, "candidate", max(facts.get("calls", 1), 1), task=facts["task"], arm=facts["arm"])
+    dump(records_dir / "study.json", facts)
+    dump(records_dir / "record.json", {"wall_clock_sec": 60.0})
+    return str(records_dir)
 
 
 def events(s, name):
     return [row for row in spend.rows(s.ledger) if row["kind"] == "event" and row["event"] == name]
 
 
-def test_seeds_json_names_its_criterion_and_task_list_hashes_and_lists_the_seeds(tmp_path, monkeypatch):
-    s = written(tmp_path, monkeypatch, seed_world())
+@pytest.fixture
+def finished(tmp_path, monkeypatch):
+    return written(tmp_path, monkeypatch, seed_world())
+
+
+def test_seeds_json_names_its_criterion_and_task_list_hashes_and_lists_the_seeds(finished):
+    s = finished
     study.seed_readout(s)
     out = load(s.results / "seeds.json")
     assert (out["hashes"], [(e["arm"], e["sha256"]) for e in out["seeds"]], out["stop"], out["judge"]) == (
         {"criterion_sha256": sha256_file(s.frozen), "tasks_sha256": sha256_file(s.tasks_file),
          "seed_tasks_sha256": sha256_file(s.results / layout.SEED_TASKS),
-         "seed_criterion_sha256": sha256_file(s.seed_criterion), "runtime_commit": "c0ffee"},
+         "calibration_sha256": sha256_file(s.results / "calibration.json"),
+         "seed_criterion_sha256": sha256_file(s.seed_criterion),
+         "runtime_commit": {"first_seed_start": "c0ffee", "latest": "c0ffee"}},
         [(arm, sha256_file(s.programs / f"{arm}.orc")) for arm in ("direct", "implement_check_repair",
                                                                    "implement_review_revise")], None, J)
 
 
-def test_the_seed_decision_is_recorded_as_an_event(tmp_path, monkeypatch):
-    s = written(tmp_path, monkeypatch, seed_world())
-    study.seed_readout(s)
-    assert [(e["decision"], e["seeds"], e["stop"]) for e in events(s, "seed_decision")] == [
+def test_seeds_json_names_the_freeze_at_the_first_seed_start_and_the_latest(finished):
+    freeze(finished, "fixed")  # an apparatus fix frozen after the first seed start
+    assert study.seed_readout(finished)["hashes"]["runtime_commit"] == {"first_seed_start": "c0ffee",
+                                                                         "latest": "fixed"}
+
+
+def test_the_seed_decision_is_recorded_as_an_event(finished):
+    study.seed_readout(finished)
+    assert [(e["decision"], e["seeds"], e["stop"], "reason" in e) for e in events(finished, "seed_decision")] == [
         ("seeds: direct, implement_check_repair, implement_review_revise",
-         ["direct", "implement_check_repair", "implement_review_revise"], None)]
+         ["direct", "implement_check_repair", "implement_review_revise"], None, False)]
 
 
 def test_no_workflow_qualified_names_that_stop_in_seeds_json_and_records_no_stop_event(tmp_path, monkeypatch):
@@ -842,48 +1013,61 @@ def test_no_workflow_qualified_names_that_stop_in_seeds_json_and_records_no_stop
         seeds.NO_WORKFLOW, seeds.NO_WORKFLOW, [])
 
 
-def test_the_readout_page_holds_the_calibrations_baselines_relabelled_and_the_seed_section(tmp_path, monkeypatch):
-    s = written(tmp_path, monkeypatch, seed_world())
-    study.seed_readout(s)
-    text = (s.results / "readout.md").read_text()
-    headings = [line for line in text.splitlines() if line.startswith("## ")]
+def test_a_second_seed_readout_is_refused_without_a_reason(finished):
+    study.seed_readout(finished)
+    with pytest.raises(SystemExit, match="needs --reason"):
+        study.seed_readout(finished)
+    assert len(events(finished, "seed_decision")) == 1
+
+
+def test_a_second_seed_readout_with_a_reason_records_it(finished):
+    study.seed_readout(finished)
+    study.seed_readout(finished, reason="a judge unit settled late")
+    assert [e.get("reason") for e in events(finished, "seed_decision")] == [None, "a judge unit settled late"]
+
+
+def test_the_calibrations_reported_page_is_kept_once_and_never_overwritten(finished):
+    study.seed_readout(finished)
+    study.seed_readout(finished, reason="again")
+    assert ((finished.results / "calibration-readout.md").read_text(),
+            (finished.results / "readout.md").read_text() == CALIBRATION_PAGE) == (CALIBRATION_PAGE, False)
+
+
+def test_the_readout_page_holds_the_calibrations_baselines_relabelled_and_the_seed_section(finished):
+    study.seed_readout(finished)
+    headings = [line for line in (finished.results / "readout.md").read_text().splitlines() if line.startswith("## ")]
     assert (f"## Offline re-roll baselines ({readout.SEED_PAGE_BASELINES})" in headings,
             "## Seed evaluation" in headings, headings.index("## Seed evaluation") > headings.index("## Limits")) == (
         True, True, True)
 
 
-def test_the_calibration_readouts_own_page_keeps_its_baselines_heading(tmp_path, monkeypatch):
-    s = written(tmp_path, monkeypatch, seed_world())
-    text = readout.markdown(load(s.results / "calibration.json"))
+def test_the_calibration_readouts_own_page_keeps_its_baselines_heading(finished):
+    text = readout.markdown(load(finished.results / "calibration.json"))
     assert "## Offline re-roll baselines (Haiku direct runs)" in text.splitlines()
 
 
-def test_the_judge_units_calls_and_priced_cost_reach_the_page_apart_from_the_candidates(tmp_path, monkeypatch):
-    s = written(tmp_path, monkeypatch, seed_world())
-    run = s.work / "records" / "unrecorded" / "run-0"  # a candidate start: no judge unit
-    spend.reserve(s.ledger, SEED, "candidate", J, 1, run, {spend.AUTHORIZATION: SEED}, price=(1000.0, 1.0), task="t00",
-                  arm="direct")
-    study.seed_readout(s)
-    assert "Judge cost, apart from the candidates': 32 calls in 16 units, priced USD 8 (0 units with missing usage)." \
-        in (s.results / "readout.md").read_text()
+def test_the_judge_units_physical_calls_and_priced_cost_reach_the_page_apart_from_the_candidates(finished):
+    (finished.pools / "t00" / layout.SEED_POOL / "records" / "judges" / J / "calls" / "2" / "prompt.txt").unlink()
+    study.seed_readout(finished)
+    assert "Judge cost, apart from the candidates': 31 calls in 16 units, priced USD 8 (0 units with missing usage)." \
+        in (finished.results / "readout.md").read_text()
 
 
-def test_a_judge_unit_that_never_settled_counts_at_its_reserved_worst_case(tmp_path, monkeypatch):
-    s = written(tmp_path, monkeypatch, seed_world())
-    rows = [row for row in spend.rows(s.ledger) if not (row.get("event") == "settle" and "#" in row["unit"]
-                                                         and "/t00/" in row["unit"])]
-    s.ledger.write_text("".join(json.dumps(row) + "\n" for row in rows))
-    study.seed_readout(s)
-    assert "32 calls in 16 units, priced USD 9.5 (1 units with missing usage)" in (s.results / "readout.md").read_text()
+def drop_events(s, keep):
+    s.ledger.write_text("".join(json.dumps(row) + "\n" for row in spend.rows(s.ledger) if keep(row)))
 
 
-def test_each_runs_priced_figures_come_from_its_settle_event(tmp_path, monkeypatch):
-    s = written(tmp_path, monkeypatch, seed_world())
-    rows = [row for row in spend.rows(s.ledger) if not (row.get("event") == "settle" and row["unit"].endswith(
-        "t00-direct/run-0"))]
-    s.ledger.write_text("".join(json.dumps(row) + "\n" for row in rows))
+def test_a_judge_unit_that_never_settled_counts_at_its_reserved_worst_case(finished):
+    drop_events(finished, lambda row: not (row.get("event") == "settle" and row["unit"].endswith(f"/t00/seed#{J}")))
+    study.seed_readout(finished)
+    assert "32 calls in 16 units, priced USD 9.5 (1 units with missing usage)" in (
+        finished.results / "readout.md").read_text()
+
+
+def test_each_runs_priced_figures_come_from_its_settle_event(finished):
+    drop_events(finished, lambda row: not (row.get("event") == "settle" and row["unit"].endswith("t00-direct/run-0")))
     with pytest.raises(SystemExit, match=r"no \['priced'\] in its facts"):
-        study.seed_readout(s)
+        study.seed_readout(finished)
 
 
 def test_a_failed_seed_run_that_no_pool_holds_is_scored_from_its_unpooled_record(tmp_path, monkeypatch):
@@ -894,38 +1078,111 @@ def test_a_failed_seed_run_that_no_pool_holds_is_scored_from_its_unpooled_record
     assert "| direct | 96 | 0.99 |" in (s.results / "readout.md").read_text()  # 95 of its 96 runs complete
 
 
-def test_arms_the_visible_check_withheld_are_read_from_its_event(tmp_path, monkeypatch):
+def test_arms_the_latest_visible_check_event_withheld_need_no_runs(tmp_path, monkeypatch):
     s = written(tmp_path, monkeypatch, without(seed_world(), selection.CHECK_ARMS))
-    spend.record(s.ledger, "visible_power", failed=1, checked=96, rate=1 / 96, launch=False)  # C2's event, assumed
+    spend.record(s.ledger, "visible_power", failed=1, checked=96, rate=1 / 96, launch=False)  # the latest decides
     study.seed_readout(s)
     assert "arms withheld at the visible-check checkpoint: ['retry_until_check', 'implement_check_repair']" in (
         s.results / "readout.md").read_text()
 
 
-@pytest.mark.parametrize("event", [None, {"failed": 30, "checked": 96, "rate": 30 / 96, "launch": True}])
-def test_without_a_withholding_event_an_arm_without_runs_refuses_the_readout(tmp_path, monkeypatch, event):
+def test_a_later_visible_check_event_that_launched_the_arms_makes_their_slots_planned(tmp_path, monkeypatch):
     s = written(tmp_path, monkeypatch, without(seed_world(), selection.CHECK_ARMS))
-    if event:
-        spend.record(s.ledger, "visible_power", **event)
-    with pytest.raises(SystemExit, match="were not withheld"):
+    events_ = [row for row in spend.rows(s.ledger) if row.get("event") != "visible_power"]
+    s.ledger.write_text("".join(json.dumps(row) + "\n" for row in events_))
+    spend.record(s.ledger, "visible_power", failed=1, checked=96, rate=1 / 96, launch=False)
+    spend.record(s.ledger, "visible_power", failed=30, checked=96, rate=30 / 96, launch=True)
+    with pytest.raises(SystemExit, match=r"planned seed slots are open .*t00/retry_until_check: 2 of 2"):
         study.seed_readout(s)
-    assert events(s, "seed_decision") == []
 
 
-def test_the_seed_readout_refuses_before_the_seed_task_list(tmp_path, monkeypatch):
-    s = written(tmp_path, monkeypatch, seed_world())
-    (s.results / layout.SEED_TASKS).unlink()
+def test_the_seed_readout_refuses_without_the_visible_check_event(finished):
+    drop_events(finished, lambda row: row.get("event") != "visible_power")
+    with pytest.raises(SystemExit, match="no visible_power event"):
+        study.seed_readout(finished)
+
+
+def test_a_seed_task_that_never_ran_refuses_the_readout_and_nothing_is_written(tmp_path, monkeypatch):
+    w = seed_world()
+    w["tasks"].append("t16")  # planned, never started, no pool
+    w["pools"].append({"task": "t16", "pool": layout.SEED_POOL, "incident": "unused"})
+    s = written(tmp_path, monkeypatch, w)
+    shutil.rmtree(s.results / "pools" / f"t16-{layout.SEED_POOL}")
+    with pytest.raises(SystemExit, match=r"planned seed slots are open .*\['t16/direct: 6 of 6'"):
+        study.seed_readout(s)
+    assert ((s.results / "seeds.json").exists(), events(s, "seed_decision"),
+            (s.results / "readout.md").read_text()) == (False, [], CALIBRATION_PAGE)
+
+
+def test_an_unsettled_seed_run_keeps_its_slot_open(finished):
+    path = finished.work / "records" / "t03-direct" / "run-1" / "study.json"
+    dump(path, {k: v for k, v in load(path).items() if k != "calls"})
+    with pytest.raises(SystemExit, match=r"open .*\['t03/direct: 1 of 6'\]"):
+        study.seed_readout(finished)
+
+
+def cut(s, group, run):
+    path = s.work / "records" / group / run / "study.json"
+    dump(path, load(path) | {"cut": {"text": "usage limit"}})
+    return load(path)
+
+
+def test_a_slot_cut_by_a_usage_limit_stays_open_until_its_re_run_settles(finished):
+    facts = cut(finished, "t03-direct", "run-1")
+    with pytest.raises(SystemExit, match=r"\['t03/direct: 1 of 6'\]"):
+        study.seed_readout(finished)
+    add_run(finished, "t03-direct", "run-9", facts)  # its one re-run, cut too: no relaunch is left
+    assert study.seed_readout(finished)["decision"].startswith("seeds:")
+
+
+def test_an_incident_closes_its_slot(tmp_path, monkeypatch):
+    w = seed_world()
+    make_incident(w, "t00", "direct", 2)
+    s = written(tmp_path, monkeypatch, w)
+    assert study.seed_readout(s)["decision"].startswith("seeds:")
+
+
+def test_a_seed_task_without_a_summarized_pool_or_a_pool_incident_refuses_the_readout(finished):
+    shutil.rmtree(finished.results / "pools" / f"t15-{layout.SEED_POOL}")
+    with pytest.raises(SystemExit, match=r"neither a summarized seed pool nor a pool incident: \['t15-seed'\]"):
+        study.seed_readout(finished)
+
+
+@pytest.mark.parametrize("name", ["criterion.json", "tasks.jsonl", "results/seed-tasks.json",
+                                  "results/calibration.json", "judge-seeds.json"])
+def test_a_file_other_than_the_one_the_runs_ran_under_refuses_naming_it(finished, name):
+    path = finished.runtime.parent / name
+    path.write_bytes(path.read_bytes() + b"\n")
+    with pytest.raises(SystemExit, match=rf"not the files the seed runs ran under .*{name.split('/')[-1]}"):
+        study.seed_readout(finished)
+    assert ((finished.results / "seeds.json").exists(), events(finished, "seed_decision")) == (False, [])
+
+
+def test_the_seed_readout_refuses_before_the_seed_task_list(finished):
+    (finished.results / layout.SEED_TASKS).unlink()
     with pytest.raises(SystemExit, match="seed-tasks"):
-        study.seed_readout(s)
+        study.seed_readout(finished)
 
 
-def test_another_tranches_run_of_a_seed_task_is_neither_scored_nor_refused(tmp_path, monkeypatch):
-    s = written(tmp_path, monkeypatch, seed_world())
-    other = s.work / "records" / "t00-direct" / "run-9"
+def test_the_seed_readout_refuses_without_calibration_json_naming_it(finished):
+    (finished.results / "calibration.json").unlink()
+    with pytest.raises(SystemExit, match=r"calibration\.json is missing"):
+        study.seed_readout(finished)
+    assert (finished.results / "readout.md").read_text() == CALIBRATION_PAGE
+
+
+def test_the_seed_readout_says_the_tranche_is_not_planned_before_it_is(finished, monkeypatch):
+    monkeypatch.delitem(layout.PLANNED, SEED)
+    with pytest.raises(SystemExit, match="no planned runs yet"):
+        study.seed_readout(finished)
+
+
+def test_another_tranches_run_of_a_seed_task_is_neither_scored_nor_refused(finished):
+    other = finished.work / "records" / "t00-direct" / "run-99"
     other.mkdir()
     dump(other / "study.json", {"tranche": "calibration", "task": "t00", "arm": "direct", "outcome": "failed"})
     dump(other / "record.json", {})
-    assert study.seed_readout(s)["seeds"][0]["c"] == 1.0
+    assert study.seed_readout(finished)["seeds"][0]["c"] == 1.0
 
 
 def test_a_nested_session_below_the_project_stores_top_level_is_counted(tmp_path):

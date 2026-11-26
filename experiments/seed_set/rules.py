@@ -83,9 +83,10 @@ def require_tracked(study, runtime, packages):
 
 
 def require_named_hashes(study):
-    """Refuse a criterion.json that does not name the current sha256 of every file it must (`required_hashes`)."""
+    """Refuse a criterion.json that does not name the current sha256 of every file it must (`required_hashes`); a
+    named file that is missing refuses whatever it is named by."""
     named, required = load(study.frozen).get("sha256", {}), required_hashes(study)
-    if wrong := sorted(key for key, digest in required.items() if named.get(key) != digest):
+    if wrong := sorted(key for key, digest in required.items() if digest is None or named.get(key) != digest):
         raise SystemExit(f"{study.frozen} does not name the current sha256 of {wrong} (plan Step 1f)")
 
 
@@ -198,9 +199,13 @@ def require_spend_bounds(study):
 
 def record_freeze(study, reason=None):
     """Record the freeze's identity in the ledger: the first spend needs it, and spend terms the runtime or two
-    units in flight would breach refuse it (`require_spend_bounds`). Once a start exists, a new freeze needs a reason
-    (an apparatus fix the plan's ledger records), which the event keeps."""
+    units in flight would breach refuse it (`require_spend_bounds`), as does a `judge-seeds.json` that criterion.json
+    names and whose shape is wrong (`layout.check_seed_criterion`, against the selected judge once one is known).
+    Once a start exists, a new freeze needs a reason (an apparatus fix the plan's ledger records), which the event
+    keeps."""
     layout.load_criterion(study)
+    if study.frozen.is_file() and layout.SEED_CRITERION in load(study.frozen).get("sha256", {}):
+        layout.check_seed_criterion(study, layout.selected_judge(study))
     if spend.starts(spend.rows(study.ledger)) and not reason:
         raise SystemExit("starts exist: a new freeze needs --reason (the apparatus fix it records)")
     identity = frozen_identity(study)

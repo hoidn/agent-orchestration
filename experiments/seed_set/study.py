@@ -27,8 +27,9 @@
   study.py readout                                        anchors first, then V1-V4, G1-G4, incidents, baselines
   study.py seed-tasks                                     the seed evaluation's tasks and judge, written once from a
                                                           qualified calibration (results/seed-tasks.json)
-  study.py seed-readout                                   the seed report: seeds.json, readout.md with the seed
-                                                          section, a seed_decision event (never a stop)
+  study.py seed-readout [--reason R]                      over a finished seed tranche: seeds.json, readout.md with
+                                                          the seed section, a seed_decision event (never a stop);
+                                                          a second one needs a reason
   study.py ledger                                         calls reserved and made, and the events
   study.py login-expiry [--provider codex]                when the login's access token expires (`expires <ISO>, in
                                                           <N> minutes`), read from the file a unit would copy (the
@@ -358,9 +359,10 @@ def finish(study, records, facts, fix):
 def settle(study, records, task, fix, cap, model, status, effort=None):
     """Collect and scan the run, audit its sessions (recording how many there are and how many lie below the top
     level of the project store, `units.nested_sessions`), run the visible check on its final patch behind the guard,
-    record metering and its token sum (`seeds.metered_tokens`), keep the run state (replacing a copy an interrupted
-    settlement made) and delete the agents' tree. A run the harness cannot collect, a provider error and a failed session audit are incidents; a run that
-    outlived its wall clock is a natural failure. A tree that cannot be removed is named in `tree_left` and printed,
+    record metering and its token sum (`seeds.metered_tokens`: None when the usage is unavailable, never 0), keep the
+    run state (replacing a copy an interrupted settlement made) and delete the agents' tree. A candidate unit's
+    settlement only: a judge's (`one_judge`) records neither count. A run the harness cannot collect, a provider
+    error and a failed session audit are incidents; a run that outlived its wall clock is a natural failure. A tree that cannot be removed is named in `tree_left` and printed,
     not raised, so the settlement is kept (ruling R16). `effort` is the arm's, which a Codex unit's audit checks."""
     made, record = units.physical_calls(records), load(records / "record.json")
     units.forget_credentials(record["sandbox"]["home"])  # the unit has ended; the transcripts stay (review2 minor 7)
@@ -615,13 +617,17 @@ def seed_pool(study, task, criterion, out, judges, runs):
     """`pool.pool` for a seed pool (Step 3, "Judging"): the runs' mapping rows and usable runs (`pool.pool_runs`) and
     `seed_batches`' two batches, dealt by the task's place in the seed task list, go to `pool.write_pool`, which adds
     both anchors to each batch and keeps each batch's clone ids in mapping.json (`summarize` copies it beside the
-    pool's results, where the seed readout groups the records by batch). Refuses a pool without a usable run."""
+    pool's results, where the seed readout groups the records by batch). Refuses a pool without a usable run and,
+    as `pool.pool` does, runs of another task or seeded commit."""
     records = {str(Path(r).resolve()): load(Path(r) / "record.json") for r in runs}
     rows, usable = pooling.pool_runs(records)
     index = tranche_tasks(study, layout.SEED_EVALUATION).index(Path(task).name)
     if not (batches := seed_batches(usable, list(load_arms(study)), index)):
         raise SystemExit("no completed, uncontaminated run to pool")
-    return pooling.write_pool(task, criterion, out, judges, next(iter(records.values())), rows, batches)
+    ref = next(iter(records.values()))
+    if {(r["task"], r["compare_base"]) for r in records.values()} != {(str(Path(task).resolve()), ref["compare_base"])}:
+        raise SystemExit("runs in one pool must share the task and the seeded commit")  # as `pool.pool` refuses
+    return pooling.write_pool(task, criterion, out, judges, ref, rows, batches)
 
 
 @exclusive
@@ -669,6 +675,8 @@ def judge(study, tranche, kind, tasks):
     probe_only(tranche)
     layout.require_pool_kind(tranche, kind)
     fixes = require_tasks(study, tranche, tasks, kind)
+    if kind == layout.SEED_POOL:  # before any reservation: the seed judge criterion names the selected judge alone
+        layout.load_seed_criterion(study)
     rules.enforce(study, tranche)
     rules.require_early_look(study, tranche, kind, tasks)
     pools = [out for task in dict.fromkeys(tasks) if (out := layout.current_pool(study, task, kind)).exists()]
@@ -904,23 +912,62 @@ def write_readout(study):
     return report
 
 
+@exclusive
 def write_seed_tasks(study):
     """`seed-tasks`: the seed evaluation's task list (`layout.SEED_TASKS`), written once from the calibration's result
-    (`results/calibration.json` as `readout` wrote it): its survivors in the chosen list's order (cut at 16 there,
-    `gates.task_gates`), the selected judge, `insensitive` and `v4_note`. Refused unless the calibration's decision is
-    `qualified`, and once the file or a `seed_tasks` event exists. Records a `seed_tasks` event with the sha256 of
-    both files, as `probe-readout` does for the calibration's tasks; the calibration `readout` refuses after it."""
-    path, source = study.results / layout.SEED_TASKS, study.results / "calibration.json"
-    if path.exists() or spend.latest(spend.rows(study.ledger), "seed_tasks"):
-        raise SystemExit(f"{path} is written once: it or a seed_tasks event exists")
+    (`seed_task_value`), and its `seed_tasks` event with the sha256 of the list and of `results/calibration.json`, as
+    `probe-readout` does for the calibration's tasks; the calibration `readout` refuses after the event, so the
+    operator runs this only once the coordinator has accepted the calibration's report. Refused once both the file and
+    the event exist. A crash between the two halves is completed: a file without its event is kept and its event
+    recorded when it equals what calibration.json gives now; an event without its file has the file written again
+    when that file's sha256 and calibration.json's are the event's. Any other half refuses, saying what to do."""
+    path, source = study.results / layout.SEED_TASKS, study.results / CALIBRATION
+    entries = spend.rows(study.ledger)
+    event = spend.latest(entries, "seed_tasks")
+    if path.exists() and event:
+        raise SystemExit(f"{path} is written once: it and its seed_tasks event exist")
+    value = seed_task_value(source, entries)
+    if path.exists():
+        if load(path) != value:
+            raise SystemExit(f"{path} exists without its seed_tasks event and differs from what {source} gives: read "
+                             "it, move it aside, report it to the coordinator, then run seed-tasks again")
+    else:
+        dump(path, value)
+        if event:
+            if (sha256_file(path), sha256_file(source)) != (event["tasks_sha256"], event["calibration_sha256"]):
+                path.unlink()
+                raise SystemExit(f"the seed_tasks event names hashes that {source} no longer gives: the seed task list "
+                                 "cannot be rebuilt; report to the coordinator (a new ledger, ruling R14)")
+            return event
+    return spend.record(study.ledger, "seed_tasks", tasks_sha256=sha256_file(path),
+                        calibration_sha256=sha256_file(source))
+
+
+CALIBRATION = "calibration.json"  # the calibration readout's result, under the results directory
+
+
+def require_file(path, why):
+    """Refuse when `path` is missing, saying which file and why it is needed."""
+    if not Path(path).is_file():
+        raise SystemExit(f"{path} is missing: {why}")
+
+
+def seed_task_value(source, entries):
+    """The seed task list calibration.json (`source`) gives: its survivors in the chosen list's order (cut at 16 there,
+    `gates.task_gates`), the selected judge, `insensitive` and `v4_note`. Refused unless the ledger agrees: its
+    latest `decision` event says `qualified` and no `stop` event exists (a hand-edited or rehearsal-written file, or
+    one a crashed readout left without its event, does not count), and the file's decision is `qualified` too."""
+    require_file(source, "the calibration `readout` writes it")
+    decision, stop = spend.latest(entries, "decision"), spend.latest(entries, "stop")
+    if stop or (decision or {}).get("decision") != "qualified":
+        raise SystemExit(f"the ledger's latest decision is {(decision or {}).get('decision')!r}"
+                         f"{' and a stop is recorded' if stop else ''}: no seed evaluation")
     calibration = load(source)["calibration"] or {}
     if calibration.get("decision") != "qualified":
         raise SystemExit(f"{source}: the calibration's decision is {calibration.get('decision')!r}, not qualified; "
                          "no seed evaluation")
-    dump(path, {key: calibration[name] for key, name in (("tasks", "survivors"), ("judge", "selected"),
-                                                          ("insensitive", "insensitive"), ("v4_note", "v4_note"))})
-    return spend.record(study.ledger, "seed_tasks", tasks_sha256=sha256_file(path),
-                        calibration_sha256=sha256_file(source))
+    return {key: calibration[name] for key, name in (("tasks", "survivors"), ("judge", "selected"),
+                                                      ("insensitive", "insensitive"), ("v4_note", "v4_note"))}
 
 
 VISIBLE_EVENT = "visible_power"  # the visible-check checkpoint's event: `selection.visible_power`'s figures
@@ -928,10 +975,50 @@ VISIBLE_EVENT = "visible_power"  # the visible-check checkpoint's event: `select
 
 def withheld_arms(entries):
     """The arms the visible-check checkpoint withheld, read from its latest `visible_power` event (the figures of
-    `selection.visible_power`, `launch` among them): `selection.CHECK_ARMS` when it did not launch them, none when it
-    did or before any such event."""
+    `selection.visible_power`, `launch` among them): `selection.CHECK_ARMS` when it did not launch them, else none.
+    Refused without such an event: the checkpoint comes before any workflow start."""
     event = spend.latest(entries, VISIBLE_EVENT)
-    return list(selection.CHECK_ARMS) if event and not event["launch"] else []
+    if event is None:
+        raise SystemExit(f"no {VISIBLE_EVENT} event: the visible-check checkpoint has not been recorded")
+    return [] if event["launch"] else list(selection.CHECK_ARMS)
+
+
+def seed_plan():
+    """The seed evaluation's planned runs per task and arm (`layout.PLANNED`); refused while it has none."""
+    if layout.SEED_EVALUATION not in PLANNED:
+        raise SystemExit(f"{layout.SEED_EVALUATION} has no planned runs yet: it is not planned or authorized")
+    return PLANNED[layout.SEED_EVALUATION]
+
+
+def open_slots(study, entries, withheld):
+    """The planned seed slots not yet closed, as "<task>/<arm>: <open> of <planned>". The planned slots are
+    `seed_plan`'s over `layout.arm_tasks`, a withheld arm at zero. A slot is closed by a settled run of its
+    (task, arm) in the ledger's start order (its study.json has `calls`; an incident, which is settled, closes it):
+    a run cut by a usage limit among the first planned starts does not close its slot (it runs again once,
+    `cut_reruns`), a cut re-run does. A cut slot whose re-run never started for want of room is not recorded as
+    such, so it stays open (task C1's room rule decides it)."""
+    facts, starts, out = {str(p.parent): load(p) for p in counted_runs(study)}, spend.starts(entries), []
+    for arm, planned in seed_plan().items():
+        for task in [] if arm in withheld else layout.arm_tasks(study, layout.SEED_EVALUATION, arm):
+            units_ = [row["unit"] for row in starts
+                      if (row["tranche"], row.get("task"), row.get("arm")) == (layout.SEED_EVALUATION, task, arm)]
+            closed = sum("calls" in facts.get(unit, {}) and ("cut" not in facts[unit] or k >= planned)
+                         for k, unit in enumerate(units_))
+            if closed < planned:
+                out.append(f"{task}/{arm}: {planned - closed} of {planned}")
+    return out
+
+
+def require_finished(study, tasks, entries, withheld, reason):
+    """Refuse a seed readout over an unfinished tranche: a planned slot open (`open_slots`), a seed task with neither
+    a summarized seed pool nor a recorded pool incident, or a `seed_decision` already recorded and no `reason`."""
+    if slots := open_slots(study, entries, withheld):
+        raise SystemExit(f"planned seed slots are open (neither settled nor closed): {slots[:5]} ({len(slots)})")
+    pools = [study.results / "pools" / f"{task}-{layout.SEED_POOL}" for task in tasks]
+    if missing := [p.name for p in pools if not ((p / "results.json").is_file() or (p / "incident.json").is_file())]:
+        raise SystemExit(f"seed tasks with neither a summarized seed pool nor a pool incident: {missing}")
+    if spend.latest(entries, "seed_decision") and not reason:
+        raise SystemExit("a seed_decision is recorded: a second seed readout needs --reason, which the event keeps")
 
 
 def load_seed_records(study, models, tasks):
@@ -977,44 +1064,82 @@ def seed_judge_units(entries, settled):
 
 
 def seed_programs(study, arms):
-    """{arm: {"source", "sha256", "lines", "model", "effort"}} of the arms the seed evaluation plans
-    (`layout.PLANNED`), in arms.json's order."""
+    """{arm: {"source", "sha256", "lines", "model", "effort"}} of the arms the seed evaluation plans (`seed_plan`),
+    in arms.json's order."""
+    planned = seed_plan()
     return {name: {"source": arm["source"], "sha256": sha256_file(study.programs / arm["source"]),
                    "lines": selection.program_lines(study.programs / arm["source"]), "model": arm["model"],
-                   "effort": arm["effort"]} for name, arm in arms.items() if name in PLANNED[layout.SEED_EVALUATION]}
+                   "effort": arm["effort"]} for name, arm in arms.items() if name in planned}
+
+
+def frozen_runs(study, entries):
+    """The freeze events in force at the first seed evaluation start and now (the latest)."""
+    freezes = [row for row in entries if row["kind"] == "event" and row["event"] == "freeze"]
+    first = next((row["seq"] for row in spend.starts(entries) if row["tranche"] == layout.SEED_EVALUATION), None)
+    at_start = next((row for row in reversed(freezes) if first is not None and row["seq"] < first), None)
+    return at_start, (freezes[-1] if freezes else None)
 
 
 def seed_hashes(study, entries):
-    """What the seed readout rests on: the sha256 of criterion.json, the task list, the seed task list and the seed
-    judge criterion, and the runtime commit of the freeze in force (the latest `freeze` event)."""
-    return {"criterion_sha256": sha256_file(study.frozen), "tasks_sha256": sha256_file(study.tasks_file),
-            "seed_tasks_sha256": sha256_file(study.results / layout.SEED_TASKS),
-            "seed_criterion_sha256": sha256_file(study.seed_criterion),
-            "runtime_commit": (spend.latest(entries, "freeze") or {}).get("runtime_commit")}
+    """What the seed readout rests on, refused unless it is what the runs ran under: the sha256 of criterion.json and
+    the task list (the latest freeze's), of seed-tasks.json and calibration.json (the `seed_tasks` event's) and of
+    judge-seeds.json (named in criterion.json), with the runtime commit of the freeze in force at the first seed
+    start and of the latest (equal unless an apparatus fix was frozen in between)."""
+    at_start, latest = frozen_runs(study, entries)
+    listed = spend.latest(entries, "seed_tasks") or {}
+    named = load(study.frozen).get("sha256", {})
+    expected = {study.frozen: (latest or {}).get("criterion_sha256"),
+                study.tasks_file: (latest or {}).get("tasks_sha256"),
+                study.results / layout.SEED_TASKS: listed.get("tasks_sha256"),
+                study.results / CALIBRATION: listed.get("calibration_sha256"),
+                study.seed_criterion: named.get(study.seed_criterion.name)}
+    if wrong := [str(path) for path, digest in expected.items() if not path.is_file() or sha256_file(path) != digest]:
+        raise SystemExit(f"not the files the seed runs ran under (the freeze, the seed_tasks event, criterion.json's "
+                         f"sha256): {wrong}")
+    return {"criterion_sha256": expected[study.frozen], "tasks_sha256": expected[study.tasks_file],
+            "seed_tasks_sha256": listed["tasks_sha256"], "calibration_sha256": listed["calibration_sha256"],
+            "seed_criterion_sha256": expected[study.seed_criterion],
+            "runtime_commit": {"first_seed_start": (at_start or {}).get("runtime_commit"),
+                               "latest": latest["runtime_commit"]}}
 
 
-def seed_readout(study):
-    """`seed-readout` (Step 4): `seeds.report` over the summarized seed pools and the seed evaluation's runs
-    (`load_seed_records`, `seed_runs`), its judge and tasks from the seed task list, its judge units' cost, and the
-    arms the visible-check checkpoint withheld (`withheld_arms`). Writes `results/seeds.json` (`seeds.seeds_json`
-    with each program's sha256 and `seed_hashes`) and `results/readout.md` (the calibration's page from the stored
-    calibration.json, its baselines' heading naming their runs, then the seed section), and records a
-    `seed_decision` event with the decision, the seeds and the stop that prevented a seed set; a decision of no
-    seed is a readout outcome, never a `stop` event. Refused before the seed task list exists."""
+def write_text(path, text):
+    """Write `text` to `path` atomically (a new file in the same directory, then renamed over it)."""
+    temporary = Path(path).with_name(f".{Path(path).name}.tmp")
+    temporary.write_text(text)
+    os.replace(temporary, path)
+
+
+def seed_readout(study, reason=None):
+    """`seed-readout` (Step 4), over a finished tranche only (`require_finished`; a second readout needs `reason`):
+    `seeds.report` over the summarized seed pools and the seed evaluation's runs (`load_seed_records`, `seed_runs`),
+    its judge and tasks from the seed task list, its judge units' cost, and the arms the visible-check checkpoint
+    withheld (`withheld_arms`, which refuses without its event). Every input is read and checked (`seed_hashes`)
+    before anything is written. Then it keeps the calibration's reported page once as
+    `results/calibration-readout.md` (never overwritten), writes `results/seeds.json` (`seeds.seeds_json` with each
+    program's sha256 and `seed_hashes`) and `results/readout.md` (the calibration's page rebuilt from the stored
+    calibration.json, its baselines' heading naming their runs, then the seed section), each atomically, and records
+    a `seed_decision` event with the decision, the seeds, the stop that prevented a seed set and the reason; a
+    decision of no seed is a readout outcome, never a `stop` event."""
     listed = layout.seed_task_list(study)
     if listed is None:
         raise SystemExit(f"no {layout.SEED_TASKS}: `seed-tasks` writes the seed task list first")
-    arms, entries = load_arms(study), spend.rows(study.ledger)
-    settled, tasks, programs = spend.settled(entries), listed["tasks"], seed_programs(study, arms)
+    require_file(study.results / CALIBRATION, "the calibration `readout` writes it")
+    arms, entries, tasks = load_arms(study), spend.rows(study.ledger), listed["tasks"]
+    settled, programs, withheld = spend.settled(entries), seed_programs(study, arms), withheld_arms(entries)
+    require_finished(study, tasks, entries, withheld, reason)
+    hashes, calibration = seed_hashes(study, entries), load(study.results / CALIBRATION)
     records, pools = load_seed_records(study, {name: arm["model"] for name, arm in arms.items()}, tasks)
     result = seeds.report(records, pools, seed_runs(study, tasks, settled), listed["judge"], tasks, programs,
-                          seed_judge_units(entries, settled), withheld=withheld_arms(entries))
-    out = seeds.seeds_json(result, programs) | {"hashes": seed_hashes(study, entries)}
+                          seed_judge_units(entries, settled), withheld=withheld)
+    out = seeds.seeds_json(result, programs) | {"hashes": hashes}
+    page, kept = study.results / "readout.md", study.results / "calibration-readout.md"
+    if page.is_file() and not kept.exists():
+        write_text(kept, page.read_text())
     dump(study.results / "seeds.json", out)
-    page = readout.markdown(load(study.results / "calibration.json"), readout.SEED_PAGE_BASELINES)
-    (study.results / "readout.md").write_text(page + "\n" + seeds.markdown(result))
+    write_text(page, readout.markdown(calibration, readout.SEED_PAGE_BASELINES) + "\n" + seeds.markdown(result))
     spend.record(study.ledger, "seed_decision", decision=out["decision"], seeds=[e["arm"] for e in out["seeds"]],
-                 stop=out["stop"])
+                 stop=out["stop"], **({"reason": reason} if reason else {}))
     print(seeds.markdown(result), end="")
     return out
 
@@ -1058,13 +1183,14 @@ def parser():
                                  "the seed evaluation's two-batch pools")
         command.add_argument("tasks", nargs="+")
     sub.add_parser("settle").add_argument("runs", nargs="+", help="records directories")
-    for name in ("probe-readout", "early-look", "readout", "seed-tasks", "seed-readout", "ledger"):
+    for name in ("probe-readout", "early-look", "readout", "seed-tasks", "ledger"):
         sub.add_parser(name)
     sub.add_parser("smoke-check").add_argument("--tranche", choices=layout.SMOKES, default="smoke",
                                                help="whose smoke: the Claude smoke (default) or the Luna smoke")
     sub.add_parser("login-expiry").add_argument("--provider", choices=("claude", units.CODEX), default="claude",
                                                 help="whose login file: the Claude CLI's (default) or the Codex CLI's")
     sub.add_parser("record-freeze").add_argument("--reason", help="needed once a start exists: the apparatus fix")
+    sub.add_parser("seed-readout").add_argument("--reason", help="needed once a seed_decision exists: why again")
     sub.add_parser("probe").add_argument("--rung", action="append", help="repeatable; default: the readout's next")
     limit = sub.add_parser("resume-after-limit", help="reopen the starts a usage limit closed (coordinator ruling R2)")
     limit.add_argument("--reset", type=iso_time, required=True, help="the reset the vendor's answer named, ISO 8601 "
@@ -1119,7 +1245,7 @@ def main(argv=None):
         "early-look": lambda: print(json.dumps(rules.early_look(study), indent=2)),
         "readout": lambda: write_readout(study),
         "seed-tasks": lambda: print(json.dumps(write_seed_tasks(study))),
-        "seed-readout": lambda: seed_readout(study),
+        "seed-readout": lambda: seed_readout(study, a.reason),
         "ledger": lambda: ledger_report(study),
         "login-expiry": lambda: print(units.expiry_text(units.login_expiry(provider=a.provider))),
         "resume-after-limit": lambda: print(json.dumps(spend.resume_after_limit(
