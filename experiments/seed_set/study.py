@@ -564,6 +564,27 @@ def runs_to_pool(study, task, kind="first"):
             and (facts["tranche"] == layout.LUNA_SMOKE) == (kind == layout.LUNA_POOL)]
 
 
+SEED_BATCH = 8  # a seed pool's batch: at most eight candidates plus the two anchors (Step 3, "Judging")
+
+
+def seed_batches(usable, arms, task_index):
+    """A seed pool's two judge batches, in the members' shape `pool.write_pool` takes ((records path, record,
+    ["final"])). `usable` is `pool.pool_runs`' usable runs per arm, `arms` the arm names in `arms.json` order, and
+    `task_index` the task's place in the seed task list. The runs with a final patch, arm by arm in `arms` order and
+    each arm's in records order, are dealt alternately into the two batches, starting in batch `task_index % 2`:
+    each arm alternates within a task, and a three-run arm's odd run falls in batch 1 on one task and batch 2 on
+    the next, so a batch shift cancels in arm differences over the task list (the plan's review). Refuses more than
+    16 dealt runs and an arm outside `arms`; one dealt run gives one batch, none gives no batch."""
+    if unknown := sorted(set(usable) - set(arms)):
+        raise SystemExit(f"usable runs of arms outside the arm order: {unknown}")
+    dealt = [(path, record, ["final"]) for name in arms for path, record in usable.get(name, [])
+             if "final" in record.get("patches", {})]
+    if len(dealt) > 2 * SEED_BATCH:
+        raise SystemExit(f"{len(dealt)} usable runs exceed the two batches of {SEED_BATCH} a seed pool holds")
+    batches = [dealt[(task_index + k) % 2::2] for k in range(2)]
+    return [batch for batch in batches if batch]
+
+
 @exclusive
 def build_pools(study, tranche, kind, tasks):
     """One pool per task from its collected, scanned runs that are not incidents; both anchors join the batch. The
