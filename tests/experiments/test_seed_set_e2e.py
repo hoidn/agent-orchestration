@@ -428,32 +428,99 @@ def test_offline_a_cli_other_than_the_pinned_one_refuses_the_start_and_leaves_no
     assert (spend.starts(spend.rows(s.ledger)), list((s.work / "agents").iterdir()), study.study_runs(s)) == ([], [], [])
 
 
-LUNA_TRANCHE = "luna-offline"  # a test-only tranche: no tranche the plan's ledger authorizes holds a Luna call
+LUNA_TRANCHE = layout.LUNA_SMOKE
+LUNA_TERMS = {**SPEND_TERMS["ceiling_usd"], LUNA_TRANCHE: 10.0}  # ruling L-R8's ceiling, set at the freeze
 
 
 @pytest.fixture
 def luna_world(world, monkeypatch):
-    """The world with a test-only tranche that plans one `direct_luna` run on `a0a0a0a0a0` (one Luna call, USD 5
-    ceiling), the stand-in Luna fixing it on its first attempt, and a freeze naming both stand-in CLIs' pins."""
-    s, task = world.study, "a0a0a0a0a0"
-    monkeypatch.setitem(spend.CAPS, LUNA_TRANCHE, {"candidate": {spend.LUNA: 1}, "judge": {}})
-    monkeypatch.setitem(layout.PLANNED, LUNA_TRANCHE, {"direct_luna": 1})
-    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(world.fakebin, ceiling_usd={
-        **SPEND_TERMS["ceiling_usd"], LUNA_TRANCHE: 5.0}))
+    """The world authorized for the Luna smoke on the smoke task `sub`, the stand-in Luna fixing it on its first
+    attempt, and a freeze naming the Luna smoke's ceiling and both stand-in CLIs' pins."""
+    s = world.study
+    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(world.fakebin, ceiling_usd=LUNA_TERMS))
     rules.record_freeze(s)
     plan = json.loads(Path(world.plan).read_text())
-    plan["tasks"][task]["fix"][spend.LUNA] = 1
+    plan["tasks"][SMOKE]["fix"][spend.LUNA] = 1
     Path(world.plan).write_text(json.dumps(plan))
     monkeypatch.setenv(spend.AUTHORIZATION, LUNA_TRANCHE)
-    choose(s, [task])  # a tranche outside the plan's three draws on the chosen tasks
     return world
 
 
 def luna_unit(world):
-    """Run the test tranche's Luna unit; return (records, its study.json facts)."""
-    study.candidates(world.study, LUNA_TRANCHE, "direct_luna", ["a0a0a0a0a0"])
+    """Run the Luna smoke's `direct_luna` unit; return (records, its study.json facts)."""
+    study.candidates(world.study, LUNA_TRANCHE, "direct_luna", [SMOKE])
     (path,) = study.study_runs(world.study)
     return path.parent, json.loads(path.read_text())
+
+
+def finish_luna_smoke(world):
+    """The Luna smoke's pool, its one judge, the summary and `smoke-check`; returns the check's ledger row."""
+    s = world.study
+    study.build_pools(s, LUNA_TRANCHE, layout.LUNA_POOL, [SMOKE])
+    study.judge(s, LUNA_TRANCHE, layout.LUNA_POOL, [SMOKE])
+    study.summarize_pools(s, layout.LUNA_POOL, [SMOKE])
+    return rules.smoke_check(s, LUNA_TRANCHE)
+
+
+def failed_checks(row):
+    return sorted(name for name, passed in row["checks"].items() if not passed)
+
+
+def test_offline_the_luna_smoke_passes_its_check_and_records_no_claude_smoke(luna_world):
+    """Luna plan T8 (ruling L-R8): both Luna arms once, one pool of their runs and the anchors, one Haiku judge."""
+    s = luna_world.study
+    for arm in layout.PLANNED[LUNA_TRANCHE]:
+        study.candidates(s, LUNA_TRANCHE, arm, [SMOKE])
+    row = finish_luna_smoke(luna_world)
+    results = json.loads((s.results / "pools" / f"{SMOKE}-{layout.LUNA_POOL}" / "results.json").read_text())
+    assert (row["event"], row["passed"], failed_checks(row), spend.latest(spend.rows(s.ledger), "smoke"),
+            {judge for clone in results["clones"].values() for judge in clone["ratings"]}, len(results["clones"])) == (
+        LUNA_TRANCHE, True, [], None, {H}, 4)
+
+
+def test_offline_the_luna_smoke_spends_within_its_caps(luna_world):
+    s = luna_world.study
+    for arm in layout.PLANNED[LUNA_TRANCHE]:
+        study.candidates(s, LUNA_TRANCHE, arm, [SMOKE])
+    finish_luna_smoke(luna_world)
+    totals = study.ledger_report(s)[LUNA_TRANCHE]
+    assert {kind: {model: (row["reserved"], row.get("made")) for model, row in models.items()}
+            for kind, models in totals.items()} == {"candidate": {spend.LUNA: (4, 2)}, "judge": {H: (1, 1)}}
+
+
+def test_offline_a_luna_smoke_unit_cut_by_a_usage_limit_fails_the_check(luna_world):
+    s, reset = luna_world.study, int(time.time()) - 60
+    limit_plan(luna_world, task=SMOKE, model=spend.LUNA, reset=reset)
+    study.candidates(s, LUNA_TRANCHE, "direct_luna", [SMOKE])
+    with pytest.raises(SystemExit, match="closed by a usage limit"):
+        study.candidates(s, LUNA_TRANCHE, "retry_until_check_luna", [SMOKE])
+    limit_plan(luna_world)
+    reopen(s, reset)
+    study.candidates(s, LUNA_TRANCHE, "retry_until_check_luna", [SMOKE])
+    assert study.candidates(s, LUNA_TRANCHE, "direct_luna", [SMOKE]) == []  # a smoke's cut slot never runs again
+    row = finish_luna_smoke(luna_world)
+    assert (row["passed"], failed_checks(row)) == (  # the limit's wording is also a provider error line
+        False, ["no_provider_errors", "no_unit_cut_by_a_usage_limit"])
+
+
+def test_offline_a_credit_pause_during_the_luna_smoke_fails_the_check(luna_world):
+    s, plan = luna_world.study, json.loads(Path(luna_world.plan).read_text())
+    Path(luna_world.plan).write_text(json.dumps(plan | {"credits": True}))
+    study.candidates(s, LUNA_TRANCHE, "direct_luna", [SMOKE])
+    with pytest.raises(SystemExit, match="credit balance"):
+        study.candidates(s, LUNA_TRANCHE, "retry_until_check_luna", [SMOKE])
+    Path(luna_world.plan).write_text(json.dumps(plan))
+    word = time.time()
+    spend.resume_after_limit(s.ledger, word, 2.0, 35.0, word, closes=units.CODEX)
+    study.candidates(s, LUNA_TRANCHE, "retry_until_check_luna", [SMOKE])
+    row = finish_luna_smoke(luna_world)
+    assert (row["passed"], failed_checks(row)) == (False, ["no_credit_pause"])
+
+
+def test_offline_the_luna_smoke_runs_no_claude_arm(luna_world):
+    with pytest.raises(SystemExit, match="luna_smoke runs"):
+        study.candidates(luna_world.study, LUNA_TRANCHE, "direct", [SMOKE])
+    assert spend.starts(spend.rows(luna_world.study.ledger)) == []
 
 
 def test_offline_a_luna_unit_settles_with_its_fix_scan_and_session_audit_clean(luna_world):
@@ -489,8 +556,9 @@ def test_offline_a_luna_unit_calls_codex_alone_bound_to_its_model_and_effort(lun
 
 def test_offline_a_freeze_with_a_luna_cap_and_only_the_claude_pin_refuses(luna_world):
     s = luna_world.study
-    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(luna_world.fakebin, ceiling_usd={
-        **SPEND_TERMS["ceiling_usd"], LUNA_TRANCHE: 5.0}, cli=stand_in_terms(luna_world.fakebin)["cli"]["claude"]))
+    claude_pin = stand_in_terms(luna_world.fakebin)["cli"]["claude"]
+    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(luna_world.fakebin, ceiling_usd=LUNA_TERMS,
+                                                                 cli=claude_pin))
     with pytest.raises(SystemExit, match=r"pin \(path and version\) of the CLI that runs gpt-6-luna \(codex\)"):
         rules.record_freeze(s)
 

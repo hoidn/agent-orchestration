@@ -14,7 +14,7 @@ It holds starts and events. Every provider start goes through `reserve` before i
   reopens it, while a resume without `closes` reopens only the pauses without it;
 - the model must be one of the study's exact IDs (`MODELS`: the two Claude IDs and `gpt-6-luna`, run by the Codex
   CLI, `CLI`; no fallback, no alias, never Fable); a model a tranche has no cap for is refused by the cap (Luna in
-  every tranche the plan's ledger authorizes today);
+  every tranche but the Luna smoke, `luna_smoke`, whose only Claude call is one Haiku judge call);
 - the unit (a candidate run's records directory, or `<pool>#<judge>`) must not be in the ledger already: a unit
   is launched once, never retried or relaunched;
 - the calls reserved so far for (tranche, kind, model) plus this unit's maximum must stay within the cap, and with
@@ -53,6 +53,8 @@ CAPS = {
     "calibration": {"candidate": {HAIKU: 80, SONNET: 20}, "judge": {HAIKU: 30, SONNET: 30}},
     # the redraw serves the ladder probe only: Haiku direct runs, no Sonnet run, no judge (coordinator, review2 M4)
     "redraw": {"candidate": {HAIKU: 40, SONNET: 0}, "judge": {HAIKU: 0, SONNET: 0}},
+    # the Luna smoke (Luna plan, ruling L-R8): direct and retry-until-check on Luna once, one Haiku judge call
+    "luna_smoke": {"candidate": {LUNA: 4}, "judge": {HAIKU: 1}},
 }
 # Named in the plan, not authorized: they need a new owner approval recorded in the plan's ledger and here.
 UNAUTHORIZED = ("seed_evaluation", "extension")
@@ -61,11 +63,6 @@ KINDS = ("candidate", "judge")
 
 def ledger_path():
     return LEDGER.expanduser()
-
-
-def capped():
-    """The models some tranche of `CAPS` has calls for."""
-    return [model for model in MODELS if any(caps.get(model) for kinds in CAPS.values() for caps in kinds.values())]
 
 
 def check_model(model):

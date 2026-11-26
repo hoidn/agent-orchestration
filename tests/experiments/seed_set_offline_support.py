@@ -181,13 +181,17 @@ ended()
 
 # The scripted `codex` (Codex CLI 0.171.0's `exec --json` shapes; plan 2026-11-23-gpt-6-luna-third-tier, T7): the same
 # plan file as STUB, read for an implementer (its task's marker, `fix` keyed by the model it was invoked with, none
-# meaning never) or a reviewer (any other prompt); no judge, no usage limit, no error answer. `--version` prints
-# CODEX_VERSION. Every call writes a rollout under $CODEX_HOME/sessions/YYYY/MM/DD/ (session_meta with a new thread
-# id and the working directory, a turn_context naming the model and the `model_reasoning_effort=` it was given, the
-# prompt as a user message, the visible check as a shell call when it applies the fix, a token_count with the
-# cumulative usage and rate limits well inside their windows and no credits), prints thread.started, turn.started,
-# item.completed events (a command_execution when it ran the check, an agent_message) and a turn.completed with
-# CODEX_USAGE, and writes its result to the prompt's last `- path:` line.
+# meaning never) or a reviewer (any other prompt); no judge. `--version` prints CODEX_VERSION. Every call writes a
+# rollout under $CODEX_HOME/sessions/YYYY/MM/DD/ (session_meta with a new thread id and the working directory, a
+# turn_context naming the model and the `model_reasoning_effort=` it was given, the prompt as a user message, the
+# visible check as a shell call when it applies the fix, a token_count with the cumulative usage and rate limits
+# well inside their windows), prints thread.started, turn.started, item.completed events (a command_execution when it
+# ran the check, an agent_message) and a turn.completed with CODEX_USAGE, and writes its result to the prompt's last
+# `- path:` line. With `"usage_limit": {"task": id, "model": m, "reset": epoch}` (an implementer call on that task by
+# that model) the call answers as a used-up window would, in the shape the kit reads (tests/experiments/
+# test_seed_set_codex.py's FAILED_LIMIT: an `error` event and a `turn.failed` in a limit wording; its rollout's
+# token_count at 100 percent of the five-hour window, reset at `reset`) and exits 1. With `"credits": true` every
+# token_count shows a credit balance held (`credits.has_credits`). A test changes either by rewriting the plan.
 CODEX_STUB = """#!@PYTHON@ -I
 import json, os, re, subprocess, sys, time, uuid
 from pathlib import Path
@@ -221,7 +225,20 @@ record("turn_context", {"cwd": os.getcwd(), "model": model, "effort": effort})
 record("event_msg", {"type": "user_message", "message": prompt})
 emit({"type": "thread.started", "thread_id": thread})
 emit({"type": "turn.started"})
-entry = next((entry for entry in plan["tasks"].values() if entry["marker"] in prompt), None)
+def limits(used, reset, info):
+    record("event_msg", {"type": "token_count", "info": info, "rate_limits": {
+        "primary": {"used_percent": used, "window_minutes": 300, "resets_at": reset},
+        "secondary": {"used_percent": 10.0, "window_minutes": 10080, "resets_at": reset + 86400},
+        "credits": {"has_credits": plan.get("credits") is True, "unlimited": False}}})
+
+key, entry = next(((key, entry) for key, entry in plan["tasks"].items() if entry["marker"] in prompt), (None, None))
+limit = plan.get("usage_limit") or {}
+if key is not None and (limit.get("task"), limit.get("model")) == (key, model):
+    limits(100.0, limit["reset"], None)
+    words = "You've hit your usage limit. Upgrade to Pro or try again later."
+    emit({"type": "error", "message": words})
+    emit({"type": "turn.failed", "error": {"message": words}})
+    sys.exit(1)
 if entry is None:
     result = ({"variant": "APPROVE", "notes": []} if changed(".")
               else {"variant": "REQUEST_CHANGES", "findings": ["nothing is implemented"]})
@@ -242,12 +259,8 @@ else:
     result = {"summary": f"attempt {attempt}", "account": "applied the reference fix" if fixes else "none"}
 Path(re.findall(r"^- path: (.+)$", prompt, re.M)[-1]).write_text(json.dumps(result))
 usage = @USAGE@
-reset = int(time.time()) + 3600
-record("event_msg", {"type": "token_count", "info": {"total_token_usage": {
-    **usage, "total_tokens": usage["input_tokens"] + usage["output_tokens"]}}, "rate_limits": {
-    "primary": {"used_percent": 5.0, "window_minutes": 300, "resets_at": reset},
-    "secondary": {"used_percent": 10.0, "window_minutes": 10080, "resets_at": reset + 86400},
-    "credits": {"has_credits": False, "unlimited": False}}})
+limits(5.0, int(time.time()) + 3600, {"total_token_usage": {
+    **usage, "total_tokens": usage["input_tokens"] + usage["output_tokens"]}})
 emit({"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": "done"}})
 emit({"type": "turn.completed", "usage": usage})
 """.replace("@PYTHON@", sys.executable).replace("@VERSION@", repr(CODEX_VERSION)).replace("@USAGE@", repr(CODEX_USAGE))

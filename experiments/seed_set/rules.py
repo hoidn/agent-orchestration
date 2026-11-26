@@ -155,23 +155,36 @@ def tier_ratio(study, model):
     return max(tier[key] / rates[key] for key in FIELDS if rates[key]) if tier else 1
 
 
+def bounded(study):
+    """(tranches, models) whose spend terms a freeze checks: the study's own tranches (`layout.STUDY_TRANCHES`), which
+    every criterion prices, and each other tranche whose priced ceiling `criterion.json` names (so a criterion
+    without the Luna smoke's terms freezes, and a Luna smoke start then refuses at `layout.spend_terms`); and the
+    models those tranches have calls for."""
+    ceilings = (load(study.frozen).get("spend") or {}).get("ceiling_usd") or {}
+    tranches = [tranche for tranche in spend.CAPS if tranche in layout.STUDY_TRANCHES or tranche in ceilings]
+    models = [model for model in spend.MODELS
+              if any(spend.CAPS[tranche][kind].get(model) for tranche in tranches for kind in spend.KINDS)]
+    return tranches, models
+
+
 def require_spend_bounds(study):
     """Refuse spend terms the runtime or two units in flight would breach (review3 X3): a model's per-call worst case
     below its tier ratio times the largest ordinary-rate call `criterion.json` names for it (`largest_call_usd`; a
     call billed at the highest tier stays inside it), or a tranche's ceiling below WIDTH times the worst case of its
     largest unit (a program at its maximum calls, a judge at one batch: the study's pools are one batch). Only the
-    models some tranche has calls for (`spend.CAPS`) need terms."""
+    tranches and models `bounded` names need terms."""
     largest, arms = (load(study.frozen).get("spend") or {}).get("largest_call_usd") or {}, layout.load_arms(study)
-    for model in spend.capped():
+    tranches, models = bounded(study)
+    for model in models:
         per_call = layout.spend_terms(study, "smoke", model)[1]
         if not layout.positive(largest.get(model)):
             raise SystemExit(f"{study.frozen} names no largest ordinary-rate call for {model} under spend")
         if per_call < round(tier_ratio(study, model) * largest[model], 6):
             raise SystemExit(f"{model}: the per-call worst case USD {per_call:g} is below {tier_ratio(study, model):g} "
                              f"x the largest ordinary-rate call USD {largest[model]:g}")
-    for tranche, kinds in spend.CAPS.items():
+    for tranche in tranches:
         units_ = [(arms[arm]["max_calls"], arms[arm]["model"]) for arm in PLANNED[tranche]]
-        units_ += [(1, judge) for judge, cap in kinds["judge"].items() if cap]
+        units_ += [(1, judge) for judge in layout.tranche_judges(tranche)]
         worst = max(calls * layout.spend_terms(study, tranche, model)[1] for calls, model in units_)
         if (ceiling := layout.spend_terms(study, tranche, spend.HAIKU)[0]) < round(WIDTH * worst, 6):
             raise SystemExit(f"{tranche}: the ceiling USD {ceiling:g} is below {WIDTH} units in flight at the largest "
@@ -343,10 +356,11 @@ def bound_argv(records, model, effort):
     return True
 
 
-def tokens(records):
+def tokens(records, model):
+    """The metered tokens of a unit's calls by the CLI that runs `model` (`spend.CLI`), from its metering.json."""
     receipt = Path(records) / "metering.json"
     consumption = load(receipt).get("consumption") if receipt.is_file() else None
-    return (consumption.get("claude") or {}).get("tokens") if isinstance(consumption, dict) else "unavailable"
+    return (consumption.get(spend.CLI[model]) or {}).get("tokens") if isinstance(consumption, dict) else "unavailable"
 
 
 def scan_record(records):
@@ -383,54 +397,80 @@ def refuse_unadjudicated(commands, step):
             f"  {command} --verdict contaminated|cleared --reason TEXT" for command in commands))
 
 
-def smoke_units(study, task):
-    """(name, records, model, effort, facts) of every smoke unit: the runs and the pool's judges."""
+SMOKE_POOLS = {"smoke": "first", layout.LUNA_SMOKE: layout.LUNA_POOL}  # each smoke's pool kind on the smoke task
+
+
+def smoke_units(study, task, tranche="smoke"):
+    """(name, records, model, effort, facts) of every unit of the smoke `tranche`: the runs and its pool's judges."""
     found = [(f"{facts['arm']}", path.parent, facts["model"], facts["effort"], facts)
-             for path in study_runs(study) if (facts := load(path))["tranche"] == "smoke"]
-    for _, _, pool, judge in [u for u in layout.judge_units(study) if u[:2] == (task, "first")]:
+             for path in study_runs(study) if (facts := load(path))["tranche"] == tranche]
+    for _, _, pool, judge in [u for u in layout.judge_units(study) if u[:2] == (task, SMOKE_POOLS[tranche])]:
         facts_path = pool / "records" / f"study-{judge}.json"
         found.append((f"judge {judge}", pool / "records" / "judges" / judge, judge, JUDGE_EFFORT,
                       load(facts_path) if facts_path.is_file() else {}))
     return found
 
 
-def smoke_check(study):
-    """The mechanical part of the smoke checklist; records pass or fail in the ledger and returns it. A unit cut by
-    a usage limit, a planned program without its run and a reserved unit not yet settled each fail it. A failed
-    smoke is a stop for the owner; a repeat the owner approves runs from a new freeze and a fresh ledger (the kit's
-    README, "Running a tranche again after a stop or a failed smoke")."""
-    (task,) = tranche_tasks(study, "smoke")
-    found = smoke_units(study, task)
+def smoke_check(study, tranche="smoke"):
+    """The mechanical part of the checklist of the smoke `tranche` (the Claude smoke, or the Luna smoke with its one
+    judge and `luna_checks`); records pass or fail in the ledger as an event named after the tranche (the Claude
+    smoke's is the `smoke` event the probe and the calibration require; the Luna smoke's gates none of them) and
+    returns it. A unit cut by a usage limit, a planned program without its run and a reserved unit not yet settled
+    each fail it. A failed smoke is a stop for the owner; a repeat the owner approves runs from a new freeze and a
+    fresh ledger (the kit's README, "Running a tranche again after a stop or a failed smoke")."""
+    (task,) = tranche_tasks(study, tranche)
+    found, judges = smoke_units(study, task, tranche), layout.tranche_judges(tranche)
     refuse_unadjudicated([adjudication_command(r) for _, r, _, _, _ in found], "smoke-check")
     runs = [f for name, _, _, _, f in found if not name.startswith("judge")]
-    results_path = study.results / "pools" / f"{task}-first" / "results.json"
+    results_path = study.results / "pools" / f"{task}-{SMOKE_POOLS[tranche]}" / "results.json"
     results = load(results_path) if results_path.is_file() else {"clones": {}, "excluded_judges": {"pool": "missing"}}
-    reserved = {row["unit"]: row["calls"] for row in spend.starts(spend.rows(study.ledger)) if row["tranche"] == "smoke"}
-    checks = unit_checks(found, runs, reserved) | pool_checks(results_path, results, runs) | call_checks(found, reserved)
-    figures = {name: {"calls": units.physical_calls(r), "tokens": tokens(r), "wall_clock_sec_per_call":
-                      _per_call(f, r)} for name, r, _, _, f in found}
-    passed = all(checks.values()) and len(found) == len(PLANNED["smoke"]) + 2
+    reserved = {row["unit"]: row["calls"] for row in spend.starts(spend.rows(study.ledger))
+                if row["tranche"] == tranche}
+    checks = (unit_checks(found, runs, reserved, tranche) | pool_checks(results_path, results, runs, judges)
+              | call_checks(found, reserved))
+    extra = luna_checks(study, reserved, runs) if tranche == layout.LUNA_SMOKE else {"checks": {}}
+    checks |= extra.pop("checks")
+    passed = all(checks.values()) and len(found) == len(PLANNED[tranche]) + len(judges)
     direct = [(f, r) for name, r, _, _, f in found if name == "direct" and "cut" not in f]  # a cut call says nothing
-    return spend.record(study.ledger, "smoke", passed=passed, checks=checks, figures=figures,
-                        **bisect_from_start(direct))
+    return spend.record(study.ledger, tranche, passed=passed, checks=checks, figures=smoke_figures(found),
+                        **bisect_from_start(direct), **extra)
 
 
-def unit_checks(found, runs, reserved):
+def smoke_figures(found):
+    """Per smoke unit: its physical calls, metered tokens and wall-clock seconds per call."""
+    return {name: {"calls": units.physical_calls(r), "tokens": tokens(r, m), "wall_clock_sec_per_call":
+                   _per_call(f, r)} for name, r, m, _, f in found}
+
+
+def luna_checks(study, reserved, runs):
+    """The Luna smoke's own: {"checks": no pause of the Codex starts (a credit balance, ruling L-R7) that one of its
+    units recorded or that is open now, and every run's metering completeness recorded; "metering_complete": each
+    run's recorded value, which does not decide the check}."""
+    entries = spend.rows(study.ledger)
+    open_now = {row["seq"] for row in spend.open_pauses(entries)}
+    credit = [row for row in entries if row["kind"] == "event" and row["event"] == "pause"
+              and row.get("closes") == units.CODEX and (row.get("unit") in reserved or row["seq"] in open_now)]
+    return {"checks": {"no_credit_pause": not credit,
+                       "metering_completeness_recorded": bool(runs) and all("metering_complete" in f for f in runs)},
+            "metering_complete": {f["arm"]: f.get("metering_complete") for f in runs}}
+
+
+def unit_checks(found, runs, reserved, tranche="smoke"):
     """Every planned program ran without incident, no unit was cut by a usage limit, every reserved unit settled."""
     settled = {unit_of(r) for _, r, _, _, f in found if "calls" in f}
-    return {"every_program_ran_without_incident": sorted(f["arm"] for f in runs) == sorted(PLANNED["smoke"])
+    return {"every_program_ran_without_incident": sorted(f["arm"] for f in runs) == sorted(PLANNED[tranche])
             and not any("incident" in f for f in runs),
             "no_unit_cut_by_a_usage_limit": not any("cut" in f for _, _, _, _, f in found),  # review3 X1
             "every_reserved_unit_settled": set(reserved) <= settled}
 
 
-def pool_checks(results_path, results, runs):
-    """The smoke pool holds every completed run and both anchors, rated by both judges, with hidden results, and
-    its ratings bound to the judged patches."""
+def pool_checks(results_path, results, runs, judges=(spend.HAIKU, spend.SONNET)):
+    """The smoke pool holds every completed run and both anchors, rated by every one of the smoke's `judges` (named
+    "both" for two), with hidden results, and its ratings bound to the judged patches."""
     clones = results["clones"].values()
     return {"clone_count": len(results["clones"]) == sum(f.get("outcome") == "completed" for f in runs) + 2,
-            "both_judges_rated_every_clone": not results["excluded_judges"] and all(
-                set(c.get("ratings", {})) == {spend.HAIKU, spend.SONNET} for c in clones) and bool(clones),
+            f"{'both_judges' if len(judges) == 2 else 'the_judge'}_rated_every_clone": not results["excluded_judges"]
+            and all(set(c.get("ratings", {})) == set(judges) for c in clones) and bool(clones),
             "hidden_result_on_every_clone": bool(clones) and all(c.get("hidden") is not None for c in clones),
             "ratings_bound_to_judged_patches": ratings_bound(results_path.parent, results)}
 

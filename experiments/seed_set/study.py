@@ -13,11 +13,14 @@
   study.py settle RECORDS ...                             settle runs whose runner was interrupted (not probe
                                                           runs: rerunning `probe` recovers those)
   study.py pool --tranche T --kind first|retest TASK ...  one blind pool per task: its usable runs and both anchors
-                                                          (once more, from the same records, after a usage limit)
-  study.py judge --tranche T --kind first|retest TASK ... both judges one after another; verify-pool; scan; audit
+                                                          (once more, from the same records, after a usage limit);
+                                                          `--tranche luna_smoke --kind luna`: the Luna smoke's pool
+  study.py judge --tranche T --kind first|retest TASK ... the tranche's judges one after another; verify-pool; scan;
+                                                          audit (both judges; the Luna smoke's one Haiku judge)
   study.py summarize --kind first|retest TASK ...         summarize.py behind the no-provider stubs; records kept in
                                                           results/pools/<task>-<kind>/ (or its incident); clones gone
-  study.py smoke-check                                    the smoke's mechanical checklist, pass or fail, in the ledger
+  study.py smoke-check [--tranche luna_smoke]             the smoke's mechanical checklist, pass or fail, in the ledger
+                                                          (the Luna smoke's: its own event, `luna_smoke`)
   study.py readout                                        anchors first, then V1-V4, G1-G4, incidents, baselines
   study.py ledger                                         calls reserved and made, and the events
   study.py login-expiry [--provider codex]                when the login's access token expires (`expires <ISO>, in
@@ -231,7 +234,7 @@ def slot_limits(study, entries, tranche, arm, tasks):
     probed = [f for f in facts.values() if f["tranche"] == "redraw" and "incident" not in f and "cut" not in f]
     planned = {task: PLANNED[tranche][arm] - (sum(f["task"] == task and f["arm"] == arm for f in probed)
                                               if tranche == "calibration" else 0) for task in tasks}
-    limits = {task: n + (cut_reruns(entries, facts, tranche, task, arm, n) if tranche != "smoke" else 0)
+    limits = {task: n + (cut_reruns(entries, facts, tranche, task, arm, n) if tranche not in layout.SMOKES else 0)
               for task, n in planned.items()}
     return planned, limits
 
@@ -551,19 +554,25 @@ def pool_to_build(study, task, kind):
     return out
 
 
-def runs_to_pool(study, task):
-    """The task's collected, scanned runs that are neither incidents nor cut by a usage limit."""
+def runs_to_pool(study, task, kind="first"):
+    """The task's collected, scanned runs that are neither incidents nor cut by a usage limit: the Luna smoke's
+    alone for its pool (`layout.LUNA_POOL`), and none of them for any other."""
     return [path.parent for path in counted_runs(study) if (facts := load(path))["task"] == task
-            and "scan_hits" in facts and "incident" not in facts and "cut" not in facts]
+            and "scan_hits" in facts and "incident" not in facts and "cut" not in facts
+            and (facts["tranche"] == layout.LUNA_SMOKE) == (kind == layout.LUNA_POOL)]
 
 
 @exclusive
 def build_pools(study, tranche, kind, tasks):
-    """One pool per task from its collected, scanned runs that are not incidents; both anchors join the batch."""
+    """One pool per task from its collected, scanned runs that are not incidents; both anchors join the batch. The
+    pool's judges are the tranche's (`layout.tranche_judges`), under the criterion of its kind
+    (`layout.pool_criterion`)."""
     probe_only(tranche)
+    layout.require_pool_kind(tranche, kind)
     require_tasks(study, tranche, tasks, kind)
     load_criterion(study)
-    pooled = {task: runs_to_pool(study, task) for task in dict.fromkeys(tasks)}
+    criterion, judges = layout.pool_criterion(study, kind), layout.tranche_judges(tranche)
+    pooled = {task: runs_to_pool(study, task, kind) for task in dict.fromkeys(tasks)}
     rules.refuse_unadjudicated([rules.adjudication_command(run) for task, runs in pooled.items()
                                 if pool_target(study, task, kind) for run in runs], "pool")
     for task, runs in pooled.items():
@@ -573,8 +582,8 @@ def build_pools(study, tranche, kind, tasks):
             raise SystemExit(f"two pools still hold clones ({live_pools(study)}); summarize one first")
         out.parent.mkdir(parents=True, exist_ok=True)
         try:  # each judge on the study's own metered providers file (the harness's binds the plain template)
-            pooling.pool(task_dir(study, task), study.criterion, out,
-                         [f"{judge}={study.programs / JUDGE_PROVIDERS}" for judge in gates.JUDGES], runs)
+            pooling.pool(task_dir(study, task), criterion, out,
+                         [f"{judge}={study.programs / JUDGE_PROVIDERS}" for judge in judges], runs)
         except SystemExit as error:  # e.g. every run failed: the task's runs still count, its anchors are missing
             shutil.rmtree(out, ignore_errors=True)
             pool_incident(study, task, kind, f"not pooled: {error}")
@@ -595,6 +604,7 @@ def judge(study, tranche, kind, tasks):
     Every named pool must hold an identity scan with no hit before the first judge launches (review2 M5)."""
     spend.authorize(tranche)
     probe_only(tranche)
+    layout.require_pool_kind(tranche, kind)
     fixes = require_tasks(study, tranche, tasks, kind)
     rules.enforce(study, tranche)
     rules.require_early_look(study, tranche, kind, tasks)
@@ -623,7 +633,7 @@ def judge_pool(study, tranche, kind, task, pools, fixes):
     mapping = load(out / "records" / "mapping.json")
     if why := judge_blocked(study, tranche, out, len(mapping["batches"])):
         return f"{out}: {why}"
-    for model in gates.JUDGES:
+    for model in layout.tranche_judges(tranche):
         if any(row.get("unit") == f"{out}#{model}" for row in spend.rows(study.ledger)):
             print(f"{out}#{model}: already started, not relaunched")
             continue
@@ -635,11 +645,11 @@ def judge_blocked(study, tranche, out, batches):
     """Why none of a pool's judges may start now, or None: a judge that started and never settled (its pool is an
     incident at summarize, so the other judge would spend for nothing), or a cap without room for every judge the
     pool still needs."""
-    entries = spend.rows(study.ledger)
-    started = [model for model in gates.JUDGES if any(row.get("unit") == f"{out}#{model}" for row in entries)]
+    entries, judges = spend.rows(study.ledger), layout.tranche_judges(tranche)
+    started = [model for model in judges if any(row.get("unit") == f"{out}#{model}" for row in entries)]
     if unsettled := [model for model in started if not (out / "records" / f"study-{model}.json").is_file()]:
         return f"judge {unsettled} started and never settled: summarize the pool (an incident)"
-    if full := [model for model in gates.JUDGES if model not in started
+    if full := [model for model in judges if model not in started
                 and spend.remaining(entries, tranche, "judge", model) < batches]:
         return f"no room in the {tranche} judge cap of {full} for both judges"
     return None
@@ -727,11 +737,12 @@ def summarize_pools(study, kind, tasks):
         if layout.cut_judges(out) and out.name == kind:
             raise SystemExit(f"{out}: {layout.cut_judges(out)} cut by a usage limit; after resume-after-limit, `pool` "
                              "rebuilds it once from the same records")
-        failed = failed_judges(out, study.criterion)
+        criterion = layout.pool_criterion(study, kind)
+        failed = failed_judges(out, criterion)
         try:
             if failed:
                 raise SystemExit(f"judge run failed: {failed}")
-            host.summarize(out, study.criterion, study.host_temp)
+            host.summarize(out, criterion, study.host_temp)
         except SystemExit as error:
             pool_incident(study, task, kind, str(error), failed)
             shutil.copyfile(out / "records" / "mapping.json", dest / "mapping.json")
@@ -780,7 +791,7 @@ def unpooled_runs(facts, pooled, tasks):
     or a timeout) or an incident. A run cut by a usage limit is no observation (R1)."""
     records = []
     for run, row in facts.items():
-        if run not in pooled and row["tranche"] != "smoke" and row["task"] in tasks and "cut" not in row:
+        if run not in pooled and row["tranche"] not in layout.SMOKES and row["task"] in tasks and "cut" not in row:
             failed = "incident" not in row and (row.get("outcome") == "failed" or row.get("exit") == "timeout")
             records.append({"task": row["task"], "pool": "first", "role": "candidate", "arm": row["arm"],
                             "model": row["model"], "run": run, "patch": None, "hidden": None, "scores": {},
@@ -789,9 +800,9 @@ def unpooled_runs(facts, pooled, tasks):
 
 
 def planned_programs(study, arms):
-    """{arm: {"source", "lines"}} of the arms some tranche plans (`PLANNED`), in arms.json's order: the readout's
-    programs, so an arm no tranche runs adds no row."""
-    planned = {arm for kinds in PLANNED.values() for arm in kinds}
+    """{arm: {"source", "lines"}} of the arms the study's own tranches plan (`layout.STUDY_TRANCHES`), in arms.json's
+    order: the readout's programs, so an arm only another tranche runs (the Luna smoke's) adds no row."""
+    planned = {arm for tranche in layout.STUDY_TRANCHES for arm in PLANNED[tranche]}
     return {name: {"source": arm["source"], "lines": selection.program_lines(study.programs / arm["source"])}
             for name, arm in arms.items() if name in planned}
 
@@ -855,11 +866,14 @@ def parser():
         if name == "candidates":
             command.add_argument("--arm", required=True)
         else:
-            command.add_argument("--kind", choices=("first", "retest"), required=True)
+            command.add_argument("--kind", choices=("first", "retest", layout.LUNA_POOL), required=True,
+                                 help=f"{layout.LUNA_POOL}: the Luna smoke's pool")
         command.add_argument("tasks", nargs="+")
     sub.add_parser("settle").add_argument("runs", nargs="+", help="records directories")
-    for name in ("smoke-check", "probe-readout", "early-look", "readout", "ledger"):
+    for name in ("probe-readout", "early-look", "readout", "ledger"):
         sub.add_parser(name)
+    sub.add_parser("smoke-check").add_argument("--tranche", choices=layout.SMOKES, default="smoke",
+                                               help="whose smoke: the Claude smoke (default) or the Luna smoke")
     sub.add_parser("login-expiry").add_argument("--provider", choices=("claude", units.CODEX), default="claude",
                                                 help="whose login file: the Claude CLI's (default) or the Codex CLI's")
     sub.add_parser("record-freeze").add_argument("--reason", help="needed once a start exists: the apparatus fix")
@@ -909,7 +923,7 @@ def main(argv=None):
         "judge": lambda: judge(study, a.tranche, a.kind, a.tasks),
         "summarize": lambda: summarize_pools(study, a.kind, a.tasks),
         "record-freeze": lambda: print(json.dumps(rules.record_freeze(study, a.reason))),
-        "smoke-check": lambda: print(json.dumps(rules.smoke_check(study), indent=2)),
+        "smoke-check": lambda: print(json.dumps(rules.smoke_check(study, a.tranche), indent=2)),
         "probe": lambda: probing.probe(study, a.rung),
         "probe-readout": lambda: print(json.dumps(probing.probe_readout(study), indent=2)),
         "record-transcripts": lambda: print(json.dumps(probing.record_transcripts(study, a.fault == "yes", a.note,

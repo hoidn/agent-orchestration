@@ -508,10 +508,11 @@ def test_a_claude_session_in_a_codex_units_home_fails_its_audit(tmp_path):  # re
     assert audit(tmp_path)[:2] == (f"Claude sessions in a Codex unit: {[str(session)]}", None)
 
 
-def test_the_readout_lists_only_the_arms_a_tranche_plans():  # review finding 5
+def test_the_readout_lists_only_the_arms_the_studys_tranches_plan():  # review finding 5
     runner = SimpleNamespace(programs=Path(study.__file__).parent / "programs")
     arms = layout.load_arms(runner)
-    assert list(study.planned_programs(runner, arms)) == [arm for arm in arms if arm != "direct_luna"]
+    assert list(study.planned_programs(runner, arms)) == [
+        arm for arm in arms if spend.CLI[arms[arm]["model"]] == "claude"]
 
 
 def prepared(tmp_path, providers, command):
@@ -540,3 +541,76 @@ def test_installed_rehearsal_stand_ins_answer_the_codex_pin_and_pass_the_codex_l
                              env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)})
     assert (version.stdout.strip(), (tmp_path / "home" / ".claude" / ".credentials.json").is_file()) == (
         CODEX_VERSION, True)
+
+
+LUNA_SMOKE = layout.LUNA_SMOKE
+
+
+def reserve_in_luna_smoke(tmp_path, kind, model, calls=1, unit="/u/1"):
+    return spend.reserve(tmp_path / "ledger.jsonl", LUNA_SMOKE, kind, model, calls, unit,
+                         {spend.AUTHORIZATION: LUNA_SMOKE}, price=(10.0, 0.5))
+
+
+@pytest.mark.parametrize("kind, model", [("candidate", spend.HAIKU), ("candidate", spend.SONNET),
+                                         ("judge", spend.SONNET), ("judge", LUNA)])
+def test_the_luna_smoke_refuses_every_call_but_luna_candidates_and_a_haiku_judge(tmp_path, kind, model):  # L-R8
+    with pytest.raises(SystemExit, match="cap reached"):
+        reserve_in_luna_smoke(tmp_path, kind, model)
+
+
+def test_the_luna_smoke_holds_four_luna_candidate_calls(tmp_path):
+    reserve_in_luna_smoke(tmp_path, "candidate", LUNA, calls=1, unit="/u/direct")
+    reserve_in_luna_smoke(tmp_path, "candidate", LUNA, calls=3, unit="/u/retry")
+    with pytest.raises(SystemExit, match="cap reached"):
+        reserve_in_luna_smoke(tmp_path, "candidate", LUNA, unit="/u/more")
+
+
+def test_the_luna_smoke_holds_one_haiku_judge_call(tmp_path):
+    reserve_in_luna_smoke(tmp_path, "judge", spend.HAIKU, unit="/p#j")
+    with pytest.raises(SystemExit, match="cap reached"):
+        reserve_in_luna_smoke(tmp_path, "judge", spend.HAIKU, unit="/p#k")
+
+
+@pytest.mark.parametrize("tranche, kind", [(LUNA_SMOKE, "first"), (LUNA_SMOKE, "retest"), ("smoke", "luna"),
+                                           ("calibration", "luna")])
+def test_a_pool_kind_another_tranche_builds_refuses(tranche, kind):
+    with pytest.raises(SystemExit, match="pools, not"):
+        layout.require_pool_kind(tranche, kind)
+
+
+def test_the_luna_smokes_judges_are_haiku_alone():
+    assert (layout.tranche_judges(LUNA_SMOKE), layout.tranche_judges("smoke")) == (
+        [spend.HAIKU], [spend.HAIKU, spend.SONNET])
+
+
+def test_the_luna_smokes_pool_criterion_names_its_one_judge(tmp_path):
+    criterion = tmp_path / "judge-calibration.json"
+    criterion.write_text(json.dumps({"judges": [spend.HAIKU, spend.SONNET], "rubric": layout.RUBRIC}))
+    runner = SimpleNamespace(criterion=criterion, results=tmp_path / "results")
+    luna = json.loads(layout.pool_criterion(runner, layout.LUNA_POOL).read_text())
+    assert (layout.pool_criterion(runner, "first"), luna) == (criterion, {"judges": [spend.HAIKU],
+                                                                          "rubric": layout.RUBRIC})
+
+
+def frozen_with(tmp_path, terms):
+    (tmp_path / "criterion.json").write_text(json.dumps({"spend": terms}))
+    return SimpleNamespace(frozen=tmp_path / "criterion.json")
+
+
+def test_a_freeze_without_the_luna_smokes_terms_bounds_the_studys_tranches_alone(tmp_path):
+    from tests.experiments.seed_set_offline_support import SPEND_TERMS
+    assert rules.bounded(frozen_with(tmp_path, SPEND_TERMS)) == (
+        ["smoke", "calibration", "redraw"], [spend.HAIKU, spend.SONNET])
+
+
+def test_a_freeze_naming_the_luna_smokes_ceiling_bounds_it_and_luna(tmp_path):
+    from tests.experiments.seed_set_offline_support import SPEND_TERMS
+    terms = SPEND_TERMS | {"ceiling_usd": SPEND_TERMS["ceiling_usd"] | {LUNA_SMOKE: 10.0}}
+    assert rules.bounded(frozen_with(tmp_path, terms)) == (
+        ["smoke", "calibration", "redraw", LUNA_SMOKE], [spend.HAIKU, spend.SONNET, LUNA])
+
+
+def test_a_luna_smoke_start_without_its_ceiling_refuses(tmp_path):
+    from tests.experiments.seed_set_offline_support import SPEND_TERMS
+    with pytest.raises(SystemExit, match="no priced ceiling for luna_smoke"):
+        layout.spend_terms(frozen_with(tmp_path, SPEND_TERMS), LUNA_SMOKE, LUNA)

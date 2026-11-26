@@ -85,12 +85,43 @@ ChatGPT login (`auth_mode` exactly `chatgpt`, with `tokens.access_token`), and t
 decoded and not verified. It refuses an API key, a login that is not ChatGPT's, a token whose expiry cannot be read,
 and one that does not outlive the unit by the same bound. `study.py login-expiry --provider codex` prints that
 expiry. A unit takes the guard of its arm's CLI (`spend.CLI`: `gpt-6-luna` runs on Codex, the two Claude models on
-Claude), and its copy of the Codex login carries an empty refresh token (`sandbox.codex_login`). No tranche the
-plan's ledger authorizes holds a Luna call: `spend.CAPS` refuses Luna in the smoke, the calibration and the redraw.
+Claude), and its copy of the Codex login carries an empty refresh token (`sandbox.codex_login`). `spend.CAPS`
+refuses Luna in the smoke, the calibration and the redraw; only the Luna smoke (below) holds Luna calls.
 
 The long-horizon kit's route,
 where one host process holds the token and no copy enters a unit
 ([its README](../long_horizon_tasks/README.md)), would be a kit change with its own tests, review and rehearsal.
+
+## The Luna smoke
+
+The tranche `luna_smoke` (ruling L-R8 of the [Luna plan](../../docs/plans/2026-11-23-gpt-6-luna-third-tier-plan.md))
+runs on the smoke task: `direct_luna` and `retry_until_check_luna` once each, then one pool of those two runs and
+both anchors, scored by one `claude-haiku-5-5` judge call. Its caps are in `spend.CAPS` (4 Luna candidate calls, 1
+Haiku judge call). Its priced ceiling (`ceiling_usd.luna_smoke`) and Luna's per-call worst case and largest call
+(`per_call_usd` and `largest_call_usd` for `gpt-6-luna`) are criterion terms set at the freeze, with the Codex pin
+in `spend.cli`. A criterion without the ceiling still freezes for the three other tranches, and a Luna smoke start
+then refuses (`rules.bounded`, `layout.spend_terms`). The authorization, the freeze, the stops, the pause rules and
+the login guards (Codex for the candidates, Claude for the judge) are those of every tranche.
+
+```
+SEED_SET_AUTHORIZED_TRANCHE=luna_smoke python -m experiments.seed_set.study candidates --tranche luna_smoke --arm direct_luna TASK
+SEED_SET_AUTHORIZED_TRANCHE=luna_smoke python -m experiments.seed_set.study candidates --tranche luna_smoke --arm retry_until_check_luna TASK
+SEED_SET_AUTHORIZED_TRANCHE=luna_smoke python -m experiments.seed_set.study pool --tranche luna_smoke --kind luna TASK
+SEED_SET_AUTHORIZED_TRANCHE=luna_smoke python -m experiments.seed_set.study judge --tranche luna_smoke --kind luna TASK
+python -m experiments.seed_set.study summarize --kind luna TASK
+python -m experiments.seed_set.study smoke-check --tranche luna_smoke
+```
+
+Its pool has its own kind, `luna` (`<pools>/<task>/luna`, `results/pools/<task>-luna`), and holds the Luna smoke's
+runs alone; the smoke's pools hold none of them. It is built and summarized under a copy of the judge criterion
+naming only the Haiku judge (`results/luna_smoke-criterion.json`, `layout.pool_criterion`), since the summary takes
+the criterion's judges to be the pool's. `smoke-check --tranche luna_smoke` is the smoke's check with one judge: every
+planned unit settled, none cut by a usage limit and none an incident; the bound model and effort on every call and
+in every rollout, no forbidden model; scans clean or cleared by a verdict; the judge's rating and a hidden result
+on every clone; no pause of the Codex starts (a credit balance) that one of its units recorded or that is open; and
+every run's metering completeness recorded (the values are in the row). It records a `luna_smoke` event, pass or
+fail, which stays; the `smoke` event the probe and the calibration require is the Claude smoke's alone, so the
+Luna smoke gates none of the three other tranches. A cut slot is not run again, as in the smoke.
 
 ## Usage limits and paid extra usage
 

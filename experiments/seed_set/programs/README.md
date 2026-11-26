@@ -20,9 +20,11 @@ rule enforce it. `common.orc` is not counted but may define only the shared `Cha
 
 **Model and effort** are workflow inputs, not program text. `arms.json` binds
 them per arm (`claude-haiku-5-5`, `medium`; the calibration arm `direct_sonnet`
-is `direct.orc` with `claude-sonnet-5-5`, and `direct_luna` is `direct.orc` with
-`gpt-6-luna`, which no authorized tranche plans) together with the source, entry
-and maximum calls; the runner passes them in `inputs.json` (`--set model=...
+is `direct.orc` with `claude-sonnet-5-5`; the Luna smoke's arms `direct_luna` and
+`retry_until_check_luna` are `direct.orc` and `retry_until_check.orc` with
+`gpt-6-luna`, `medium`, which only the Luna smoke plans: the kit's
+[README](../README.md), "The Luna smoke") together with the source, entry and
+maximum calls; the runner passes them in `inputs.json` (`--set model=...
 --set effort=...` through `prepare.run_arm`).
 
 **Providers.** `providers.json` binds both aliases to `claude_unrestricted_workspace_metered`, and

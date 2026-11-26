@@ -59,7 +59,8 @@ def test_caps_are_the_plans_budget():
     caps = {t: {k: dict(m) for k, m in kinds.items()} for t, kinds in spend.CAPS.items()}
     assert caps == {"smoke": {"candidate": {H: 10, S: 1}, "judge": {H: 1, S: 1}},
                     "calibration": {"candidate": {H: 80, S: 20}, "judge": {H: 30, S: 30}},
-                    "redraw": {"candidate": {H: 40, S: 0}, "judge": {H: 0, S: 0}}}  # review2 M4: probe only
+                    "redraw": {"candidate": {H: 40, S: 0}, "judge": {H: 0, S: 0}},  # review2 M4: probe only
+                    "luna_smoke": {"candidate": {spend.LUNA: 4}, "judge": {H: 1}}}  # Luna plan, ruling L-R8
 
 
 def test_a_start_is_appended_before_it_is_returned(ledger):

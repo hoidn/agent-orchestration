@@ -9,7 +9,11 @@ T3 task left the drawn set, the reserve took its place and the smoke moved to th
 probe task); the redraw cap serves the ladder probe only (plan, "Ladder probe": the probe is the plan's one
 redraw), on the ladder's packages (`ladder.packages`: both forms, without rejected rows and the smoke's commit);
 the calibration runs on the tasks `probe-readout` wrote to `results/calibration-tasks.json` (`CHOSEN`), whose hash
-the ledger holds.
+the ledger holds. The Luna smoke (`LUNA_SMOKE`, ruling L-R8 of the Luna plan) runs on the smoke task too: its two
+Luna arms once each, then one pool of its own kind (`LUNA_POOL`, beside the smoke's `first`) with its runs alone,
+judged by the tranche's judges (`tranche_judges`: Haiku) under the judge criterion naming those judges only
+(`pool_criterion`). `STUDY_TRANCHES` are the calibration study's own: every freeze carries their spend terms, and
+the readout lists their programs; the Luna smoke gates none of them.
 """
 
 import json
@@ -17,16 +21,20 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
-from experiments.compare.repos import load
+from experiments.compare.repos import dump, load
 from experiments.seed_set import gates, ladder, spend
 
 PROGRAMS = Path("experiments/seed_set/programs")  # in the runtime checkout
 EFFORT = "medium"
 # runs per task and arm, per tranche: the smoke runs every program once on the smoke task
+LUNA_SMOKE, LUNA_POOL = "luna_smoke", "luna"  # the Luna smoke's tranche and its pool's kind
 PLANNED = {"smoke": dict.fromkeys(("direct", "direct_sonnet", "retry_until_check", "implement_check_repair",
                                    "implement_review_revise"), 1),
-           "calibration": {"direct": 4, "direct_sonnet": 1}, "redraw": {"direct": 1}}  # redraw: one per probe step
-RETESTS = {"smoke": 0, "calibration": 10, "redraw": 0}  # the first tasks of the tranche, in its order
+           "calibration": {"direct": 4, "direct_sonnet": 1}, "redraw": {"direct": 1},  # redraw: one per probe step
+           LUNA_SMOKE: {"direct_luna": 1, "retry_until_check_luna": 1}}
+RETESTS = {"smoke": 0, "calibration": 10, "redraw": 0, LUNA_SMOKE: 0}  # the first tasks of the tranche, in its order
+STUDY_TRANCHES = ("smoke", "calibration", "redraw")
+SMOKES = ("smoke", LUNA_SMOKE)  # on the smoke task; a slot a usage limit cut never runs again
 CHOSEN = "calibration-tasks.json"  # under the results directory
 MIN_FREE = 20 * 10**9
 WIDTH = 2  # units in flight at a time (coordinator ruling R3): a usage limit cuts at most two
@@ -78,10 +86,10 @@ def chosen(study):
 
 
 def tranche_tasks(study, tranche):
-    """The tasks a tranche may run, in order: the smoke task, every ladder package for the probe, the chosen tasks
-    for the calibration."""
+    """The tasks a tranche may run, in order: the smoke task for either smoke, every ladder package for the probe,
+    the chosen tasks for the calibration."""
     rows = task_rows(study)
-    if tranche == "smoke":
+    if tranche in SMOKES:
         return [row["id"] for row in rows if row.get("set") == "smoke"]
     if tranche == "redraw":
         return [package["id"] for package in ladder.packages(rows)]
@@ -96,6 +104,31 @@ def require_tasks(study, tranche, tasks, kind="first"):
     if not tasks or set(tasks) - set(allowed):
         raise SystemExit(f"{tranche} {kind} takes tasks among {allowed}, not {sorted(set(tasks) - set(allowed))}")
     return ladder.fix_commits(task_rows(study))
+
+
+def require_pool_kind(tranche, kind):
+    """Refuse a pool kind the tranche does not build: the Luna smoke's is `LUNA_POOL` alone, every other tranche's
+    `first` or `retest`."""
+    if (tranche == LUNA_SMOKE) != (kind == LUNA_POOL):
+        raise SystemExit(f"{tranche} builds {'the ' + LUNA_POOL if tranche == LUNA_SMOKE else 'first or retest'} "
+                         f"pools, not {kind}")
+
+
+def tranche_judges(tranche):
+    """The judges a tranche's caps give calls (`spend.CAPS`), in `gates.JUDGES` order."""
+    return [judge for judge in gates.JUDGES if spend.CAPS[tranche]["judge"].get(judge)]
+
+
+def pool_criterion(study, kind):
+    """The judge criterion a pool of `kind` is built and summarized under: the study's, or for the Luna smoke's pool
+    a copy naming only the Luna smoke's judges (summarize.py takes the criterion's judges to be the pool's), written
+    to `results/` from the study's on every call, so both steps read the same bytes."""
+    if kind != LUNA_POOL:
+        return study.criterion
+    path = study.results / f"{LUNA_SMOKE}-criterion.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    dump(path, load(study.criterion) | {"judges": tranche_judges(LUNA_SMOKE)})
+    return path
 
 
 def load_arms(study):

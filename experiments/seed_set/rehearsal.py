@@ -54,11 +54,11 @@ from tests.experiments.seed_set_offline_support import (
 
 CHECKOUT = Path(__file__).resolve().parents[2]
 GUARD = CHECKOUT / "experiments" / "thread_m" / "no_provider"
-H, S = spend.HAIKU, spend.SONNET
+H, S, L = spend.HAIKU, spend.SONNET, spend.LUNA
 WITHHELD_TASK = "12ea8483f0-withheld"  # a real T3w package for the withheld launch
 # the rehearsal's priced ceilings and worst cases (the stand-in prices Haiku at USD 0.0036 and Sonnet at 0.067 a call)
-TERMS = {"ceiling_usd": {"smoke": 10.0, "redraw": 3.0, "calibration": 40.0}, "per_call_usd": {H: 0.25, S: 1.0},
-         "largest_call_usd": {H: 0.0036, S: 0.067}}
+TERMS = {"ceiling_usd": {"smoke": 10.0, "redraw": 3.0, "calibration": 40.0, layout.LUNA_SMOKE: 10.0},
+         "per_call_usd": {H: 0.25, S: 1.0, L: 0.5}, "largest_call_usd": {H: 0.0036, S: 0.067, L: 0.016}}
 
 
 def git(*args):
@@ -85,7 +85,7 @@ def stand_in_plan(rows, tasks):
         entries[task] = {"marker": (package / "task.txt").read_text().strip(),
                          "patch": (package / "anchors" / f"{task}-upstream.diff").read_text(),
                          "visible": [sys.executable, "-c", ""] if config.get("withheld") else config["argv"],
-                         "fix": {H: haiku_fix(rung, index, task, smoke), S: 1}}
+                         "fix": {H: haiku_fix(rung, index, task, smoke), S: 1, L: haiku_fix(rung, index, task, smoke)}}
     # the stub takes the first marker in its prompt: a T0 statement holds its T1 statement, so longest first
     return {"tasks": dict(sorted(entries.items(), key=lambda item: -len(item[1]["marker"])))}
 
@@ -150,6 +150,17 @@ def pools(s, name, kind, tasks):
         study.judge(s, name, kind, [task])
         if layout.current_pool(s, task, kind).exists():
             study.summarize_pools(s, kind, [task])
+
+
+def luna_smoke(s):
+    """The Luna smoke (ruling L-R8 of the Luna plan), staged as `smoke` is: its two Luna arms on the smoke task, its
+    pool and one Haiku judge, the summary and its `smoke-check`."""
+    tranche(layout.LUNA_SMOKE)
+    (task,) = layout.tranche_tasks(s, layout.LUNA_SMOKE)
+    for arm in layout.PLANNED[layout.LUNA_SMOKE]:
+        study.candidates(s, layout.LUNA_SMOKE, arm, [task])
+    pools(s, layout.LUNA_SMOKE, layout.LUNA_POOL, [task])
+    return rules.smoke_check(s, layout.LUNA_SMOKE)
 
 
 def smoke(s):
@@ -373,7 +384,7 @@ def stages(root, s, count, withheld_only=False, cut_in="probe"):
         dump(root / "rehearsal.json", out)
         print(json.dumps({k: v for k, v in out.items() if k != "ledger"}, indent=1))
         return
-    out = {"smoke_check": smoke(s)}
+    out = {"smoke_check": smoke(s), "luna_smoke_check": luna_smoke(s)}
     tranche("redraw")
     out["usage_limit"] = probe_with_a_cut(s)
     out["probe"] = probing.probe_readout(s)
