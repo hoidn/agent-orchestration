@@ -6,8 +6,9 @@ simple workflows that do at least as well as one direct call, as seeds for a lat
 set, the thresholds, the budget, the stop rules and the ledger. This page only routes. Its commands are for this
 machine and are not copyable examples.
 
-**Spend before the calibration: 26 calls, priced USD 3.66 settled** (three smokes and the ladder probe). The
-calibration tranche started on 2026-11-25; the plan's ledger has its spend row and every stage's result. The smoke and the calibration tranches, and a smoke repeated on the owner's word after an apparatus failure,
+**Spend before the restarted calibration: 46 calls, priced USD 5.37 settled** (three smokes, the ladder probe, and the
+calibration's first stage under the earlier 1,200 s limit, whose 20 runs are superseded). The calibration restarted on
+2026-11-26 under a 2,400 s call limit; the plan's ledger has its spend rows and every stage's result. The smoke and the calibration tranches, and a smoke repeated on the owner's word after an apparatus failure,
 are the only authorized spend (`AGENTS.md`, "Experiment rules"); the seed evaluation needs a new owner approval. Every call uses the owner's subscription.
 
 ## Where to read
