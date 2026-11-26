@@ -13,6 +13,7 @@
   "experiments/mle_bench_tasks/agent/validate_submission.py": "485f337a40e24c13db591177dd71c870565ffe7f5f10570ffd16700f09043168",
   "experiments/mle_bench_tasks/criterion_fields.json": "6d3a0f9e229d2e03df5c8bc91e9be1d37ef30db82bf1beeb50c2f3dfb797798e",
   "experiments/mle_bench_tasks/family.json": "433cc88732a2fb23bd511257f389f48c8810dc21142af1e9a92909895c97a817",
+  "experiments/mle_bench_tasks/fetch.sh": "6f66dbce49ee17e0400c523cd39c3df36786074eedcfe63eb11f9c0c59760c8b",
   "experiments/mle_bench_tasks/instructions.md": "5313a51debec8005b1d353bace6c4d9a85fe6879d0da9d85024127bc5b394339",
   "experiments/mle_bench_tasks/make_criterion.py": "ec305b658559d7a5d48efa727cf46ef4cb49c9e5da7d2d291bf4ba7139fb202b",
   "experiments/mle_bench_tasks/screen.py": "8e6f9d5be6f76c18433571dd091fe959c453b00fabcc373eb45e9ff03c60d506",
