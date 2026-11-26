@@ -39,6 +39,10 @@ LIMITS = (  # stated on every readout, one line each; recorded, not changed (coo
 )
 
 
+BASELINES = "Haiku direct runs"  # the runs of the calibration's re-roll baselines, named in their heading
+SEED_PAGE_BASELINES = "calibration Haiku direct runs, not the seed baseline"  # that heading beside the seed section
+
+
 def measure_free(runs):
     """Per tranche and arm: runs, outcomes, incidents, usage-limit cuts, physical calls, mean wall clock, visible
     passes and visible checks past their bound (neither a pass nor a failure; re-review N2), metering."""
@@ -198,9 +202,9 @@ def gate_lines(gates_):
             f"{g4['judge_exclusions']}: {g4['passed']}"]
 
 
-def judged_lines(c, b):
+def judged_lines(c, b, baselines=BASELINES):
     """A qualified calibration (a selected judge, every gate passed): the judge gate, the calibration table, the
-    task gates and the re-roll baselines."""
+    task gates and the re-roll baselines, under a heading naming their runs (`baselines`)."""
     lines = ["## Judge gate", ""] + judge_lines(c["judges"])
     lines += ["", f"Selected judge: {c['selected'] or 'none'}"
               + (f" ({c['insensitive']} treated as insensitive on G3)" if c["insensitive"] else "") + ".", ""]
@@ -209,7 +213,7 @@ def judged_lines(c, b):
     unscored = [t for t, row in c["table"].items() if row["haiku"] is None or row["sonnet"] is None]
     lines += [f"Tasks without both arms scored by {c['selected']} (left out of G2/G3): {unscored or 'none'}."]
     if b:
-        lines += ["", "## Offline re-roll baselines (Haiku direct runs)", "",
+        lines += ["", f"## Offline re-roll baselines ({baselines})", "",
                   f"Q1 {fmt(b['Q1'])}; Q2 {fmt(b['Q2'])} at {fmt(b['Q2_calls'])} calls; Q3 {fmt(b['Q3'])} at "
                   f"{fmt(b['Q3_calls'])} calls; random-of-3 {fmt(b['random_of_3'])}; any-of-3 {fmt(b['any_of_3'])}; "
                   f"visible check failed in {fmt(b['visible_fail_rate'])} of direct runs."]
@@ -234,7 +238,9 @@ def limit_lines():
     return ["", "## Limits", ""] + [f"- {line}" for line in LIMITS]
 
 
-def markdown(r):
+def markdown(r, baselines=BASELINES):
+    """The calibration's page; `baselines` names the runs of its re-roll baselines in their heading (the seed
+    readout's page, which holds the seed baselines too, passes `SEED_PAGE_BASELINES`)."""
     lines = ["# Seed-set calibration readout", "",
              f"Tasks: {len(r['tasks'])} ({rungs(r['rungs'])}); retest: {len(r['retest_tasks'])}.",
              "", "## Runs (measure-free)", "",
@@ -262,5 +268,5 @@ def markdown(r):
     lines += ["Every pool holds an unchanged base and the reference fix, both rated; hidden tests fail the base and "
               "pass the reference.", ""]
     c = r["calibration"]
-    lines += stop_lines(c) if c.get("stopped") else judged_lines(c, r["baselines"])
+    lines += stop_lines(c) if c.get("stopped") else judged_lines(c, r["baselines"], baselines)
     return "\n".join(lines + limit_lines()) + "\n"

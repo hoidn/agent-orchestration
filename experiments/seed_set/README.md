@@ -21,7 +21,7 @@ are the only authorized spend (`AGENTS.md`, "Experiment rules"); the seed evalua
 | The caps, the priced ceiling and the pause events | The docstring of `spend.py` |
 | The task packages and the difficulty ladder | `build_tasks.py`, `tiers.py`, `tasks.jsonl`, `tasks/` |
 | The anchors' stability record | `anchors.py`, `anchor_stability.json`, and the section below |
-| The seed evaluation: its task list, judge criterion, pools and report (anchor and control checks per batch, arm figures, the selection rule, `seeds.json`; the report is not yet wired to a command) | "The seed evaluation" below, the docstring of `seeds.py`, and the [seed evaluation apparatus plan](../../docs/plans/2026-11-25-seed-evaluation-apparatus-plan.md) |
+| The seed evaluation: its task list, judge criterion, pools and report (anchor and control checks per batch, arm figures, the selection rule, `seeds.json`) | "The seed evaluation" below, the docstring of `seeds.py`, and the [seed evaluation apparatus plan](../../docs/plans/2026-11-25-seed-evaluation-apparatus-plan.md) |
 
 ## Before a tranche's first start
 
@@ -155,6 +155,18 @@ The tranche `seed_evaluation` (plan Step 3; the
   `judge --kind seed` runs the selected judge alone (the tranche's caps name only it), one call a batch, so it
   reserves two calls; `summarize --kind seed` keeps the pool's `mapping.json`, whose `batches` name each batch's
   clones, beside its `results.json`.
+- **Its readout** is `study.py seed-readout` (plan Step 4), which runs the report of `seeds.py` over the summarized
+  seed pools, one record per seed run no seed pool holds (a failure scores 0, an incident is listed), each run's
+  settled facts (its `settle` event's priced figures; `nested_sessions` and `tokens`, which every settlement
+  records), the judge units' calls and priced cost, and the judge and tasks of `seed-tasks.json`. The arms the
+  visible-check checkpoint withheld are read from its latest `visible_power` event (`launch` false withholds retry
+  parity and implement-check-repair; no event withholds none), never recomputed. It writes `results/seeds.json`
+  (the decision, the selected programs with their sha256, `q`, `c`, difference from direct and interval, or the
+  stop that prevented a seed set, the judge, the tasks, the visible check's rate, and under `hashes` the sha256 of
+  `criterion.json`, the task list, `seed-tasks.json` and `judge-seeds.json` with the runtime commit of the freeze in
+  force) and `results/readout.md` (the calibration's page, rebuilt from the stored `calibration.json` with its
+  re-roll baselines headed as the calibration's, then the seed section). It records a `seed_decision` event with
+  the decision, the seeds and the stop; "no workflow qualified at this size" is a decision, never a `stop` event.
 
 ## Usage limits and paid extra usage
 

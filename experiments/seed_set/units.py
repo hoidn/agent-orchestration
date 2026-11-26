@@ -22,7 +22,8 @@
   than physical calls, or an answer by another model fails the unit. Not seen: sessions written into the unit
   tree or its /tmp (the repository's own tests write session-shaped fixtures there, so they cannot be told
   apart), sessions in memory-only mounts such as /dev/shm, a CLI run with session persistence off, and direct API
-  requests with the copied credential.
+  requests with the copied credential. `nested_sessions` counts the session files below the store's top level,
+  which the settlement records (the seed evaluation's nested-session switch).
 - `isolation_breach`: a session whose `system/init` event lists a tool outside `sandbox.CLAUDE_TOOLS` (an
   allowlist: an MCP, Artifact, agent or wake-up tool, or a built-in tool a CLI update added), any MCP server, a
   skill named `<source>:<skill>` (a plugin's or the account's) or a plugin that is not `@builtin`; a clean
@@ -571,6 +572,14 @@ def audit_sessions(home, tree, made, model):
     if len(top) > made:
         return f"{len(top)} sessions for {made} recorded calls", None, sessions
     return None, None, sessions
+
+
+def nested_sessions(home, sessions):
+    """How many of a unit's session files (`audit_sessions`' or `audit_rollouts`' third value) lie below the top
+    level of its private home's Claude project store (`.claude/projects/<project>/<deeper>/...`: a session an agent
+    started inside its own, such as a subagent's); a Codex rollout lies outside the store and counts none."""
+    projects = Path(home) / ".claude" / "projects"
+    return sum(path.is_relative_to(projects) and len(path.relative_to(projects).parts) > 2 for path in sessions)
 
 
 def claude_sessions(home):

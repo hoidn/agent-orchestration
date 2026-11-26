@@ -26,7 +26,7 @@ import pytest
 
 from experiments.compare import pool as pooling, prepare, scan
 from experiments.compare.repos import sha256_file
-from experiments.seed_set import forms, host, layout, probing, rules, spend, study, units
+from experiments.seed_set import forms, host, layout, probing, readout, rules, seeds, spend, study, units
 from tests.experiments.compare_harness_support import (
     OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up, skip_without_sandbox, write_test_sandbox_config,
 )
@@ -1220,9 +1220,12 @@ def seed_world(world, monkeypatch):
         **SPEND_TERMS["ceiling_usd"], SEED: 50.0}), sha256=rules.required_hashes(s) | {
         layout.SEED_CRITERION: sha256_file(s.seed_criterion)})
     rules.record_freeze(s)
-    world.runs = [fabricated_seed_run(world, arm, k) for arm, n in SEED_ARMS.items() for k in range(n)]
+    world.runs = [fabricated_seed_run(world, arm, k, SETTLED | {"visible": {"passed": k > 0}})
+                  for arm, n in SEED_ARMS.items() for k in range(n)]
     return world
 
+
+SETTLED = {"priced": {"usd": 0.01, "missing": []}, "nested_sessions": 0, "tokens": 1000}  # what a settlement adds
 
 def test_offline_a_seed_pool_of_fourteen_runs_is_two_batches_judged_by_one_judge_and_summarized(seed_world):
     s = seed_world.study
@@ -1254,3 +1257,39 @@ def test_offline_a_seed_pool_of_fourteen_runs_is_two_batches_judged_by_one_judge
 def test_offline_a_seed_pool_is_refused_for_a_tranche_that_builds_none(seed_world):
     with pytest.raises(SystemExit, match="pools, not seed"):
         study.build_pools(seed_world.study, "calibration", layout.SEED_POOL, [SEED_TASK])
+
+
+def test_offline_the_seed_readout_reads_a_summarized_seed_pool_and_writes_its_outputs(seed_world):
+    """The seed readout (B4) over the real pool: one of the two seed tasks has a pool, the other none, so two of
+    four batches are missing and no quality claim is made; the outputs are written all the same."""
+    from tests.experiments.test_seed_set import world as calibration_world
+    s = seed_world.study
+    records, pools = calibration_world()
+    tasks = [f"t{i:02d}" for i in range(20)]
+    (s.results / "calibration.json").write_text(json.dumps(readout.report(records, pools, tasks, tasks[:10],
+                                                                          {"T3": 20}, {}, {}, {}, 100)))
+    study.build_pools(s, SEED, layout.SEED_POOL, [SEED_TASK])
+    study.judge(s, SEED, layout.SEED_POOL, [SEED_TASK])
+    study.summarize_pools(s, layout.SEED_POOL, [SEED_TASK])
+    out = study.seed_readout(s)
+    decision = [row for row in spend.rows(s.ledger) if row.get("event") in ("seed_decision", "stop")]
+    assert (out["stop"], out["hashes"]["runtime_commit"], [row["event"] for row in decision],
+            "## Seed evaluation" in (s.results / "readout.md").read_text()) == (
+        f"{seeds.NO_CLAIM}: 2 of 4 batches have reference minus base under 4",
+        spend.latest(spend.rows(s.ledger), "freeze")["runtime_commit"], ["seed_decision"], True)
+
+
+def test_offline_a_settled_run_with_a_nested_session_counts_it(world, monkeypatch):
+    s = world.study
+    monkeypatch.setenv(spend.AUTHORIZATION, "smoke")
+    Path(world.plan).write_text(json.dumps(json.loads(Path(world.plan).read_text()) | {"nested_session": True}))
+    study.candidates(s, "smoke", "direct", [SMOKE])
+    (path,) = study.study_runs(s)
+    facts = json.loads(path.read_text())
+    assert (facts.get("incident"), facts["sessions"], facts["nested_sessions"]) == (None, 2, 1)
+
+
+def test_offline_a_settled_run_records_its_metered_tokens(luna_world):
+    records, facts = luna_unit(luna_world)  # the stand-in `codex` reports complete usage; the Claude stand-in none
+    metered = seeds.metered_tokens(json.loads((records / "metering.json").read_text()))
+    assert (metered is not None, facts["tokens"], facts["nested_sessions"]) == (True, metered, 0)

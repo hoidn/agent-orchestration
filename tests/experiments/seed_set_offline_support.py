@@ -31,7 +31,9 @@ every call waits that long before it answers. With `"stderr_warning": text` ever
 implementer call appends to the `conftest.py` of its tree code that, whenever pytest loads it in a host-side check
 (its HOME is the check's `seed-set-host-*` box), records its pid as a file in `dir` and sleeps N seconds; optional
 `"task"` and `"model"` keys limit it to that task's calls by that model, and `"node"` to a pytest run whose command
-line names that node (one hidden test that hangs, fix round 3).
+line names that node (one hidden test that hangs, fix round 3). With `"nested_session": true` every call also
+writes a session answered by its model below its own session's directory (`<pid>/subagents/agent-1.jsonl`), where a
+subagent's session lies.
 """
 
 import sys
@@ -106,6 +108,10 @@ slug = re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
 session = Path(os.environ["HOME"]) / ".claude" / "projects" / slug / f"{{os.getpid()}}.jsonl"
 session.parent.mkdir(parents=True, exist_ok=True)
 session.write_text(json.dumps({{"type": "assistant", "message": {{"model": model}}}}) + "\\n")
+if plan.get("nested_session"):
+    nested = session.with_suffix("") / "subagents" / "agent-1.jsonl"
+    nested.parent.mkdir(parents=True)
+    nested.write_text(json.dumps({{"type": "assistant", "message": {{"model": model}}}}) + "\\n")
 if os.environ.get("SEED_SET_WITHHELD"):  # the sandbox clears it: an agent must never see the withheld tests' path
     with session.open("a") as log:
         log.write(json.dumps({{"type": "assistant", "message": {{"model": model, "withheld_seen": True}}}}) + "\\n")

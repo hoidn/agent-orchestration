@@ -42,6 +42,7 @@ COST_LIMIT, COMPLETION, DISTINCTIVE = Fraction(3), Fraction(95, 100), Fraction(1
 VISIBLE_POWER, NESTED, EXTENSION = Fraction(1, 5), Fraction(1, 10), Fraction(1, 4)
 PARITY_CALLS, PARITY_SCORE = Fraction(1, 2), Fraction(3, 2)
 RETRY = "retry_until_check"
+CHECK_ARMS = (RETRY, "implement_check_repair")  # the arms `visible_power` withholds when it does not `launch`
 # the physical call at which each workflow's distinctive step runs, read from its program: retry's second attempt
 # and implement-check-repair's first repair are its second call; implement-review-revise's revision is its third
 DISTINCTIVE_CALLS = {RETRY: 2, "implement_check_repair": 2, "implement_review_revise": 3}

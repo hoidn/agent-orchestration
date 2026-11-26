@@ -27,6 +27,8 @@
   study.py readout                                        anchors first, then V1-V4, G1-G4, incidents, baselines
   study.py seed-tasks                                     the seed evaluation's tasks and judge, written once from a
                                                           qualified calibration (results/seed-tasks.json)
+  study.py seed-readout                                   the seed report: seeds.json, readout.md with the seed
+                                                          section, a seed_decision event (never a stop)
   study.py ledger                                         calls reserved and made, and the events
   study.py login-expiry [--provider codex]                when the login's access token expires (`expires <ISO>, in
                                                           <N> minutes`), read from the file a unit would copy (the
@@ -100,7 +102,9 @@ from experiments.compare import pool as pooling, prepare, scan, summarize as sum
 from experiments.compare.repos import dump, load, sha256_file
 from experiments.orc_structural_search import metering
 from orchestrator.providers.pricing import load_price_table
-from experiments.seed_set import blinding, gates, host, ladder, layout, reaper, readout, rules, selection, spend, units
+from experiments.seed_set import (
+    blinding, gates, host, ladder, layout, reaper, readout, rules, seeds, selection, spend, units,
+)
 from experiments.seed_set.layout import (
     PLANNED, RETESTS, WIDTH, Study, chosen, load_arms, load_criterion, require_tasks, study_runs,
     counted_runs, task_dir, task_rows, tranche_tasks,
@@ -352,9 +356,10 @@ def finish(study, records, facts, fix):
 
 
 def settle(study, records, task, fix, cap, model, status, effort=None):
-    """Collect and scan the run, audit its sessions, run the visible check on its final patch behind the guard,
-    record metering, keep the run state (replacing a copy an interrupted settlement made) and delete the agents'
-    tree. A run the harness cannot collect, a provider error and a failed session audit are incidents; a run that
+    """Collect and scan the run, audit its sessions (recording how many there are and how many lie below the top
+    level of the project store, `units.nested_sessions`), run the visible check on its final patch behind the guard,
+    record metering and its token sum (`seeds.metered_tokens`), keep the run state (replacing a copy an interrupted
+    settlement made) and delete the agents' tree. A run the harness cannot collect, a provider error and a failed session audit are incidents; a run that
     outlived its wall clock is a natural failure. A tree that cannot be removed is named in `tree_left` and printed,
     not raised, so the settlement is kept (ruling R16). `effort` is the arm's, which a Codex unit's audit checks."""
     made, record = units.physical_calls(records), load(records / "record.json")
@@ -372,7 +377,7 @@ def settle(study, records, task, fix, cap, model, status, effort=None):
     out = provider_end(study, records, str(records), out, record["sandbox"]["home"])
     reason, policy, sessions = audit(records, record, made, model, effort)
     reason = reason or units.isolation_breach(records)
-    out["sessions"] = len(sessions)
+    out["sessions"], out["nested_sessions"] = len(sessions), units.nested_sessions(record["sandbox"]["home"], sessions)
     if policy:
         rules.stop(study, f"forbidden model in {records}: {policy}")
     if reason:  # a failed audit is an incident, cut or not
@@ -384,6 +389,7 @@ def settle(study, records, task, fix, cap, model, status, effort=None):
                                 home=Path(record["sandbox"]["home"]))
     dump(records / "metering.json", receipt)
     out["metering_complete"] = receipt["consumption"] != metering.UNAVAILABLE
+    out["tokens"] = seeds.metered_tokens(receipt)
     if Path(record["state_root"]).is_dir():
         if (records / "state").exists() and (why := units.remove_tree(records / "state", records)):
             raise SystemExit(f"{records / 'state'}: an earlier settlement's copy cannot be replaced: {why}")
@@ -846,14 +852,15 @@ def summarized_pool(directory, models):
     return gates.pool_records(task, kind, results, hashes, models, judged_of(directory))
 
 
-def unpooled_runs(facts, pooled, tasks):
-    """A record for every calibration run of `tasks` that no first pool holds: a natural failure (a failed outcome
-    or a timeout) or an incident. A run cut by a usage limit is no observation (R1)."""
+def unpooled_runs(facts, pooled, tasks, pool="first"):
+    """A record of pool kind `pool` for every run in `facts` (the calibration's, or the seed evaluation's for a
+    `seed` record) of `tasks` that no pool of that kind holds: a natural failure (a failed outcome or a timeout) or
+    an incident. A smoke run is left out, and so is a run cut by a usage limit, which is no observation (R1)."""
     records = []
     for run, row in facts.items():
         if run not in pooled and row["tranche"] not in layout.SMOKES and row["task"] in tasks and "cut" not in row:
             failed = "incident" not in row and (row.get("outcome") == "failed" or row.get("exit") == "timeout")
-            records.append({"task": row["task"], "pool": "first", "role": "candidate", "arm": row["arm"],
+            records.append({"task": row["task"], "pool": pool, "role": "candidate", "arm": row["arm"],
                             "model": row["model"], "run": run, "patch": None, "hidden": None, "scores": {},
                             "status": "failed" if failed else "incident", "reason": row.get("incident")})
     return records
@@ -916,6 +923,102 @@ def write_seed_tasks(study):
                         calibration_sha256=sha256_file(source))
 
 
+VISIBLE_EVENT = "visible_power"  # the visible-check checkpoint's event: `selection.visible_power`'s figures
+
+
+def withheld_arms(entries):
+    """The arms the visible-check checkpoint withheld, read from its latest `visible_power` event (the figures of
+    `selection.visible_power`, `launch` among them): `selection.CHECK_ARMS` when it did not launch them, none when it
+    did or before any such event."""
+    event = spend.latest(entries, VISIBLE_EVENT)
+    return list(selection.CHECK_ARMS) if event and not event["launch"] else []
+
+
+def load_seed_records(study, models, tasks):
+    """(records, pools) for `seeds.report`: the records of each summarized seed pool of `tasks` (`summarized_pool`),
+    each pool with its batches' clone ids from its copied mapping.json (an incident has none), and one record of
+    pool kind `seed` (`unpooled_runs`) per seed evaluation run of `tasks` that no seed pool holds."""
+    records, pools = [], []
+    for directory in [study.results / "pools" / f"{task}-{layout.SEED_POOL}" for task in tasks]:
+        if directory.is_dir():
+            found, info = summarized_pool(directory, models)
+            records += found
+            batches = {} if "incident" in info else {"batches": load(directory / "mapping.json")["batches"]}
+            pools.append(info | batches)
+    facts = {str(path.parent): row for path in counted_runs(study)
+             if (row := load(path))["tranche"] == layout.SEED_EVALUATION}
+    return records + unpooled_runs(facts, {r["run"] for r in records}, tasks, layout.SEED_POOL), pools
+
+
+def priced_of(row):
+    """A `settle` event's priced figures, as `seeds.report` reads them."""
+    return {"usd": row["usd"], "missing": row["missing"]}
+
+
+def seed_runs(study, tasks, settled):
+    """{records path: study.json facts} of the seed evaluation's runs of `tasks`, each with its wall clock from
+    record.json and, once settled, its `settle` event's priced figures (`settled`: `spend.settled`)."""
+    runs = {}
+    for path in counted_runs(study):
+        if (facts := load(path))["tranche"] == layout.SEED_EVALUATION and facts["task"] in tasks:
+            unit = str(path.parent)
+            runs[unit] = facts | {"wall_clock_sec": load(path.parent / "record.json").get("wall_clock_sec")} | (
+                {"priced": priced_of(settled[unit])} if unit in settled else {})
+    return runs
+
+
+def seed_judge_units(entries, settled):
+    """{"calls", "priced"} of every seed evaluation judge unit the ledger started: its physical calls and its
+    `settle` event's priced figures, or its reserved worst case, listed as missing usage, when it never settled."""
+    return [{"calls": units.physical_calls(unit_files(row["unit"])[1]),
+             "priced": priced_of(settled[row["unit"]]) if row["unit"] in settled
+             else {"usd": row["usd_reserved"], "missing": ["unsettled"]}}
+            for row in spend.starts(entries) if (row["tranche"], row["kind"]) == (layout.SEED_EVALUATION, "judge")]
+
+
+def seed_programs(study, arms):
+    """{arm: {"source", "sha256", "lines", "model", "effort"}} of the arms the seed evaluation plans
+    (`layout.PLANNED`), in arms.json's order."""
+    return {name: {"source": arm["source"], "sha256": sha256_file(study.programs / arm["source"]),
+                   "lines": selection.program_lines(study.programs / arm["source"]), "model": arm["model"],
+                   "effort": arm["effort"]} for name, arm in arms.items() if name in PLANNED[layout.SEED_EVALUATION]}
+
+
+def seed_hashes(study, entries):
+    """What the seed readout rests on: the sha256 of criterion.json, the task list, the seed task list and the seed
+    judge criterion, and the runtime commit of the freeze in force (the latest `freeze` event)."""
+    return {"criterion_sha256": sha256_file(study.frozen), "tasks_sha256": sha256_file(study.tasks_file),
+            "seed_tasks_sha256": sha256_file(study.results / layout.SEED_TASKS),
+            "seed_criterion_sha256": sha256_file(study.seed_criterion),
+            "runtime_commit": (spend.latest(entries, "freeze") or {}).get("runtime_commit")}
+
+
+def seed_readout(study):
+    """`seed-readout` (Step 4): `seeds.report` over the summarized seed pools and the seed evaluation's runs
+    (`load_seed_records`, `seed_runs`), its judge and tasks from the seed task list, its judge units' cost, and the
+    arms the visible-check checkpoint withheld (`withheld_arms`). Writes `results/seeds.json` (`seeds.seeds_json`
+    with each program's sha256 and `seed_hashes`) and `results/readout.md` (the calibration's page from the stored
+    calibration.json, its baselines' heading naming their runs, then the seed section), and records a
+    `seed_decision` event with the decision, the seeds and the stop that prevented a seed set; a decision of no
+    seed is a readout outcome, never a `stop` event. Refused before the seed task list exists."""
+    listed = layout.seed_task_list(study)
+    if listed is None:
+        raise SystemExit(f"no {layout.SEED_TASKS}: `seed-tasks` writes the seed task list first")
+    arms, entries = load_arms(study), spend.rows(study.ledger)
+    settled, tasks, programs = spend.settled(entries), listed["tasks"], seed_programs(study, arms)
+    records, pools = load_seed_records(study, {name: arm["model"] for name, arm in arms.items()}, tasks)
+    result = seeds.report(records, pools, seed_runs(study, tasks, settled), listed["judge"], tasks, programs,
+                          seed_judge_units(entries, settled), withheld=withheld_arms(entries))
+    out = seeds.seeds_json(result, programs) | {"hashes": seed_hashes(study, entries)}
+    dump(study.results / "seeds.json", out)
+    page = readout.markdown(load(study.results / "calibration.json"), readout.SEED_PAGE_BASELINES)
+    (study.results / "readout.md").write_text(page + "\n" + seeds.markdown(result))
+    spend.record(study.ledger, "seed_decision", decision=out["decision"], seeds=[e["arm"] for e in out["seeds"]],
+                 stop=out["stop"])
+    print(seeds.markdown(result), end="")
+    return out
+
+
 def ledger_report(study):
     """Reserved and physical calls per tranche, kind and model, and the events; a breach refuses."""
     rules.audit_ledger(study)
@@ -955,7 +1058,7 @@ def parser():
                                  "the seed evaluation's two-batch pools")
         command.add_argument("tasks", nargs="+")
     sub.add_parser("settle").add_argument("runs", nargs="+", help="records directories")
-    for name in ("probe-readout", "early-look", "readout", "seed-tasks", "ledger"):
+    for name in ("probe-readout", "early-look", "readout", "seed-tasks", "seed-readout", "ledger"):
         sub.add_parser(name)
     sub.add_parser("smoke-check").add_argument("--tranche", choices=layout.SMOKES, default="smoke",
                                                help="whose smoke: the Claude smoke (default) or the Luna smoke")
@@ -1016,6 +1119,7 @@ def main(argv=None):
         "early-look": lambda: print(json.dumps(rules.early_look(study), indent=2)),
         "readout": lambda: write_readout(study),
         "seed-tasks": lambda: print(json.dumps(write_seed_tasks(study))),
+        "seed-readout": lambda: seed_readout(study),
         "ledger": lambda: ledger_report(study),
         "login-expiry": lambda: print(units.expiry_text(units.login_expiry(provider=a.provider))),
         "resume-after-limit": lambda: print(json.dumps(spend.resume_after_limit(

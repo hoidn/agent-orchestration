@@ -62,8 +62,8 @@ LIMITS = (
 
 def metered_tokens(receipt):
     """A run's metered tokens from its metering.json (`metering.receipts`): the providers' token sums, or None when
-    the consumption is unavailable. The run facts' `tokens` that `report` reads; the seed readout command (task B4 of
-    the seed evaluation apparatus plan) sets it with this function."""
+    the consumption is unavailable: the run facts' `tokens` that `report` reads, which `study.settle` records with
+    this function."""
     found = receipt["consumption"]
     if found == metering.UNAVAILABLE:
         return None
