@@ -46,7 +46,7 @@ REPORTED_USD = 0.001
 SPEND_TERMS = {"ceiling_usd": {"smoke": 20.0, "redraw": 40.0, "calibration": 100.0},
                "per_call_usd": {"claude-haiku-5-5": 0.25, "claude-sonnet-5-5": 1.0, "gpt-6-luna": 0.5},
                "largest_call_usd": {"claude-haiku-5-5": 0.01, "claude-sonnet-5-5": 0.1, "gpt-6-luna": 0.016},
-               "cli": {"path": "/stand-in/bin/claude", "version": VERSION}}  # one pin: the Claude CLI's (older form)
+               "cli": {"path": "/stand-in/bin/claude", "version": VERSION}}  # a single pin: the Claude CLI's
 # The stand-in `codex` (CODEX_STUB): its version line, and each call's `turn.completed` usage, which the frozen table
 # prices at USD 0.016 for gpt-6-luna (100,000 charged input, 100,000 cached, 10,000 output tokens).
 CODEX_VERSION = "codex-cli 0.171.0-stand-in"

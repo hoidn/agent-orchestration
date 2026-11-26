@@ -90,6 +90,16 @@ def stand_in_plan(rows, tasks):
     return {"tasks": dict(sorted(entries.items(), key=lambda item: -len(item[1]["marker"])))}
 
 
+def install_stand_ins(fakebin, home):
+    """The stand-in `claude` and `codex` as executables in `fakebin`, and in `home` a stand-in login per CLI: the
+    expiry every unit's start reads (rulings R16 and L-R3), no real token."""
+    for name, stub in (("claude", STUB), ("codex", CODEX_STUB)):
+        (fakebin / name).write_text(stub)
+        (fakebin / name).chmod(0o755)
+    stand_in_login(home / ".claude")
+    stand_in_codex_login(home / ".codex")
+
+
 def setup(root):
     root.mkdir()
     OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
@@ -101,11 +111,7 @@ def setup(root):
     git("-C", main, "worktree", "add", "-q", "--detach", runtime, head)  # the committed runner and packages
     for directory in (home, fakebin, root / "freeze"):
         directory.mkdir()
-    for name, stub in (("claude", STUB), ("codex", CODEX_STUB)):
-        (fakebin / name).write_text(stub)
-        (fakebin / name).chmod(0o755)
-    stand_in_login(home / ".claude")  # the expiry every unit's start reads (ruling R16); no real token
-    stand_in_codex_login(home / ".codex")  # the same for a Codex unit (ruling L-R3)
+    install_stand_ins(fakebin, home)
     tasks_file = runtime / "experiments" / "seed_set" / "tasks.jsonl"
     plan = outside / "stub-plan.json"
     dump(plan, stand_in_plan([json.loads(line) for line in tasks_file.read_text().splitlines()],

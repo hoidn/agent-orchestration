@@ -52,6 +52,11 @@ def test_a_pooled_patch_naming_a_model_or_a_run_is_a_hit(tmp_path):
         ("c1", "haiku"), ("c2", "k3x9"), ("c2", str(tmp_path / "work")), ("c2", str(tmp_path / "work/agents/k3x9"))}
 
 
+def test_a_pooled_patch_naming_the_luna_model_is_a_hit(tmp_path):
+    out, task = pool_dir(tmp_path, {"c1": diff("pkg/calc.py", "# written by gpt-6-luna")})
+    assert {h["token"] for h in blinding.scan_pool(out, task, tokens(tmp_path))} == {"gpt-6-luna", "luna"}
+
+
 def test_context_lines_and_text_the_reference_fix_adds_are_not_hits(tmp_path):
     out, task = pool_dir(tmp_path, {"c1": diff("pkg/models.py", 'DEFAULT = "claude-sonnet-5-5"')},
                          upstream_adds='DEFAULT = "claude-sonnet-5-5"')

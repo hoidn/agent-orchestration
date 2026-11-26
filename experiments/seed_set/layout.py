@@ -123,17 +123,17 @@ def load_criterion(study):
 def spend_terms(study, tranche, model):
     """(the tranche's priced ceiling, the model's per-call worst case, the pin {"path", "version"} of the CLI that
     runs the model, `spend.CLI`) from criterion.json's "spend" block (coordinator rulings R4 and R5):
-    {"ceiling_usd": {tranche: USD}, "per_call_usd": {model: USD}, "cli": pins}, `pins` being {cli: {"path",
-    "version"}} or one {"path", "version"}, the Claude CLI's (the form frozen before the Codex CLI joined;
-    `cli_pin`). The coordinator sets them at the freeze; there is no default, and a start without them refuses."""
+    {"ceiling_usd": {tranche: USD}, "per_call_usd": {model: USD}, "cli": pins}. `pins` takes two shapes
+    (`cli_pin`): {cli: {"path", "version"}}, a pin per CLI, or one {"path", "version"}, which pins the Claude CLI
+    and no other. The coordinator sets them at the freeze; there is no default, and a start without them refuses."""
     terms = load(study.frozen).get("spend") or {}
     ceiling, per_call = (terms.get("ceiling_usd") or {}).get(tranche), (terms.get("per_call_usd") or {}).get(model)
     cli = cli_pin(terms.get("cli"), spend.CLI.get(model))
     if not (positive(ceiling) and positive(per_call) and isinstance(cli, dict) and sorted(cli) == ["path", "version"]
             and all(isinstance(value, str) and value for value in cli.values())):
         raise SystemExit(f"{study.frozen} names no priced ceiling for {tranche}, per-call worst case for {model} or "
-                         f"{spend.CLI.get(model)} CLI pin (path and version) under \"spend\": the coordinator sets "
-                         "them at the freeze")
+                         f"pin (path and version) of the CLI that runs {model} ({spend.CLI.get(model, 'no known CLI')}) "
+                         "under \"spend\": the coordinator sets them at the freeze")
     return ceiling, per_call, cli
 
 

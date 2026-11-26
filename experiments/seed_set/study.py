@@ -24,6 +24,7 @@
                                                           <N> minutes`), read from the file a unit would copy (the
                                                           Claude CLI's by default; Codex: refuses an API-key login)
   study.py resume-after-limit --reset T --five-hour P --weekly P --read-at T   reopen starts a usage limit closed
+         [--cli codex]                                    (with --cli: only a pause of the Codex starts, ruling L-R7)
   study.py not-a-limit UNIT --reason R                    the raw result shows no usage limit: the unit is what the
                                                           rules make it (an incident or a failure), its pause goes
 
@@ -57,8 +58,8 @@ removed only after the incident is written.
 A usage limit (coordinator rulings R1 and R2, 2026-11-14) is neither an incident nor an observation. The unit it
 cuts is recorded `cut`, never pooled, never scored and not counted by the incident stop; a `pause` event closes
 every start at once (calls in flight finish or are cut) until `resume-after-limit`. A credit balance on the ChatGPT
-account, which a Codex unit's session records show, closes the Codex starts only, until the same command (ruling
-L-R7 of the Luna plan). Each planned slot whose run was cut runs again once, as a new unit and from the same cap;
+account, which a Codex unit's session records show, closes the Codex starts only, until `resume-after-limit --cli
+codex` (ruling L-R7 of the Luna plan); each command reopens only its own pauses. Each planned slot whose run was cut runs again once, as a new unit and from the same cap;
 a pool with a cut judge is rebuilt once from the same run records (`<kind>.2`) and judged again by both judges.
 
 Spend in priced tokens (rulings R4 and R5): candidates and judges run the metered template (`programs/providers.json`,
@@ -75,6 +76,7 @@ import fcntl
 import functools
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -295,11 +297,14 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
 
 def bound_model(records, record, cli):
     """The model a prepared unit is bound to: a Claude unit's declared Claude model; for a Codex unit, the model of
-    its inputs when the unit declares the Codex CLI alone, else the providers it declares."""
+    its inputs when the unit declares the Codex CLI alone and its command sets the Codex model list the model guard
+    enforces (`COMPARE_CODEX_MODELS`) to exactly that model, else what it declares and sets."""
     if cli == "claude":
         return record["claude_model"]
-    declared = load(record["sandbox"]["declaration"])["providers"]
-    return load(records / "inputs.json")["model"] if declared == [units.CODEX] else f"providers {declared}"
+    declared, model = load(record["sandbox"]["declaration"])["providers"], load(records / "inputs.json")["model"]
+    lists = [word.partition("=")[2] for word in shlex.split((records / "command.sh").read_text())
+             if word.startswith("COMPARE_CODEX_MODELS=")]
+    return model if (declared, lists) == ([units.CODEX], [model]) else f"providers {declared}, Codex models {lists}"
 
 
 def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extra):
@@ -408,16 +413,16 @@ def pause_on_limit(study, calls_root, unit, home=None):
     """The unit's usage limit (`units.usage_limit`, flagged when its shape is not the recorded one; a Codex call's
     also read from the session records in the unit's private `home`) or None; its `pause` event, which closes every
     start at once, is recorded once per unit. A credit balance those records show (`units.credit_balance`) is no
-    limit (ruling L-R7): it records, once per unit, a pause naming the Codex CLI, which closes the Codex starts only
-    (`spend.refuse_closed`) until the owner's word (`resume-after-limit`, with the owner's meter reading), and the
-    unit is scored as it ended."""
+    limit (ruling L-R7): it records, once per unit, a pause that `closes` the Codex starts only (`spend.refuse_closed`)
+    until the owner's word (`resume-after-limit --cli codex`, with the owner's meter reading), and the unit is scored
+    as it ended."""
     entries = spend.rows(study.ledger)
-    paused = {row.get("cli") for row in entries if row.get("event") == "pause" and row.get("unit") == unit}
+    paused = {row.get("closes") for row in entries if row.get("event") == "pause" and row.get("unit") == unit}
     limit = units.usage_limit(calls_root, home=home)
     if limit and None not in paused:
         spend.record(study.ledger, "pause", unit=unit, **limit)
     if home and units.CODEX not in paused and (why := units.credit_balance(home)):
-        spend.record(study.ledger, "pause", unit=unit, reset=None, cli=units.CODEX,
+        spend.record(study.ledger, "pause", unit=unit, reset=None, closes=units.CODEX,
                      reason=f"{why}; a Luna tranche runs with credits off: Codex starts close until the owner's word")
     return limit
 
@@ -783,11 +788,18 @@ def unpooled_runs(facts, pooled, tasks):
     return records
 
 
+def planned_programs(study, arms):
+    """{arm: {"source", "lines"}} of the arms some tranche plans (`PLANNED`), in arms.json's order: the readout's
+    programs, so an arm no tranche runs adds no row."""
+    planned = {arm for kinds in PLANNED.values() for arm in kinds}
+    return {name: {"source": arm["source"], "lines": selection.program_lines(study.programs / arm["source"])}
+            for name, arm in arms.items() if name in planned}
+
+
 def write_readout(study):
     arms = load_arms(study)
     models = {name: arm["model"] for name, arm in arms.items()}
-    programs = {name: {"source": arm["source"], "lines": selection.program_lines(study.programs / arm["source"])}
-                for name, arm in arms.items()}
+    programs = planned_programs(study, arms)
     tasks = tranche_tasks(study, "calibration")
     retests, rungs = tasks[:RETESTS["calibration"]], ladder.rung_counts([task["rung"] for task in chosen(study)])
     records, pools = load_records(study, models, tasks)
@@ -858,6 +870,9 @@ def parser():
     limit.add_argument("--five-hour", type=float, required=True, help="the owner's five-hour meter, percent used")
     limit.add_argument("--weekly", type=float, required=True, help="the owner's weekly meter, percent used")
     limit.add_argument("--read-at", type=iso_time, required=True, help="when the owner read both meters, ISO 8601")
+    limit.add_argument("--cli", choices=(units.CODEX,), help="reopen only the pause that closes this CLI's starts (a "
+                       "credit balance on the ChatGPT account, ruling L-R7: the owner's word that credits are off); "
+                       "without it, only the pauses that close every start")
     withdrawn = sub.add_parser("not-a-limit", help="record that a usage-limit pause's raw result shows no limit")
     withdrawn.add_argument("unit", help="the pause's unit: a run's records directory, or <pool>#<judge>")
     withdrawn.add_argument("--reason", required=True, help="what the raw result shows")
@@ -904,7 +919,7 @@ def main(argv=None):
         "ledger": lambda: ledger_report(study),
         "login-expiry": lambda: print(units.expiry_text(units.login_expiry(provider=a.provider))),
         "resume-after-limit": lambda: print(json.dumps(spend.resume_after_limit(
-            study.ledger, a.reset, a.five_hour, a.weekly, a.read_at))),
+            study.ledger, a.reset, a.five_hour, a.weekly, a.read_at, closes=a.cli))),
         "not-a-limit": lambda: print(json.dumps(not_a_limit(study, a.unit, a.reason))),
     }
     commands[a.command]()

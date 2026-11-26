@@ -361,8 +361,8 @@ def codex_limit_rule(call, events, by_thread):
     flagged `UNRECOGNISED` (no recorded Codex limit answer exists yet): `CODEX_PAID` when credits are held
     (`held`) and a limit is reached (`reached`), whether or not the call succeeded; else, for a call that did not
     succeed, `CODEX_REACHED` when a limit is reached, `STATUS_429` for an error line naming status 429, `WORDING` for
-    one in a limit wording; else None. Credits held without a reached limit are no limit: `credit_balance` stops the
-    tranche, and the call is scored as what it is."""
+    one in a limit wording; else None. Credits held without a reached limit are no limit: `credit_balance` names
+    them, the runner then closes the Codex starts only (ruling L-R7), and the call is scored as what it is."""
     snapshot = call_snapshot(events, by_thread)
     if held(snapshot) and reached(snapshot):
         return CODEX_PAID
@@ -553,7 +553,7 @@ def _session(path):
 def audit_sessions(home, tree, made, model):
     """(failure reason or None, policy hit or None, session files) for one unit's private home (a Claude unit; a
     Codex unit's is `audit_rollouts`, which its caller chooses)."""
-    sessions = sorted(path for path in Path(home).rglob("*.jsonl") if _session(path))
+    sessions = claude_sessions(home)
     projects = Path(home) / ".claude" / "projects"
     slug = re.sub(r"[^A-Za-z0-9]", "-", str(tree))
     scoped = [p for p in sessions if p.is_relative_to(projects) and len(p.relative_to(projects).parts) >= 2
@@ -573,20 +573,29 @@ def audit_sessions(home, tree, made, model):
     return None, None, sessions
 
 
+def claude_sessions(home):
+    """Every Claude session file (`_session`) anywhere under a unit's private home, in path order."""
+    return sorted(path for path in Path(home).rglob("*.jsonl") if _session(path))
+
+
 def audit_rollouts(home, tree, records, made, model, effort):
     """`audit_sessions` for a Codex unit, over every rollout under its private home (`rollouts`), the only record
     of a Codex call's model and effort: a `turn_context` model other than `model` is a policy hit
     (`scan.model_hits`); a session whose `session_meta` working directory is not under `tree`, one without a
     `turn_context` or with one that does not name the model and `effort`, a session without an id, more rollouts
     than `made` calls, or a call of `records` that started a thread or completed a turn and has no rollout of its
-    `thread_id` (a completed call without a thread id among them) fails the unit (`rollout_reason`)."""
-    paths = rollouts(home)
+    `thread_id` (a completed call without a thread id among them) fails the unit (`rollout_reason`). So does any
+    Claude session file in the home (`claude_sessions`: the unit denies Claude), whose answering model is read as a
+    rollout's is."""
+    paths, claude = rollouts(home), claude_sessions(home)
     try:
-        hits = list(scan.model_hits(paths, model))  # SystemExit on a line that is not JSON
+        hits = list(scan.model_hits([*paths, *claude], model))  # SystemExit on a line that is not JSON
     except SystemExit as error:
         return f"unreadable session: {error}", None, paths
     if policy := scan.model_policy(hits):
         return f"a session answered by another model: {hits[0]['text']}", policy, paths
+    if claude:
+        return f"Claude sessions in a Codex unit: {[str(path) for path in claude]}", None, paths
     return rollout_reason(paths, tree, records, made, effort), None, paths
 
 
@@ -613,12 +622,12 @@ def named_contexts(path, effort):
 
 def unmatched_calls(records, ids):
     """The Codex calls of `records` whose output has a `thread.started` or a `turn.completed` (a failed call that
-    started a thread too) and whose `thread_id` is none or not in `ids`."""
+    started a thread too) and whose `thread_id` is not in `ids` (a call without one never is: `rollout_reason`
+    refuses a rollout without an id first)."""
     found = []
     for call in calls(records):
         events = stream_events(call / "stdout.txt") if provider(call) == CODEX else []
-        if any(e.get("type") in ("thread.started", "turn.completed") for e in events) and call_thread(events) not in (
-                set(ids) - {None}):
+        if any(e.get("type") in ("thread.started", "turn.completed") for e in events) and call_thread(events) not in ids:
             found.append(call.name)
     return found
 

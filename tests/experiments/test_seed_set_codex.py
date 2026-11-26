@@ -5,12 +5,13 @@
 import base64
 import json
 import re
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from experiments.seed_set import blinding, layout, rules, spend, study, units
+from experiments.seed_set import layout, rules, spend, study, units
 
 LUNA, EFFORT = "gpt-6-luna", "medium"
 TABLE = {"currency": "USD", "tokens_per_unit": 1_000_000, "source": "test", "date": "2026-11-23",
@@ -169,7 +170,7 @@ def credit_pause(tmp_path):
 def test_credits_held_on_a_killed_call_neither_cut_nor_stop_and_pause_the_codex_starts(tmp_path):  # ruling L-R7
     out, ledger = credit_pause(tmp_path)
     (pause,) = spend.open_pauses(spend.rows(ledger.ledger))
-    assert ("cut" in out, spend.latest(spend.rows(ledger.ledger), "stop"), pause["cli"],
+    assert ("cut" in out, spend.latest(spend.rows(ledger.ledger), "stop"), pause["closes"],
             units.CODEX_CREDITS in pause["reason"]) == (False, None, units.CODEX, True)
 
 
@@ -187,10 +188,58 @@ def test_a_credit_pause_leaves_a_claude_start_open(tmp_path):
     assert [row["model"] for row in spend.starts(spend.rows(ledger.ledger))] == [spend.HAIKU]
 
 
-def test_the_owners_word_reopens_a_credit_pause(tmp_path):
+def resume(ledger, closes=None):
+    return spend.resume_after_limit(ledger.ledger, NOW - 1, 2.0, 30.0, NOW - 1, now=NOW, closes=closes)
+
+
+def claude_limit(ledger):
+    """An ordinary usage-limit pause of a Haiku unit, which closes every start; returns its row."""
+    return spend.record(ledger.ledger, "pause", unit="/u/haiku-run", reset=NOW - 10, rule=units.RECORDED)
+
+
+def test_the_owners_word_for_the_codex_cli_reopens_a_credit_pause(tmp_path):
     _, ledger = credit_pause(tmp_path)
-    spend.resume_after_limit(ledger.ledger, NOW - 1, 2.0, 30.0, NOW - 1, now=NOW)
+    resume(ledger, units.CODEX)
     assert spend.open_pauses(spend.rows(ledger.ledger)) == []
+
+
+def test_a_resume_of_every_start_leaves_a_credit_pause_open(tmp_path):  # review finding 1
+    _, ledger = credit_pause(tmp_path)
+    (credit,) = spend.open_pauses(spend.rows(ledger.ledger))
+    claude_limit(ledger)
+    resume(ledger)
+    assert spend.open_pauses(spend.rows(ledger.ledger)) == [credit]
+
+
+def test_a_luna_start_stays_refused_after_a_resume_of_every_start(tmp_path):
+    _, ledger = credit_pause(tmp_path)
+    claude_limit(ledger)
+    resume(ledger)
+    with pytest.raises(SystemExit, match="resume-after-limit --cli codex"):
+        spend.reserve(ledger.ledger, "smoke", "candidate", spend.LUNA, 1, "/u/luna", {spend.AUTHORIZATION: "smoke"},
+                      price=(100.0, 1.0))
+
+
+def test_a_resume_for_the_codex_cli_leaves_a_pause_of_every_start_open(tmp_path):
+    _, ledger = credit_pause(tmp_path)
+    limit = claude_limit(ledger)
+    resume(ledger, units.CODEX)
+    assert spend.open_pauses(spend.rows(ledger.ledger)) == [limit]
+
+
+def test_a_resume_for_the_codex_cli_without_a_credit_pause_refuses(tmp_path):
+    ledger = ledger_of(tmp_path)
+    claude_limit(ledger)
+    with pytest.raises(SystemExit, match="of the codex CLI: nothing to resume"):
+        resume(ledger, units.CODEX)
+
+
+def test_a_ledger_without_scopes_reads_as_one_scope():
+    """Pauses and resumes without `closes`: the last resume reopens every pause before it, as before scopes."""
+    entries = [{"kind": "event", "event": "pause", "seq": 1}, {"kind": "event", "event": "pause", "seq": 2},
+               {"kind": "event", "event": "resume", "seq": 3}, {"kind": "event", "event": "pause", "seq": 4},
+               {"kind": "event", "event": "pause", "seq": 5}, {"kind": "event", "event": "not_a_limit", "pause": 5}]
+    assert [row["seq"] for row in spend.open_pauses(entries)] == [4]
 
 
 def test_a_credit_pause_is_recorded_once_per_unit(tmp_path):
@@ -239,8 +288,7 @@ def test_a_failed_codex_call_that_started_a_thread_without_its_rollout_fails_the
     assert audit(tmp_path)[0] == "calls ['1'] have no session record of their thread"
 
 
-def test_a_completed_codex_call_without_a_thread_id_is_not_covered_by_a_rollout_without_an_id(tmp_path):
-    codex_call(tmp_path / "records", *COMPLETED[1:])
+def test_a_codex_rollout_without_an_id_fails_the_audit(tmp_path):
     path = rollout(tmp_path / "home", 1, tmp_path / "tree" / "cand-1")
     path.write_text(path.read_text().replace('"id": "thread-1", ', ""))
     assert audit(tmp_path)[0] == (
@@ -452,6 +500,43 @@ def test_a_codex_call_with_another_effort_is_not_bound(tmp_path):
     assert rules.bound_argv(argv_call(tmp_path / "records", "high"), LUNA, EFFORT) is False
 
 
-def test_the_judges_word_list_names_luna(tmp_path):
-    runner = SimpleNamespace(work=tmp_path / "work", pools=tmp_path / "pools")
-    assert {LUNA, "luna"} <= set(blinding.identity_tokens(runner, {}, []))
+def test_a_claude_session_in_a_codex_units_home_fails_its_audit(tmp_path):  # review finding 4
+    rollout(tmp_path / "home", 1, tmp_path / "tree" / "cand-1")
+    session = tmp_path / "home" / ".claude" / "projects" / "elsewhere" / "s.jsonl"
+    session.parent.mkdir(parents=True)
+    session.write_text(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\n")
+    assert audit(tmp_path)[:2] == (f"Claude sessions in a Codex unit: {[str(session)]}", None)
+
+
+def test_the_readout_lists_only_the_arms_a_tranche_plans():  # review finding 5
+    runner = SimpleNamespace(programs=Path(study.__file__).parent / "programs")
+    arms = layout.load_arms(runner)
+    assert list(study.planned_programs(runner, arms)) == [arm for arm in arms if arm != "direct_luna"]
+
+
+def prepared(tmp_path, providers, command):
+    """A prepared unit's records as `bound_model` reads them: its declaration, inputs and command script."""
+    (tmp_path / "sandbox.json").write_text(json.dumps({"providers": providers}))
+    (tmp_path / "inputs.json").write_text(json.dumps({"model": LUNA}))
+    (tmp_path / "command.sh").write_text(command)
+    return tmp_path, {"sandbox": {"declaration": str(tmp_path / "sandbox.json")}}
+
+
+def test_a_codex_unit_whose_command_binds_its_model_is_bound_to_it(tmp_path):
+    records, record = prepared(tmp_path, ["codex"], f"cd /t && env COMPARE_CODEX_MODELS={LUNA} PATH=/s:$PATH x\n")
+    assert study.bound_model(records, record, units.CODEX) == LUNA
+
+
+def test_installed_rehearsal_stand_ins_answer_the_codex_pin_and_pass_the_codex_login_guard(tmp_path, monkeypatch):
+    """Review finding 10: the rehearsal's `install_stand_ins` (its setup's changed lines) on a scratch directory."""
+    from experiments.seed_set import rehearsal
+    from tests.experiments.seed_set_offline_support import CODEX_VERSION
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "home").mkdir()
+    rehearsal.install_stand_ins(tmp_path / "bin", tmp_path / "home")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "home" / ".codex"))
+    units.require_login(CANDIDATE_SEC, provider=units.CODEX)
+    version = subprocess.run([tmp_path / "bin" / "codex", "--version"], capture_output=True, text=True, check=True,
+                             env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)})
+    assert (version.stdout.strip(), (tmp_path / "home" / ".claude" / ".credentials.json").is_file()) == (
+        CODEX_VERSION, True)

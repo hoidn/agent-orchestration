@@ -487,12 +487,30 @@ def test_offline_a_luna_unit_calls_codex_alone_bound_to_its_model_and_effort(lun
     assert len(units.rollouts(home)) == 1
 
 
-def test_offline_a_luna_unit_is_refused_by_a_freeze_with_only_the_claude_pin(luna_world):
+def test_offline_a_freeze_with_a_luna_cap_and_only_the_claude_pin_refuses(luna_world):
     s = luna_world.study
     write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(luna_world.fakebin, ceiling_usd={
         **SPEND_TERMS["ceiling_usd"], LUNA_TRANCHE: 5.0}, cli=stand_in_terms(luna_world.fakebin)["cli"]["claude"]))
-    with pytest.raises(SystemExit, match="codex CLI pin"):
-        rules.record_freeze(s)  # the Luna cap needs the Codex pin
+    with pytest.raises(SystemExit, match=r"pin \(path and version\) of the CLI that runs gpt-6-luna \(codex\)"):
+        rules.record_freeze(s)
+
+
+def test_offline_a_luna_unit_prepared_with_another_codex_model_list_never_starts(luna_world, monkeypatch):
+    """Review finding 3: the unit's command sets the Codex model list the guard enforces; one naming another model
+    refuses the start before any reservation, and leaves no tree."""
+    run_arm = study.prepare.run_arm
+
+    def rebound(*args, **kwargs):
+        records = run_arm(*args, **kwargs)
+        command = records / "command.sh"
+        command.write_text(command.read_text().replace(f"COMPARE_CODEX_MODELS={spend.LUNA}",
+                                                       "COMPARE_CODEX_MODELS=gpt-6.1-sol"))
+        return records
+    monkeypatch.setattr(study.prepare, "run_arm", rebound)
+    with pytest.raises(SystemExit, match="Codex models \\['gpt-6.1-sol'\\]"):
+        luna_unit(luna_world)
+    s = luna_world.study
+    assert (spend.starts(spend.rows(s.ledger)), list((s.work / "agents").iterdir()), credentials(s)) == ([], [], [])
 
 
 def test_offline_judge_cut_by_a_usage_limit_rebuilds_the_pool_once_from_the_same_records(world, monkeypatch):

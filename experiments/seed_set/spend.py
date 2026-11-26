@@ -9,8 +9,9 @@ It holds starts and events. Every provider start goes through `reserve` before i
 - no `stop` event may be in the ledger (a stop rule fired: nothing more starts), and no `pause` event after the
   last `resume` (a usage limit, or a unit settled above its worst case, closed all starts: `resume_after_limit`
   reopens them after the vendor's named reset, with the owner's meter reading; coordinator ruling R2, 2026-11-14);
-  a pause that names a `cli` (a credit balance on the ChatGPT account, ruling L-R7 of the Luna plan) closes only
-  the starts of that CLI's models, and the same `resume_after_limit` reopens it;
+  a pause whose `closes` names a CLI (a credit balance on the ChatGPT account, ruling L-R7 of the Luna plan) closes
+  only the starts of that CLI's models, and only a resume of the same scope (`resume_after_limit(..., closes=cli)`)
+  reopens it, while a resume without `closes` reopens only the pauses without it;
 - the model must be one of the study's exact IDs (`MODELS`: the two Claude IDs and `gpt-6-luna`, run by the Codex
   CLI, `CLI`; no fallback, no alias, never Fable); a model a tranche has no cap for is refused by the cap (Luna in
   every tranche the plan's ledger authorizes today);
@@ -119,21 +120,23 @@ def remaining(entries, tranche, kind, model):
 
 
 def open_pauses(entries):
-    """The `pause` events after the last `resume` that no `not_a_limit` decision withdrew: while one is open,
-    nothing starts."""
+    """The `pause` events that no `not_a_limit` decision withdrew and that come after the last `resume` of their
+    scope (`closes`: absent, every start; a CLI name, that CLI's starts): while one is open, the starts it closes do
+    not start. A ledger without the key reads as one scope, the last resume reopening every pause before it."""
     events = [row for row in entries if row["kind"] == "event" and row["event"] in ("pause", "resume")]
-    resumed = max((k for k, row in enumerate(events) if row["event"] == "resume"), default=-1)
+    resumed = {row.get("closes"): k for k, row in enumerate(events) if row["event"] == "resume"}  # last one wins
     withdrawn = {row["pause"] for row in entries if row["kind"] == "event" and row["event"] == "not_a_limit"}
-    return [row for row in events[resumed + 1:] if row["seq"] not in withdrawn]
+    return [row for k, row in enumerate(events) if row["event"] == "pause"
+            and k > resumed.get(row.get("closes"), -1) and row["seq"] not in withdrawn]
 
 
 def refuse_closed(entries, model=None):
-    """Refuse a start after a stop, or while a pause has closed starts: a pause naming a `cli` (ruling L-R7) closes
-    only the starts of `model` when that CLI runs it, and never a check that names no model."""
+    """Refuse a start after a stop, or while a pause has closed starts: a pause whose `closes` names a CLI (ruling
+    L-R7) closes only the starts of `model` when that CLI runs it, and never a check that names no model."""
     stop = latest(entries, "stop")
     if stop:
         raise SystemExit(f"the study is stopped ({stop['reason']}); nothing more starts")
-    if pauses := [row for row in open_pauses(entries) if row.get("cli") in (None, CLI.get(model))]:
+    if pauses := [row for row in open_pauses(entries) if row.get("closes") in (None, CLI.get(model))]:
         raise SystemExit(closed_by(pauses[0]))
 
 
@@ -145,7 +148,8 @@ def closed_by(pause):
     fired = f"; {pause['flag']}" if pause.get("flag") else ""
     fired += f"; rule: {pause['rule']}, on {pause.get('text')!r}" if limit else ""
     return (f"starts are closed by {pause.get('reason') or 'a usage limit'} ({unit}, resets {when(pause.get('reset'))}"
-            f"{fired}): read the raw result ({pause.get('raw') or unit}), then `resume-after-limit` after the reset, "
+            f"{fired}): read the raw result ({pause.get('raw') or unit}), then `resume-after-limit"
+            f"{' --cli ' + pause['closes'] if pause.get('closes') else ''}` after the reset, "
             "with the owner's meter reading" + (f"; if it shows no usage limit, `not-a-limit {unit} --reason R` "
                                                 f"records that once the unit is settled ({UNSETTLED})"
                                                 if limit and pause.get("flag") else ""))
@@ -178,16 +182,20 @@ def when(epoch):
     return "at an unnamed time" if epoch is None else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
 
 
-def resume_after_limit(ledger, reset, five_hour, weekly, read_at, now=None):
+def resume_after_limit(ledger, reset, five_hour, weekly, read_at, now=None, closes=None):
     """Reopen the starts a usage limit closed (coordinator ruling R2): `reset` (epoch seconds) is the reset the
     vendor's answer named, and the owner's meter reading is the five-hour and weekly meters in percent, read at
-    `read_at`. Refuses with no open pause, before the latest reset named (by `reset` or by an open pause), and for
-    a reading that is not a percentage or was not taken between that reset and now. Returns the `resume` row."""
+    `read_at`. Only the open pauses of the scope `closes` reopen (`open_pauses`): None, those that close every
+    start; a CLI name, those that close that CLI's starts only (ruling L-R7: the owner's word that the account's
+    credits are off). Refuses with no open pause of that scope, before the latest reset named (by `reset` or by such
+    a pause), and for a reading that is not a percentage or was not taken between that reset and now. Returns the
+    `resume` row, which names `closes` when it is a CLI."""
     now = time.time() if now is None else now
     with locked(ledger) as (stream, entries):
-        pauses = open_pauses(entries)
+        pauses = [row for row in open_pauses(entries) if row.get("closes") == closes]
         if not pauses:
-            raise SystemExit("no start is closed by a usage limit: nothing to resume")
+            raise SystemExit(f"no start is closed by a usage limit{f' of the {closes} CLI' if closes else ''}: "
+                             "nothing to resume")
         named = max([reset, *(row["reset"] for row in pauses if row.get("reset") is not None)])
         require_reset_after_hit(pauses, reset)
         if now < named:
@@ -196,7 +204,7 @@ def resume_after_limit(ledger, reset, five_hour, weekly, read_at, now=None):
         require_reading(named, five_hour, weekly, read_at, now)
         return _append(stream, entries, {"kind": "event", "event": "resume", "reset": named, "pauses": [
             row["seq"] for row in pauses], "reading": {"five_hour_pct": five_hour, "weekly_pct": weekly,
-                                                      "read_at": read_at}})
+                                                      "read_at": read_at}, **({"closes": closes} if closes else {})})
 
 
 def require_reset_after_hit(pauses, reset):

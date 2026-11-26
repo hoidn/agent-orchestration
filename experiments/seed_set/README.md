@@ -102,10 +102,11 @@ raw result shows no limit.
 A Codex call's limit is read from its own error lines (a limit wording, status 429) and from the last
 `rate_limits` snapshot of its own session record, matched by thread id (a used-up window names the reset); no
 Codex limit answer is recorded yet, so each such pause is flagged "unrecognised limit shape". Credits held
-(`credits.has_credits`) with a limit reached pause as paid credits; credits held without one record a pause that
-names the Codex CLI and closes the Codex starts only, since a Luna tranche runs with credits off (ruling L-R7):
-Claude starts go on, `resume-after-limit` with the owner's meter reading reopens it, and the call is scored as it
-ended. A Codex call is priced at ordinary rates
+(`credits.has_credits`) with a limit reached pause as paid credits; credits held without one record a pause whose
+`closes` is `codex`: it closes the Codex starts only, since a Luna tranche runs with credits off (ruling L-R7).
+Claude starts go on, and the call is scored as it ended. Only `resume-after-limit --cli codex`, with the owner's
+meter reading as the owner's word that credits are off, reopens it; a `resume-after-limit` without `--cli` reopens
+only the pauses that close every start, and the one with it only the Codex pause. A Codex call is priced at ordinary rates
 from its summed turn, so a request above 272K input tokens is under-priced; the Luna smoke's ledger row must state
 this.
 The plan ("Changes since review 2", usage limits) and [programs/README.md](programs/README.md) hold the detail.
