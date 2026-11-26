@@ -10,7 +10,7 @@
      "tests/test_provider_native_store.py::test_claude_split_final_binds_its_last_row"
     ],
     "02a0067be4-upstream": [],
-    "load": 10.50634765625
+    "load": 12.609375
    },
    {
     "02a0067be4-base": [
@@ -19,7 +19,7 @@
      "tests/test_provider_native_store.py::test_claude_split_final_binds_its_last_row"
     ],
     "02a0067be4-upstream": [],
-    "load": 10.28662109375
+    "load": 13.501953125
    },
    {
     "02a0067be4-base": [
@@ -28,10 +28,10 @@
      "tests/test_provider_native_store.py::test_claude_split_final_binds_its_last_row"
     ],
     "02a0067be4-upstream": [],
-    "load": 9.11474609375
+    "load": 12.7734375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "40cb32a89fb6fb3e586d3cb130c8c577fb35283bd6a5777e7220c419b363e578",
   "stable": true
  },
@@ -46,7 +46,7 @@
      "tests/test_provider_native_store.py::test_claude_split_final_binds_its_last_row"
     ],
     "02a0067be4-withheld-upstream": [],
-    "load": 10.50634765625
+    "load": 12.609375
    },
    {
     "02a0067be4-withheld-base": [
@@ -55,7 +55,7 @@
      "tests/test_provider_native_store.py::test_claude_split_final_binds_its_last_row"
     ],
     "02a0067be4-withheld-upstream": [],
-    "load": 10.28662109375
+    "load": 13.501953125
    },
    {
     "02a0067be4-withheld-base": [
@@ -64,10 +64,10 @@
      "tests/test_provider_native_store.py::test_claude_split_final_binds_its_last_row"
     ],
     "02a0067be4-withheld-upstream": [],
-    "load": 9.11474609375
+    "load": 13.10205078125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "e756367e07b337bb2ed3dd3d6f9072668840c00189ae15af80c3d1d2c11f28ab",
   "stable": true
  },
@@ -81,7 +81,7 @@
      "tests/test_workflow_lisp_pure_projection_cache.py::test_untraced_export_cache_surfaces_structured_parse_failure_after_change"
     ],
     "0549625e53-upstream": [],
-    "load": 7.6552734375
+    "load": 11.10595703125
    },
    {
     "0549625e53-base": [
@@ -89,7 +89,7 @@
      "tests/test_workflow_lisp_pure_projection_cache.py::test_untraced_export_cache_surfaces_structured_parse_failure_after_change"
     ],
     "0549625e53-upstream": [],
-    "load": 7.24658203125
+    "load": 12.056640625
    },
    {
     "0549625e53-base": [
@@ -97,10 +97,10 @@
      "tests/test_workflow_lisp_pure_projection_cache.py::test_untraced_export_cache_surfaces_structured_parse_failure_after_change"
     ],
     "0549625e53-upstream": [],
-    "load": 7.4384765625
+    "load": 13.51123046875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "ad5d8bd71cb4ec0bf2a4634050b9db4a40b73b14f2abf3041ff89805ad66a019",
   "stable": true
  },
@@ -114,7 +114,7 @@
      "tests/test_workflow_lisp_pure_projection_cache.py::test_untraced_export_cache_surfaces_structured_parse_failure_after_change"
     ],
     "0549625e53-withheld-upstream": [],
-    "load": 7.6552734375
+    "load": 12.69921875
    },
    {
     "0549625e53-withheld-base": [
@@ -122,7 +122,7 @@
      "tests/test_workflow_lisp_pure_projection_cache.py::test_untraced_export_cache_surfaces_structured_parse_failure_after_change"
     ],
     "0549625e53-withheld-upstream": [],
-    "load": 7.78759765625
+    "load": 13.09326171875
    },
    {
     "0549625e53-withheld-base": [
@@ -130,10 +130,10 @@
      "tests/test_workflow_lisp_pure_projection_cache.py::test_untraced_export_cache_surfaces_structured_parse_failure_after_change"
     ],
     "0549625e53-withheld-upstream": [],
-    "load": 7.64404296875
+    "load": 14.03125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "755c7dc05ce0798afb4cdfe0ac54ab5c3aa85b590399088c873eef22ebc139a6",
   "stable": true
  },
@@ -149,7 +149,7 @@
      "tests/test_workflow_loops_exhaustion_state.py::test_branched_arm_state_step_snapshot_selected"
     ],
     "0877dcf095-upstream": [],
-    "load": 8.08544921875
+    "load": 9.79833984375
    },
    {
     "0877dcf095-base": [
@@ -159,7 +159,7 @@
      "tests/test_workflow_loops_exhaustion_state.py::test_branched_arm_state_step_snapshot_selected"
     ],
     "0877dcf095-upstream": [],
-    "load": 7.837890625
+    "load": 9.654296875
    },
    {
     "0877dcf095-base": [
@@ -169,10 +169,10 @@
      "tests/test_workflow_loops_exhaustion_state.py::test_branched_arm_state_step_snapshot_selected"
     ],
     "0877dcf095-upstream": [],
-    "load": 7.32080078125
+    "load": 9.56640625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "b2ccdf5a28ba3238e10057d481df267f2ad87427ac2f2187399c515c34b90ffe",
   "stable": true
  },
@@ -188,7 +188,7 @@
      "tests/test_workflow_loops_exhaustion_state.py::test_branched_arm_state_step_snapshot_selected"
     ],
     "0877dcf095-withheld-upstream": [],
-    "load": 7.32080078125
+    "load": 9.44091796875
    },
    {
     "0877dcf095-withheld-base": [
@@ -198,7 +198,7 @@
      "tests/test_workflow_loops_exhaustion_state.py::test_branched_arm_state_step_snapshot_selected"
     ],
     "0877dcf095-withheld-upstream": [],
-    "load": 7.1171875
+    "load": 9.3251953125
    },
    {
     "0877dcf095-withheld-base": [
@@ -208,10 +208,10 @@
      "tests/test_workflow_loops_exhaustion_state.py::test_branched_arm_state_step_snapshot_selected"
     ],
     "0877dcf095-withheld-upstream": [],
-    "load": 7.02734375
+    "load": 10.306640625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "4ae79eabea12b27b989db0e87ef27da01d1f30c446d7b759b5881a5924221a3c",
   "stable": true
  },
@@ -225,7 +225,7 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch"
     ],
     "0e8d6f1e10-upstream": [],
-    "load": 7.29345703125
+    "load": 14.056640625
    },
    {
     "0e8d6f1e10-base": [
@@ -233,7 +233,7 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch"
     ],
     "0e8d6f1e10-upstream": [],
-    "load": 7.19677734375
+    "load": 12.86474609375
    },
    {
     "0e8d6f1e10-base": [
@@ -241,10 +241,10 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch"
     ],
     "0e8d6f1e10-upstream": [],
-    "load": 7.7392578125
+    "load": 11.69287109375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "116ba08f671d8350cd1d0be35cd6adfb4ff9ad76f22f705dc1c91863f39adf6a",
   "stable": true
  },
@@ -258,7 +258,7 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch"
     ],
     "0e8d6f1e10-t0-upstream": [],
-    "load": 6.96044921875
+    "load": 14.3837890625
    },
    {
     "0e8d6f1e10-t0-base": [
@@ -266,7 +266,7 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch"
     ],
     "0e8d6f1e10-t0-upstream": [],
-    "load": 7.07568359375
+    "load": 14.56787109375
    },
    {
     "0e8d6f1e10-t0-base": [
@@ -274,10 +274,10 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch"
     ],
     "0e8d6f1e10-t0-upstream": [],
-    "load": 7.4765625
+    "load": 13.578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "27facf00744e8cd79d3426fc198390f0c3b2788c8b665a05dbef7f7271266f02",
   "stable": true
  },
@@ -291,7 +291,7 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch"
     ],
     "0e8d6f1e10-withheld-upstream": [],
-    "load": 6.7783203125
+    "load": 13.201171875
    },
    {
     "0e8d6f1e10-withheld-base": [
@@ -299,7 +299,7 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch"
     ],
     "0e8d6f1e10-withheld-upstream": [],
-    "load": 7.7392578125
+    "load": 11.69287109375
    },
    {
     "0e8d6f1e10-withheld-base": [
@@ -307,10 +307,10 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_key_name_mismatch"
     ],
     "0e8d6f1e10-withheld-upstream": [],
-    "load": 6.96044921875
+    "load": 11.8056640625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "858537bed94b66aece435cd6dd2147d266e28a2af42787422c15cac1c40bfa12",
   "stable": true
  },
@@ -326,7 +326,7 @@
      "tests/test_workflow_lisp_imported_effects.py::test_wrapper_result_as_match_subject_or_let_binding_returns_the_command_value"
     ],
     "12ea8483f0-upstream": [],
-    "load": 8.57763671875
+    "load": 8.35791015625
    },
    {
     "12ea8483f0-base": [
@@ -336,7 +336,7 @@
      "tests/test_workflow_lisp_imported_effects.py::test_wrapper_result_as_match_subject_or_let_binding_returns_the_command_value"
     ],
     "12ea8483f0-upstream": [],
-    "load": 9.6572265625
+    "load": 10.494140625
    },
    {
     "12ea8483f0-base": [
@@ -346,10 +346,10 @@
      "tests/test_workflow_lisp_imported_effects.py::test_wrapper_result_as_match_subject_or_let_binding_returns_the_command_value"
     ],
     "12ea8483f0-upstream": [],
-    "load": 10.3125
+    "load": 14.85986328125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "6a3446db689416eada58247e01b2fcd16da29738939cfc38ac9388bd2addfd08",
   "stable": true
  },
@@ -365,7 +365,7 @@
      "tests/test_workflow_lisp_imported_effects.py::test_wrapper_result_as_match_subject_or_let_binding_returns_the_command_value"
     ],
     "12ea8483f0-withheld-upstream": [],
-    "load": 8.57763671875
+    "load": 8.35791015625
    },
    {
     "12ea8483f0-withheld-base": [
@@ -375,7 +375,7 @@
      "tests/test_workflow_lisp_imported_effects.py::test_wrapper_result_as_match_subject_or_let_binding_returns_the_command_value"
     ],
     "12ea8483f0-withheld-upstream": [],
-    "load": 9.6572265625
+    "load": 10.494140625
    },
    {
     "12ea8483f0-withheld-base": [
@@ -385,10 +385,10 @@
      "tests/test_workflow_lisp_imported_effects.py::test_wrapper_result_as_match_subject_or_let_binding_returns_the_command_value"
     ],
     "12ea8483f0-withheld-upstream": [],
-    "load": 10.3125
+    "load": 14.85986328125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "27afd3b4a603954f10baa9796a4c475ca3d13a885bc558cd4d586620696c797c",
   "stable": true
  },
@@ -403,7 +403,7 @@
      "tests/test_workflow_lisp_shared_pure_bindings.py::test_repeated_binding_is_shared_and_adds_one_node_per_use"
     ],
     "1716076357-upstream": [],
-    "load": 6.16650390625
+    "load": 12.7001953125
    },
    {
     "1716076357-base": [
@@ -412,7 +412,7 @@
      "tests/test_workflow_lisp_shared_pure_bindings.py::test_repeated_binding_is_shared_and_adds_one_node_per_use"
     ],
     "1716076357-upstream": [],
-    "load": 6.3857421875
+    "load": 12.7412109375
    },
    {
     "1716076357-base": [
@@ -421,10 +421,10 @@
      "tests/test_workflow_lisp_shared_pure_bindings.py::test_repeated_binding_is_shared_and_adds_one_node_per_use"
     ],
     "1716076357-upstream": [],
-    "load": 6.03173828125
+    "load": 12.2841796875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "76b870698560b9ed09170dcd066efd16e72f62ccba92ca6e519c9b876147f2a6",
   "stable": true
  },
@@ -439,7 +439,7 @@
      "tests/test_workflow_lisp_shared_pure_bindings.py::test_repeated_binding_is_shared_and_adds_one_node_per_use"
     ],
     "1716076357-withheld-upstream": [],
-    "load": 6.78125
+    "load": 13.0146484375
    },
    {
     "1716076357-withheld-base": [
@@ -448,7 +448,7 @@
      "tests/test_workflow_lisp_shared_pure_bindings.py::test_repeated_binding_is_shared_and_adds_one_node_per_use"
     ],
     "1716076357-withheld-upstream": [],
-    "load": 6.32568359375
+    "load": 11.7705078125
    },
    {
     "1716076357-withheld-base": [
@@ -457,10 +457,10 @@
      "tests/test_workflow_lisp_shared_pure_bindings.py::test_repeated_binding_is_shared_and_adds_one_node_per_use"
     ],
     "1716076357-withheld-upstream": [],
-    "load": 6.43359375
+    "load": 13.52490234375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "216b111dc1d0ae50a9a2fa2551cb1fcfc03df19b2c7831c16e3e6f9d56ab2703",
   "stable": true
  },
@@ -475,7 +475,7 @@
      "tests/test_workflow_lisp_runtime_source_map.py::test_source_free_contract_violation_uses_generated_step_origin"
     ],
     "194ad866a1-upstream": [],
-    "load": 8.1083984375
+    "load": 10.470703125
    },
    {
     "194ad866a1-base": [
@@ -484,7 +484,7 @@
      "tests/test_workflow_lisp_runtime_source_map.py::test_source_free_contract_violation_uses_generated_step_origin"
     ],
     "194ad866a1-upstream": [],
-    "load": 7.63037109375
+    "load": 9.9365234375
    },
    {
     "194ad866a1-base": [
@@ -493,10 +493,10 @@
      "tests/test_workflow_lisp_runtime_source_map.py::test_source_free_contract_violation_uses_generated_step_origin"
     ],
     "194ad866a1-upstream": [],
-    "load": 7.41943359375
+    "load": 9.3310546875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "b74069b986b287b1a13dac276476571399982681ef337585239ed166a9b52047",
   "stable": true
  },
@@ -511,7 +511,7 @@
      "tests/test_workflow_lisp_runtime_source_map.py::test_source_free_contract_violation_uses_generated_step_origin"
     ],
     "194ad866a1-withheld-upstream": [],
-    "load": 7.56298828125
+    "load": 9.06396484375
    },
    {
     "194ad866a1-withheld-base": [
@@ -520,7 +520,7 @@
      "tests/test_workflow_lisp_runtime_source_map.py::test_source_free_contract_violation_uses_generated_step_origin"
     ],
     "194ad866a1-withheld-upstream": [],
-    "load": 7.31591796875
+    "load": 8.59228515625
    },
    {
     "194ad866a1-withheld-base": [
@@ -529,10 +529,10 @@
      "tests/test_workflow_lisp_runtime_source_map.py::test_source_free_contract_violation_uses_generated_step_origin"
     ],
     "194ad866a1-withheld-upstream": [],
-    "load": 7.4404296875
+    "load": 8.11279296875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "870a5889e80698d4f6303d3a2da417c08ffa2a8085b3acb13a0025aaa046f89e",
   "stable": true
  },
@@ -549,7 +549,7 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-upstream": [],
-    "load": 9.79638671875
+    "load": 14.125
    },
    {
     "1f424cc9ae-base": [
@@ -560,7 +560,7 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-upstream": [],
-    "load": 10.36572265625
+    "load": 13.93798828125
    },
    {
     "1f424cc9ae-base": [
@@ -571,10 +571,10 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-upstream": [],
-    "load": 9.822265625
+    "load": 16.68017578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "62625469b96f247c77b9099a25052d21b2ad88250721fd752fd15ae329208888",
   "stable": true
  },
@@ -591,7 +591,7 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-withheld-upstream": [],
-    "load": 9.79638671875
+    "load": 14.125
    },
    {
     "1f424cc9ae-withheld-base": [
@@ -602,7 +602,7 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-withheld-upstream": [],
-    "load": 10.36572265625
+    "load": 13.93798828125
    },
    {
     "1f424cc9ae-withheld-base": [
@@ -613,10 +613,10 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-withheld-upstream": [],
-    "load": 9.822265625
+    "load": 16.68017578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "245cf34a35cd05529ee5dcf8844cab6d03a6a94b1c85534e44b5ebeb3c6453e3",
   "stable": true
  },
@@ -721,7 +721,7 @@
      "tests/test_workflow_dry_run_replay_index.py::test_dry_run_runs_no_command_and_creates_no_run_directory"
     ],
     "2138361feb-upstream": [],
-    "load": 9.84326171875
+    "load": 13.421875
    },
    {
     "2138361feb-base": [
@@ -729,7 +729,7 @@
      "tests/test_workflow_dry_run_replay_index.py::test_dry_run_runs_no_command_and_creates_no_run_directory"
     ],
     "2138361feb-upstream": [],
-    "load": 11.46142578125
+    "load": 11.818359375
    },
    {
     "2138361feb-base": [
@@ -737,10 +737,10 @@
      "tests/test_workflow_dry_run_replay_index.py::test_dry_run_runs_no_command_and_creates_no_run_directory"
     ],
     "2138361feb-upstream": [],
-    "load": 12.53564453125
+    "load": 12.64013671875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "81f30cc2a04ae43193f81e819fc7eef9ee945212052442a152f05d530c38b84d",
   "stable": true
  },
@@ -754,7 +754,7 @@
      "tests/test_workflow_dry_run_replay_index.py::test_dry_run_runs_no_command_and_creates_no_run_directory"
     ],
     "2138361feb-withheld-upstream": [],
-    "load": 10.73681640625
+    "load": 13.13525390625
    },
    {
     "2138361feb-withheld-base": [
@@ -762,7 +762,7 @@
      "tests/test_workflow_dry_run_replay_index.py::test_dry_run_runs_no_command_and_creates_no_run_directory"
     ],
     "2138361feb-withheld-upstream": [],
-    "load": 11.46142578125
+    "load": 12.7138671875
    },
    {
     "2138361feb-withheld-base": [
@@ -770,10 +770,10 @@
      "tests/test_workflow_dry_run_replay_index.py::test_dry_run_runs_no_command_and_creates_no_run_directory"
     ],
     "2138361feb-withheld-upstream": [],
-    "load": 13.4541015625
+    "load": 11.92626953125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "35a022d9b6cbb3012cb2bdf05a8f7710d8373cd79dbf79481ffba251b64ce6be",
   "stable": true
  },
@@ -787,7 +787,7 @@
      "tests/test_workflow_lisp_float_literals.py::test_a_macro_template_may_hold_a_decimal_literal"
     ],
     "23c53f56f7-upstream": [],
-    "load": 12.958984375
+    "load": 14.6474609375
    },
    {
     "23c53f56f7-base": [
@@ -795,7 +795,7 @@
      "tests/test_workflow_lisp_float_literals.py::test_a_macro_template_may_hold_a_decimal_literal"
     ],
     "23c53f56f7-upstream": [],
-    "load": 13.5263671875
+    "load": 17.12744140625
    },
    {
     "23c53f56f7-base": [
@@ -803,10 +803,10 @@
      "tests/test_workflow_lisp_float_literals.py::test_a_macro_template_may_hold_a_decimal_literal"
     ],
     "23c53f56f7-upstream": [],
-    "load": 12.76220703125
+    "load": 15.6806640625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "8ef94da25759fc8c38dfaccf17cfeec8315bdfd6bff78323d3405fca689187da",
   "stable": true
  },
@@ -820,7 +820,7 @@
      "tests/test_workflow_lisp_float_literals.py::test_a_macro_template_may_hold_a_decimal_literal"
     ],
     "23c53f56f7-withheld-upstream": [],
-    "load": 12.8818359375
+    "load": 15.556640625
    },
    {
     "23c53f56f7-withheld-base": [
@@ -828,7 +828,7 @@
      "tests/test_workflow_lisp_float_literals.py::test_a_macro_template_may_hold_a_decimal_literal"
     ],
     "23c53f56f7-withheld-upstream": [],
-    "load": 13.5263671875
+    "load": 16.4765625
    },
    {
     "23c53f56f7-withheld-base": [
@@ -836,10 +836,10 @@
      "tests/test_workflow_lisp_float_literals.py::test_a_macro_template_may_hold_a_decimal_literal"
     ],
     "23c53f56f7-withheld-upstream": [],
-    "load": 12.46044921875
+    "load": 15.6806640625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "2da9ead1a6834b9e2bd14b52cd1e6e44d1950ebc32a3f93463048642f491dd4f",
   "stable": true
  },
@@ -854,7 +854,7 @@
      "tests/test_workflow_lisp_provider_supervision.py"
     ],
     "2aaf1ecc8e-upstream": [],
-    "load": 13.38623046875
+    "load": 13.84033203125
    },
    {
     "2aaf1ecc8e-base": [
@@ -863,7 +863,7 @@
      "tests/test_workflow_lisp_provider_supervision.py"
     ],
     "2aaf1ecc8e-upstream": [],
-    "load": 15.32666015625
+    "load": 12.9921875
    },
    {
     "2aaf1ecc8e-base": [
@@ -872,10 +872,10 @@
      "tests/test_workflow_lisp_provider_supervision.py"
     ],
     "2aaf1ecc8e-upstream": [],
-    "load": 12.849609375
+    "load": 15.4658203125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "ca2ec6bde8a602a03949bb501da1200348d2a4f6b7a6243be06893b9d69587d5",
   "stable": true
  },
@@ -890,7 +890,7 @@
      "tests/test_workflow_lisp_provider_supervision.py"
     ],
     "2aaf1ecc8e-t0-upstream": [],
-    "load": 12.849609375
+    "load": 16.02880859375
    },
    {
     "2aaf1ecc8e-t0-base": [
@@ -899,7 +899,7 @@
      "tests/test_workflow_lisp_provider_supervision.py"
     ],
     "2aaf1ecc8e-t0-upstream": [],
-    "load": 12.28076171875
+    "load": 14.63623046875
    },
    {
     "2aaf1ecc8e-t0-base": [
@@ -908,10 +908,10 @@
      "tests/test_workflow_lisp_provider_supervision.py"
     ],
     "2aaf1ecc8e-t0-upstream": [],
-    "load": 11.220703125
+    "load": 16.05859375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "f6ecca1c896f470b92cf74495f78449e734189ee55143c9ab3c48db127a9533e",
   "stable": true
  },
@@ -926,7 +926,7 @@
      "tests/test_workflow_lisp_provider_supervision.py"
     ],
     "2aaf1ecc8e-withheld-upstream": [],
-    "load": 13.38623046875
+    "load": 14.2236328125
    },
    {
     "2aaf1ecc8e-withheld-base": [
@@ -935,7 +935,7 @@
      "tests/test_workflow_lisp_provider_supervision.py"
     ],
     "2aaf1ecc8e-withheld-upstream": [],
-    "load": 14.89990234375
+    "load": 14.24560546875
    },
    {
     "2aaf1ecc8e-withheld-base": [
@@ -944,10 +944,10 @@
      "tests/test_workflow_lisp_provider_supervision.py"
     ],
     "2aaf1ecc8e-withheld-upstream": [],
-    "load": 12.380859375
+    "load": 16.201171875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "38a46d31bdcde546063c938074e4beafcf221771a232d151258b2bc4ae721afd",
   "stable": true
  },
@@ -961,7 +961,7 @@
      "tests/test_workflow_lisp_generic_unions_runtime.py::test_generic_with_applied_union_parameter_lowers_after_specialization"
     ],
     "30b990b4ca-upstream": [],
-    "load": 9.455078125
+    "load": 16.546875
    },
    {
     "30b990b4ca-base": [
@@ -969,7 +969,7 @@
      "tests/test_workflow_lisp_generic_unions_runtime.py::test_generic_with_applied_union_parameter_lowers_after_specialization"
     ],
     "30b990b4ca-upstream": [],
-    "load": 11.39501953125
+    "load": 14.18798828125
    },
    {
     "30b990b4ca-base": [
@@ -977,10 +977,10 @@
      "tests/test_workflow_lisp_generic_unions_runtime.py::test_generic_with_applied_union_parameter_lowers_after_specialization"
     ],
     "30b990b4ca-upstream": [],
-    "load": 11.08349609375
+    "load": 13.18017578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "21c050fbb4d78268be5862443005de168b635544677ad0e720aa5e5efe638feb",
   "stable": true
  },
@@ -994,7 +994,7 @@
      "tests/test_workflow_lisp_generic_unions_runtime.py::test_generic_with_applied_union_parameter_lowers_after_specialization"
     ],
     "30b990b4ca-withheld-upstream": [],
-    "load": 9.455078125
+    "load": 16.546875
    },
    {
     "30b990b4ca-withheld-base": [
@@ -1002,7 +1002,7 @@
      "tests/test_workflow_lisp_generic_unions_runtime.py::test_generic_with_applied_union_parameter_lowers_after_specialization"
     ],
     "30b990b4ca-withheld-upstream": [],
-    "load": 11.16796875
+    "load": 14.18798828125
    },
    {
     "30b990b4ca-withheld-base": [
@@ -1010,10 +1010,10 @@
      "tests/test_workflow_lisp_generic_unions_runtime.py::test_generic_with_applied_union_parameter_lowers_after_specialization"
     ],
     "30b990b4ca-withheld-upstream": [],
-    "load": 11.08349609375
+    "load": 13.18017578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "a00fc739a6d2d00e33f85b9271bdac65865008e0a440b24885061896ad84ab0c",
   "stable": true
  },
@@ -1028,7 +1028,7 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-upstream": [],
-    "load": 7.66650390625
+    "load": 12.1376953125
    },
    {
     "3442aef203-base": [
@@ -1037,7 +1037,7 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-upstream": [],
-    "load": 7.18212890625
+    "load": 9.921875
    },
    {
     "3442aef203-base": [
@@ -1046,10 +1046,10 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-upstream": [],
-    "load": 7.21484375
+    "load": 9.44091796875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "38a569f89c19fa64c3432865c137f7736e856a23b224badf212efa4ea48f4c96",
   "stable": true
  },
@@ -1064,7 +1064,7 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-withheld-upstream": [],
-    "load": 7.66650390625
+    "load": 12.1376953125
    },
    {
     "3442aef203-withheld-base": [
@@ -1073,7 +1073,7 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-withheld-upstream": [],
-    "load": 7.18212890625
+    "load": 10.08837890625
    },
    {
     "3442aef203-withheld-base": [
@@ -1082,10 +1082,10 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-withheld-upstream": [],
-    "load": 7.21484375
+    "load": 9.44091796875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "3f63918d858d2801ca1465f57c8fd0cf2f7e7630da7894db3e39c512cfb475b0",
   "stable": true
  },
@@ -1100,7 +1100,7 @@
      "tests/test_workflow_evaluated_agent_allocation.py::test_binding_field_change_is_refused"
     ],
     "3523bab32e-upstream": [],
-    "load": 12.4423828125
+    "load": 15.87744140625
    },
    {
     "3523bab32e-base": [
@@ -1109,7 +1109,7 @@
      "tests/test_workflow_evaluated_agent_allocation.py::test_binding_field_change_is_refused"
     ],
     "3523bab32e-upstream": [],
-    "load": 11.44189453125
+    "load": 16.5283203125
    },
    {
     "3523bab32e-base": [
@@ -1118,10 +1118,10 @@
      "tests/test_workflow_evaluated_agent_allocation.py::test_binding_field_change_is_refused"
     ],
     "3523bab32e-upstream": [],
-    "load": 10.37255859375
+    "load": 15.0166015625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "8fceb03e00583280dedb0875082385a5fb01e6a14c78a7ed91f458319c8d37a2",
   "stable": true
  },
@@ -1136,7 +1136,7 @@
      "tests/test_workflow_evaluated_agent_allocation.py::test_binding_field_change_is_refused"
     ],
     "3523bab32e-withheld-upstream": [],
-    "load": 12.4423828125
+    "load": 15.87744140625
    },
    {
     "3523bab32e-withheld-base": [
@@ -1145,7 +1145,7 @@
      "tests/test_workflow_evaluated_agent_allocation.py::test_binding_field_change_is_refused"
     ],
     "3523bab32e-withheld-upstream": [],
-    "load": 11.44189453125
+    "load": 16.5283203125
    },
    {
     "3523bab32e-withheld-base": [
@@ -1154,10 +1154,10 @@
      "tests/test_workflow_evaluated_agent_allocation.py::test_binding_field_change_is_refused"
     ],
     "3523bab32e-withheld-upstream": [],
-    "load": 10.37255859375
+    "load": 15.0166015625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "8689786adf55276001556af4906f9b4cd6a33187ac9c248f4676fba6d55cf874",
   "stable": true
  },
@@ -1172,7 +1172,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-upstream": [],
-    "load": 6.9091796875
+    "load": 15.1630859375
    },
    {
     "3f5008fcaf-base": [
@@ -1181,7 +1181,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-upstream": [],
-    "load": 7.771484375
+    "load": 12.49267578125
    },
    {
     "3f5008fcaf-base": [
@@ -1190,10 +1190,10 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-upstream": [],
-    "load": 7.490234375
+    "load": 12.4423828125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "60cc4d87d02d482008b1713dc5874f721300f24de3d2e1afb16a47a37e9ccfd7",
   "stable": true
  },
@@ -1208,7 +1208,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-t0-upstream": [],
-    "load": 7.41845703125
+    "load": 13.88134765625
    },
    {
     "3f5008fcaf-t0-base": [
@@ -1217,7 +1217,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-t0-upstream": [],
-    "load": 7.66796875
+    "load": 11.14990234375
    },
    {
     "3f5008fcaf-t0-base": [
@@ -1226,10 +1226,10 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-t0-upstream": [],
-    "load": 8.1982421875
+    "load": 9.39208984375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "4b50e48f6030e9ac23925de417341b98e90e3990d68182c58f29de22e23ffa66",
   "stable": true
  },
@@ -1244,7 +1244,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-withheld-upstream": [],
-    "load": 7.771484375
+    "load": 13.17431640625
    },
    {
     "3f5008fcaf-withheld-base": [
@@ -1253,7 +1253,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-withheld-upstream": [],
-    "load": 7.490234375
+    "load": 11.5986328125
    },
    {
     "3f5008fcaf-withheld-base": [
@@ -1262,10 +1262,10 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-withheld-upstream": [],
-    "load": 7.82177734375
+    "load": 9.39208984375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "cc13ef1a0fc01e3993e1ab483cef3fc1539b45b6759b6183c3cf5591f10ba536",
   "stable": true
  },
@@ -1281,7 +1281,7 @@
      "tests/test_workflow_lisp_prefix_scope.py::test_continue_in_two_arms_binds_each_field_under_its_own_name"
     ],
     "4618696441-upstream": [],
-    "load": 6.7626953125
+    "load": 12.25537109375
    },
    {
     "4618696441-base": [
@@ -1291,7 +1291,7 @@
      "tests/test_workflow_lisp_prefix_scope.py::test_continue_in_two_arms_binds_each_field_under_its_own_name"
     ],
     "4618696441-upstream": [],
-    "load": 6.412109375
+    "load": 13.55419921875
    },
    {
     "4618696441-base": [
@@ -1301,10 +1301,10 @@
      "tests/test_workflow_lisp_prefix_scope.py::test_continue_in_two_arms_binds_each_field_under_its_own_name"
     ],
     "4618696441-upstream": [],
-    "load": 6.3857421875
+    "load": 12.361328125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "feb6a9ab9075a408dc9e5665c68c868f6a987fe0527b4b7bf0c513353ac204a4",
   "stable": true
  },
@@ -1320,7 +1320,7 @@
      "tests/test_workflow_lisp_prefix_scope.py::test_continue_in_two_arms_binds_each_field_under_its_own_name"
     ],
     "4618696441-withheld-upstream": [],
-    "load": 7.10205078125
+    "load": 12.25537109375
    },
    {
     "4618696441-withheld-base": [
@@ -1330,7 +1330,7 @@
      "tests/test_workflow_lisp_prefix_scope.py::test_continue_in_two_arms_binds_each_field_under_its_own_name"
     ],
     "4618696441-withheld-upstream": [],
-    "load": 6.37890625
+    "load": 13.109375
    },
    {
     "4618696441-withheld-base": [
@@ -1340,10 +1340,10 @@
      "tests/test_workflow_lisp_prefix_scope.py::test_continue_in_two_arms_binds_each_field_under_its_own_name"
     ],
     "4618696441-withheld-upstream": [],
-    "load": 6.3544921875
+    "load": 12.01171875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "6c70418083f2fd048beb430ebd5f6e17edeedf1232007dead518ae838de5690d",
   "stable": true
  },
@@ -1359,7 +1359,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_mid_list_true_makes_form_exhaustive"
     ],
     "47fa3b42f9-upstream": [],
-    "load": 10.9560546875
+    "load": 15.50439453125
    },
    {
     "47fa3b42f9-base": [
@@ -1369,7 +1369,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_mid_list_true_makes_form_exhaustive"
     ],
     "47fa3b42f9-upstream": [],
-    "load": 9.099609375
+    "load": 14.634765625
    },
    {
     "47fa3b42f9-base": [
@@ -1379,10 +1379,10 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_mid_list_true_makes_form_exhaustive"
     ],
     "47fa3b42f9-upstream": [],
-    "load": 12.20361328125
+    "load": 14.80224609375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "abf321132980ea96491744cad62059e6c1047194847bc8ecf6daaaf176bf27a8",
   "stable": true
  },
@@ -1398,7 +1398,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_mid_list_true_makes_form_exhaustive"
     ],
     "47fa3b42f9-withheld-upstream": [],
-    "load": 10.55908203125
+    "load": 15.50439453125
    },
    {
     "47fa3b42f9-withheld-base": [
@@ -1408,7 +1408,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_mid_list_true_makes_form_exhaustive"
     ],
     "47fa3b42f9-withheld-upstream": [],
-    "load": 8.93408203125
+    "load": 14.634765625
    },
    {
     "47fa3b42f9-withheld-base": [
@@ -1418,10 +1418,10 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_mid_list_true_makes_form_exhaustive"
     ],
     "47fa3b42f9-withheld-upstream": [],
-    "load": 12.20361328125
+    "load": 14.80224609375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "a461555bfdd34bd1cdcf9941e00c2e16ab8ccb8792b2cf196ebf0772bcdd6829",
   "stable": true
  },
@@ -1435,7 +1435,7 @@
      "tests/test_workflow_lisp_procedures.py::test_compile_generic_identity_defers_example_until_type_param_specialization"
     ],
     "4a287cbdb5-upstream": [],
-    "load": 6.94873046875
+    "load": 10.99560546875
    },
    {
     "4a287cbdb5-base": [
@@ -1443,7 +1443,7 @@
      "tests/test_workflow_lisp_procedures.py::test_compile_generic_identity_defers_example_until_type_param_specialization"
     ],
     "4a287cbdb5-upstream": [],
-    "load": 7.04296875
+    "load": 10.22705078125
    },
    {
     "4a287cbdb5-base": [
@@ -1451,10 +1451,10 @@
      "tests/test_workflow_lisp_procedures.py::test_compile_generic_identity_defers_example_until_type_param_specialization"
     ],
     "4a287cbdb5-upstream": [],
-    "load": 7.2890625
+    "load": 9.9453125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "27266871aa8f3db1af58035478abcfbed4dd8cb5b166b2da925076276a5cc142",
   "stable": true
  },
@@ -1468,7 +1468,7 @@
      "tests/test_workflow_lisp_procedures.py::test_compile_generic_identity_defers_example_until_type_param_specialization"
     ],
     "4a287cbdb5-withheld-upstream": [],
-    "load": 7.185546875
+    "load": 9.5634765625
    },
    {
     "4a287cbdb5-withheld-base": [
@@ -1476,7 +1476,7 @@
      "tests/test_workflow_lisp_procedures.py::test_compile_generic_identity_defers_example_until_type_param_specialization"
     ],
     "4a287cbdb5-withheld-upstream": [],
-    "load": 6.84912109375
+    "load": 9.0888671875
    },
    {
     "4a287cbdb5-withheld-base": [
@@ -1484,10 +1484,10 @@
      "tests/test_workflow_lisp_procedures.py::test_compile_generic_identity_defers_example_until_type_param_specialization"
     ],
     "4a287cbdb5-withheld-upstream": [],
-    "load": 6.564453125
+    "load": 9.8154296875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "1ad649693abe2aa15d029d5ea5c9c532a5914d0c0e7f8292f5818473d3f01854",
   "stable": true
  },
@@ -1504,7 +1504,7 @@
      "tests/test_workflow_evaluated_run_ref_root.py::test_resume_root_option_mismatch_is_readonly"
     ],
     "4ca7a0fbf7-upstream": [],
-    "load": 7.638671875
+    "load": 13.50634765625
    },
    {
     "4ca7a0fbf7-base": [
@@ -1515,7 +1515,7 @@
      "tests/test_workflow_evaluated_run_ref_root.py::test_resume_root_option_mismatch_is_readonly"
     ],
     "4ca7a0fbf7-upstream": [],
-    "load": 7.64404296875
+    "load": 13.51123046875
    },
    {
     "4ca7a0fbf7-base": [
@@ -1526,10 +1526,10 @@
      "tests/test_workflow_evaluated_run_ref_root.py::test_resume_root_option_mismatch_is_readonly"
     ],
     "4ca7a0fbf7-upstream": [],
-    "load": 6.23681640625
+    "load": 11.4189453125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "e75840f8237b89eef43ac238d6e66bbb17fdeff88c69573cb72f59353ced3388",
   "stable": true
  },
@@ -1546,7 +1546,7 @@
      "tests/test_workflow_evaluated_run_ref_root.py::test_resume_root_option_mismatch_is_readonly"
     ],
     "4ca7a0fbf7-withheld-upstream": [],
-    "load": 7.947265625
+    "load": 12.36572265625
    },
    {
     "4ca7a0fbf7-withheld-base": [
@@ -1557,7 +1557,7 @@
      "tests/test_workflow_evaluated_run_ref_root.py::test_resume_root_option_mismatch_is_readonly"
     ],
     "4ca7a0fbf7-withheld-upstream": [],
-    "load": 7.82666015625
+    "load": 14.43603515625
    },
    {
     "4ca7a0fbf7-withheld-base": [
@@ -1568,10 +1568,10 @@
      "tests/test_workflow_evaluated_run_ref_root.py::test_resume_root_option_mismatch_is_readonly"
     ],
     "4ca7a0fbf7-withheld-upstream": [],
-    "load": 6.63623046875
+    "load": 11.0400390625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "a3bd74871fcb093fe521a753470e55022afd30e43628ffbd6f60c11534a5abac",
   "stable": true
  },
@@ -1587,7 +1587,7 @@
      "tests/test_workflow_evaluated_agent_observation.py::test_two_managers_on_one_run_root_allocate_distinct_display_files"
     ],
     "4da856acda-upstream": [],
-    "load": 10.51513671875
+    "load": 11.9580078125
    },
    {
     "4da856acda-base": [
@@ -1597,7 +1597,7 @@
      "tests/test_workflow_evaluated_agent_observation.py::test_two_managers_on_one_run_root_allocate_distinct_display_files"
     ],
     "4da856acda-upstream": [],
-    "load": 13.2216796875
+    "load": 14.458984375
    },
    {
     "4da856acda-base": [
@@ -1607,10 +1607,10 @@
      "tests/test_workflow_evaluated_agent_observation.py::test_two_managers_on_one_run_root_allocate_distinct_display_files"
     ],
     "4da856acda-upstream": [],
-    "load": 15.32666015625
+    "load": 12.9921875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "7312631b319fa8f128f8ef4e148a1b6312b0a642fc6fe54e84152a7ff851fe3b",
   "stable": true
  },
@@ -1626,7 +1626,7 @@
      "tests/test_workflow_evaluated_agent_observation.py::test_two_managers_on_one_run_root_allocate_distinct_display_files"
     ],
     "4da856acda-withheld-upstream": [],
-    "load": 10.4736328125
+    "load": 11.9580078125
    },
    {
     "4da856acda-withheld-base": [
@@ -1636,7 +1636,7 @@
      "tests/test_workflow_evaluated_agent_observation.py::test_two_managers_on_one_run_root_allocate_distinct_display_files"
     ],
     "4da856acda-withheld-upstream": [],
-    "load": 13.2216796875
+    "load": 14.458984375
    },
    {
     "4da856acda-withheld-base": [
@@ -1646,10 +1646,10 @@
      "tests/test_workflow_evaluated_agent_observation.py::test_two_managers_on_one_run_root_allocate_distinct_display_files"
     ],
     "4da856acda-withheld-upstream": [],
-    "load": 14.89990234375
+    "load": 12.9921875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "a7db6fac9668d83dd68e25719dced0c1e46f5c3354e58780fd3b7c07e6edd7e7",
   "stable": true
  },
@@ -1666,7 +1666,7 @@
      "tests/test_workflow_lisp_closed_program_sites.py"
     ],
     "53e7ea6a0d-upstream": [],
-    "load": 7.44140625
+    "load": 10.05859375
    },
    {
     "53e7ea6a0d-base": [
@@ -1677,7 +1677,7 @@
      "tests/test_workflow_lisp_closed_program_sites.py"
     ],
     "53e7ea6a0d-upstream": [],
-    "load": 7.48974609375
+    "load": 11.6298828125
    },
    {
     "53e7ea6a0d-base": [
@@ -1688,10 +1688,10 @@
      "tests/test_workflow_lisp_closed_program_sites.py"
     ],
     "53e7ea6a0d-upstream": [],
-    "load": 7.888671875
+    "load": 9.8408203125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "185c689e979b0e1ad24d88979322c456bbba132dbac75cf0c06da2c41f20ac56",
   "stable": true
  },
@@ -1708,7 +1708,7 @@
      "tests/test_workflow_lisp_closed_program_sites.py"
     ],
     "53e7ea6a0d-withheld-upstream": [],
-    "load": 8.05712890625
+    "load": 9.7119140625
    },
    {
     "53e7ea6a0d-withheld-base": [
@@ -1719,7 +1719,7 @@
      "tests/test_workflow_lisp_closed_program_sites.py"
     ],
     "53e7ea6a0d-withheld-upstream": [],
-    "load": 7.4921875
+    "load": 10.263671875
    },
    {
     "53e7ea6a0d-withheld-base": [
@@ -1730,10 +1730,10 @@
      "tests/test_workflow_lisp_closed_program_sites.py"
     ],
     "53e7ea6a0d-withheld-upstream": [],
-    "load": 7.6103515625
+    "load": 9.44140625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "521cabb8386c7644308fe786956384cbae1883a55cf351c2236bc5fa4c70177f",
   "stable": true
  },
@@ -1753,7 +1753,7 @@
      "tests/test_workflow_run_ref_confined_recovery.py::test_preflight_validates_an_intact_clone_with_setgid_and_setuid_modes"
     ],
     "53f2778113-upstream": [],
-    "load": 11.34521484375
+    "load": 13.240234375
    },
    {
     "53f2778113-base": [
@@ -1767,7 +1767,7 @@
      "tests/test_workflow_run_ref_confined_recovery.py::test_preflight_validates_an_intact_clone_with_setgid_and_setuid_modes"
     ],
     "53f2778113-upstream": [],
-    "load": 11.8232421875
+    "load": 12.44189453125
    },
    {
     "53f2778113-base": [
@@ -1781,10 +1781,10 @@
      "tests/test_workflow_run_ref_confined_recovery.py::test_preflight_validates_an_intact_clone_with_setgid_and_setuid_modes"
     ],
     "53f2778113-upstream": [],
-    "load": 10.55126953125
+    "load": 12.94677734375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "d931f0418948e9ddc8a9efc237826f27d39dec33e0e664d60ef34e3bf55c1dbf",
   "stable": true
  },
@@ -1804,7 +1804,7 @@
      "tests/test_workflow_run_ref_confined_recovery.py::test_preflight_validates_an_intact_clone_with_setgid_and_setuid_modes"
     ],
     "53f2778113-withheld-upstream": [],
-    "load": 12.11865234375
+    "load": 13.240234375
    },
    {
     "53f2778113-withheld-base": [
@@ -1818,7 +1818,7 @@
      "tests/test_workflow_run_ref_confined_recovery.py::test_preflight_validates_an_intact_clone_with_setgid_and_setuid_modes"
     ],
     "53f2778113-withheld-upstream": [],
-    "load": 11.8232421875
+    "load": 13.28759765625
    },
    {
     "53f2778113-withheld-base": [
@@ -1832,10 +1832,10 @@
      "tests/test_workflow_run_ref_confined_recovery.py::test_preflight_validates_an_intact_clone_with_setgid_and_setuid_modes"
     ],
     "53f2778113-withheld-upstream": [],
-    "load": 10.55126953125
+    "load": 12.94677734375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "3075ea36c12874c168fee6fbb7630e1c7c49bdf769ef4df1f680104cc9a23aa7",
   "stable": true
  },
@@ -1851,7 +1851,7 @@
      "tests/test_workflow_evaluated_confined_dispatch.py::test_truncation_alone_succeeds_and_is_recorded_as_attempt_evidence"
     ],
     "5581e78b2a-upstream": [],
-    "load": 11.34521484375
+    "load": 13.240234375
    },
    {
     "5581e78b2a-base": [
@@ -1861,7 +1861,7 @@
      "tests/test_workflow_evaluated_confined_dispatch.py::test_truncation_alone_succeeds_and_is_recorded_as_attempt_evidence"
     ],
     "5581e78b2a-upstream": [],
-    "load": 10.7734375
+    "load": 12.94677734375
    },
    {
     "5581e78b2a-base": [
@@ -1871,10 +1871,10 @@
      "tests/test_workflow_evaluated_confined_dispatch.py::test_truncation_alone_succeeds_and_is_recorded_as_attempt_evidence"
     ],
     "5581e78b2a-upstream": [],
-    "load": 9.353515625
+    "load": 13.501953125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "709b9f63c9a141a19091fe8cd6f79972bb3d045a1a5aa55a9b11f65fa2ab2185",
   "stable": true
  },
@@ -1890,7 +1890,7 @@
      "tests/test_workflow_evaluated_confined_dispatch.py::test_truncation_alone_succeeds_and_is_recorded_as_attempt_evidence"
     ],
     "5581e78b2a-withheld-upstream": [],
-    "load": 11.34521484375
+    "load": 12.74169921875
    },
    {
     "5581e78b2a-withheld-base": [
@@ -1900,7 +1900,7 @@
      "tests/test_workflow_evaluated_confined_dispatch.py::test_truncation_alone_succeeds_and_is_recorded_as_attempt_evidence"
     ],
     "5581e78b2a-withheld-upstream": [],
-    "load": 10.55126953125
+    "load": 12.66259765625
    },
    {
     "5581e78b2a-withheld-base": [
@@ -1910,10 +1910,10 @@
      "tests/test_workflow_evaluated_confined_dispatch.py::test_truncation_alone_succeeds_and_is_recorded_as_attempt_evidence"
     ],
     "5581e78b2a-withheld-upstream": [],
-    "load": 10.28662109375
+    "load": 13.54638671875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "4725a769dfcf74de424862be28cf0d348e5f16e53c9c3e071e4b35db14b52b11",
   "stable": true
  },
@@ -1939,7 +1939,7 @@
      "tests/test_workflow_agent_artifact_boundaries.py::test_pure_conversion_guard_checks_every_aggregate_shape"
     ],
     "586d66242d-upstream": [],
-    "load": 12.08056640625
+    "load": 15.13818359375
    },
    {
     "586d66242d-base": [
@@ -1959,7 +1959,7 @@
      "tests/test_workflow_agent_artifact_boundaries.py::test_pure_conversion_guard_checks_every_aggregate_shape"
     ],
     "586d66242d-upstream": [],
-    "load": 10.73681640625
+    "load": 13.1474609375
    },
    {
     "586d66242d-base": [
@@ -1979,10 +1979,10 @@
      "tests/test_workflow_agent_artifact_boundaries.py::test_pure_conversion_guard_checks_every_aggregate_shape"
     ],
     "586d66242d-upstream": [],
-    "load": 11.6484375
+    "load": 12.64892578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "f63242ddada77ad43c4e2780f2c19ef5512e0011d17aaa97f64f5c4bdde685cb",
   "stable": true
  },
@@ -2008,7 +2008,7 @@
      "tests/test_workflow_agent_artifact_boundaries.py::test_pure_conversion_guard_checks_every_aggregate_shape"
     ],
     "586d66242d-withheld-upstream": [],
-    "load": 12.08056640625
+    "load": 15.13818359375
    },
    {
     "586d66242d-withheld-base": [
@@ -2028,7 +2028,7 @@
      "tests/test_workflow_agent_artifact_boundaries.py::test_pure_conversion_guard_checks_every_aggregate_shape"
     ],
     "586d66242d-withheld-upstream": [],
-    "load": 10.73681640625
+    "load": 13.1474609375
    },
    {
     "586d66242d-withheld-base": [
@@ -2048,10 +2048,10 @@
      "tests/test_workflow_agent_artifact_boundaries.py::test_pure_conversion_guard_checks_every_aggregate_shape"
     ],
     "586d66242d-withheld-upstream": [],
-    "load": 12.3173828125
+    "load": 12.64892578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "3823a1d5e446ce3f14ca471fc84079f461120ae9083bce7b76f1a08901fa812b",
   "stable": true
  },
@@ -2068,7 +2068,7 @@
      "tests/test_workflow_result_file_freshness.py::test_a_result_path_that_cannot_be_cleared_fails_before_launch_with_its_own_code_at_the_step_source"
     ],
     "658374e119-upstream": [],
-    "load": 7.830078125
+    "load": 15.447265625
    },
    {
     "658374e119-base": [
@@ -2079,7 +2079,7 @@
      "tests/test_workflow_result_file_freshness.py::test_a_result_path_that_cannot_be_cleared_fails_before_launch_with_its_own_code_at_the_step_source"
     ],
     "658374e119-upstream": [],
-    "load": 6.9130859375
+    "load": 17.5263671875
    },
    {
     "658374e119-base": [
@@ -2090,10 +2090,10 @@
      "tests/test_workflow_result_file_freshness.py::test_a_result_path_that_cannot_be_cleared_fails_before_launch_with_its_own_code_at_the_step_source"
     ],
     "658374e119-upstream": [],
-    "load": 11.251953125
+    "load": 16.48095703125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "53cfa4ede388185d736120365925b244361bbde034ab3126b63501b0367ce674",
   "stable": true
  },
@@ -2110,7 +2110,7 @@
      "tests/test_workflow_result_file_freshness.py::test_a_result_path_that_cannot_be_cleared_fails_before_launch_with_its_own_code_at_the_step_source"
     ],
     "658374e119-withheld-upstream": [],
-    "load": 7.830078125
+    "load": 15.447265625
    },
    {
     "658374e119-withheld-base": [
@@ -2121,7 +2121,7 @@
      "tests/test_workflow_result_file_freshness.py::test_a_result_path_that_cannot_be_cleared_fails_before_launch_with_its_own_code_at_the_step_source"
     ],
     "658374e119-withheld-upstream": [],
-    "load": 6.9130859375
+    "load": 17.5263671875
    },
    {
     "658374e119-withheld-base": [
@@ -2132,10 +2132,10 @@
      "tests/test_workflow_result_file_freshness.py::test_a_result_path_that_cannot_be_cleared_fails_before_launch_with_its_own_code_at_the_step_source"
     ],
     "658374e119-withheld-upstream": [],
-    "load": 11.251953125
+    "load": 16.1220703125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "9a03f1a6b534fe1e71bade4994661eb94e80bf907127716b0dc168fa5718e7c3",
   "stable": true
  },
@@ -2150,7 +2150,7 @@
      "tests/test_workflow_lisp_source_sites.py::test_provider_dependency_names_the_extern_and_its_resolved_binding"
     ],
     "6ab22c3619-upstream": [],
-    "load": 11.08984375
+    "load": 12.47119140625
    },
    {
     "6ab22c3619-base": [
@@ -2159,7 +2159,7 @@
      "tests/test_workflow_lisp_source_sites.py::test_provider_dependency_names_the_extern_and_its_resolved_binding"
     ],
     "6ab22c3619-upstream": [],
-    "load": 10.51513671875
+    "load": 12.302734375
    },
    {
     "6ab22c3619-base": [
@@ -2168,10 +2168,10 @@
      "tests/test_workflow_lisp_source_sites.py::test_provider_dependency_names_the_extern_and_its_resolved_binding"
     ],
     "6ab22c3619-upstream": [],
-    "load": 11.64404296875
+    "load": 13.10791015625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "7615426379482522864fd215322bcf6a6a5e37bb84a8796c56d41544871e5563",
   "stable": true
  },
@@ -2186,7 +2186,7 @@
      "tests/test_workflow_lisp_source_sites.py::test_provider_dependency_names_the_extern_and_its_resolved_binding"
     ],
     "6ab22c3619-withheld-upstream": [],
-    "load": 11.08984375
+    "load": 11.93701171875
    },
    {
     "6ab22c3619-withheld-base": [
@@ -2195,7 +2195,7 @@
      "tests/test_workflow_lisp_source_sites.py::test_provider_dependency_names_the_extern_and_its_resolved_binding"
     ],
     "6ab22c3619-withheld-upstream": [],
-    "load": 10.51513671875
+    "load": 11.80078125
    },
    {
     "6ab22c3619-withheld-base": [
@@ -2204,10 +2204,10 @@
      "tests/test_workflow_lisp_source_sites.py::test_provider_dependency_names_the_extern_and_its_resolved_binding"
     ],
     "6ab22c3619-withheld-upstream": [],
-    "load": 11.64404296875
+    "load": 12.8447265625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "f7e45983e955532698cdb8c8fb43d756460b0138f60a5b0cfd1faa4befcef1e0",
   "stable": true
  },
@@ -2224,7 +2224,7 @@
      "tests/test_workflow_lisp_lowering.py::test_provider_result_native_bool_binds_terminal_result_artifact_ref"
     ],
     "7d719eed79-upstream": [],
-    "load": 7.10302734375
+    "load": 11.4091796875
    },
    {
     "7d719eed79-base": [
@@ -2235,7 +2235,7 @@
      "tests/test_workflow_lisp_lowering.py::test_provider_result_native_bool_binds_terminal_result_artifact_ref"
     ],
     "7d719eed79-upstream": [],
-    "load": 6.65625
+    "load": 13.98583984375
    },
    {
     "7d719eed79-base": [
@@ -2246,10 +2246,10 @@
      "tests/test_workflow_lisp_lowering.py::test_provider_result_native_bool_binds_terminal_result_artifact_ref"
     ],
     "7d719eed79-upstream": [],
-    "load": 7.71484375
+    "load": 11.9033203125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "255db11e4be96e8535d1ed3f9a6e9f999971ba4d4d04cc30ff7f51a70acf5d36",
   "stable": true
  },
@@ -2266,7 +2266,7 @@
      "tests/test_workflow_lisp_lowering.py::test_provider_result_native_bool_binds_terminal_result_artifact_ref"
     ],
     "7d719eed79-withheld-upstream": [],
-    "load": 7.0146484375
+    "load": 11.45654296875
    },
    {
     "7d719eed79-withheld-base": [
@@ -2277,7 +2277,7 @@
      "tests/test_workflow_lisp_lowering.py::test_provider_result_native_bool_binds_terminal_result_artifact_ref"
     ],
     "7d719eed79-withheld-upstream": [],
-    "load": 7.08447265625
+    "load": 13.50634765625
    },
    {
     "7d719eed79-withheld-base": [
@@ -2288,10 +2288,10 @@
      "tests/test_workflow_lisp_lowering.py::test_provider_result_native_bool_binds_terminal_result_artifact_ref"
     ],
     "7d719eed79-withheld-upstream": [],
-    "load": 8.13818359375
+    "load": 11.67041015625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "eb08f266010b2301bdfc2c32ab3ac9406633f9c9009389eb3fd608ff32d687ab",
   "stable": true
  },
@@ -2323,7 +2323,7 @@
      "tests/test_workflow_lisp_generic_unions.py::test_union_type_parameters_are_scoped_to_their_declaration"
     ],
     "8da9ef89c7-withheld-upstream": [],
-    "load": 8.19580078125
+    "load": 9.6513671875
    },
    {
     "8da9ef89c7-withheld-base": [
@@ -2349,7 +2349,7 @@
      "tests/test_workflow_lisp_generic_unions.py::test_union_type_parameters_are_scoped_to_their_declaration"
     ],
     "8da9ef89c7-withheld-upstream": [],
-    "load": 7.25146484375
+    "load": 11.84521484375
    },
    {
     "8da9ef89c7-withheld-base": [
@@ -2375,10 +2375,10 @@
      "tests/test_workflow_lisp_generic_unions.py::test_union_type_parameters_are_scoped_to_their_declaration"
     ],
     "8da9ef89c7-withheld-upstream": [],
-    "load": 7.13037109375
+    "load": 8.38427734375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "40bfb9f1d821b3b9ca121bd6b77b29d831690be3082b92703998728e7e4a77e2",
   "stable": true
  },
@@ -2394,7 +2394,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_strict_pure_value_if_variant_narrowed_reports_diagnostic"
     ],
     "8dbd13c7b8-upstream": [],
-    "load": 7.5791015625
+    "load": 13.05908203125
    },
    {
     "8dbd13c7b8-base": [
@@ -2404,7 +2404,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_strict_pure_value_if_variant_narrowed_reports_diagnostic"
     ],
     "8dbd13c7b8-upstream": [],
-    "load": 6.7626953125
+    "load": 12.36474609375
    },
    {
     "8dbd13c7b8-base": [
@@ -2414,10 +2414,10 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_strict_pure_value_if_variant_narrowed_reports_diagnostic"
     ],
     "8dbd13c7b8-upstream": [],
-    "load": 6.53759765625
+    "load": 12.361328125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "59f04a711525dfeeaef9243cdf980483954fc44891c91feb52644f9ebd93e33d",
   "stable": true
  },
@@ -2433,7 +2433,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_strict_pure_value_if_variant_narrowed_reports_diagnostic"
     ],
     "8dbd13c7b8-withheld-upstream": [],
-    "load": 7.255859375
+    "load": 13.287109375
    },
    {
     "8dbd13c7b8-withheld-base": [
@@ -2443,7 +2443,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_strict_pure_value_if_variant_narrowed_reports_diagnostic"
     ],
     "8dbd13c7b8-withheld-upstream": [],
-    "load": 6.93359375
+    "load": 11.83447265625
    },
    {
     "8dbd13c7b8-withheld-base": [
@@ -2453,10 +2453,10 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_strict_pure_value_if_variant_narrowed_reports_diagnostic"
     ],
     "8dbd13c7b8-withheld-upstream": [],
-    "load": 6.4482421875
+    "load": 12.7314453125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "ed1f13607ac5f8535e50455de5c83e522d139aa15ab5c62113748fdb084d6e09",
   "stable": true
  },
@@ -2496,7 +2496,7 @@
      "tests/test_workflow_run_ref_confined_recovery.py::test_workspace_manifest_matches_freeze_tree"
     ],
     "9617b72eb2-withheld-upstream": [],
-    "load": 8.47412109375
+    "load": 9.70849609375
    },
    {
     "9617b72eb2-withheld-base": [
@@ -2530,7 +2530,7 @@
      "tests/test_workflow_run_ref_confined_recovery.py::test_workspace_manifest_matches_freeze_tree"
     ],
     "9617b72eb2-withheld-upstream": [],
-    "load": 7.87158203125
+    "load": 10.82763671875
    },
    {
     "9617b72eb2-withheld-base": [
@@ -2564,10 +2564,10 @@
      "tests/test_workflow_run_ref_confined_recovery.py::test_workspace_manifest_matches_freeze_tree"
     ],
     "9617b72eb2-withheld-upstream": [],
-    "load": 7.12939453125
+    "load": 12.33447265625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "4740a41912170210ef7e088d23883103238726eb47e3af1fe3072e92487dbca1",
   "stable": true
  },
@@ -2691,7 +2691,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-upstream": [],
-    "load": 6.8408203125
+    "load": 9.90673828125
    },
    {
     "9f46516eae-base": [
@@ -2702,7 +2702,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-upstream": [],
-    "load": 5.990234375
+    "load": 8.11474609375
    },
    {
     "9f46516eae-base": [
@@ -2713,10 +2713,10 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-upstream": [],
-    "load": 7.26611328125
+    "load": 7.75146484375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "eeae3556b246961f3c7936021c61455f58ccb48a7d15347f302db9a2960c61cb",
   "stable": true
  },
@@ -2733,7 +2733,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-withheld-upstream": [],
-    "load": 6.8408203125
+    "load": 9.90673828125
    },
    {
     "9f46516eae-withheld-base": [
@@ -2744,7 +2744,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-withheld-upstream": [],
-    "load": 5.990234375
+    "load": 8.11474609375
    },
    {
     "9f46516eae-withheld-base": [
@@ -2755,10 +2755,10 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-withheld-upstream": [],
-    "load": 7.26611328125
+    "load": 7.75146484375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "70febeeb0642e484c987f64fa9a6f4192b79dc3a9041a1a6c6e1ecbd1a769b4a",
   "stable": true
  },
@@ -2775,7 +2775,7 @@
      "tests/test_workflow_lisp_wcc_m5.py"
     ],
     "abb3d5e92c-upstream": [],
-    "load": 6.77880859375
+    "load": 11.30517578125
    },
    {
     "abb3d5e92c-base": [
@@ -2786,7 +2786,7 @@
      "tests/test_workflow_lisp_wcc_m5.py"
     ],
     "abb3d5e92c-upstream": [],
-    "load": 6.673828125
+    "load": 13.861328125
    },
    {
     "abb3d5e92c-base": [
@@ -2797,10 +2797,10 @@
      "tests/test_workflow_lisp_wcc_m5.py"
     ],
     "abb3d5e92c-upstream": [],
-    "load": 7.9609375
+    "load": 13.41259765625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "7021d4ef8719c4ad7a8e74a92dfcd78516e0d5331d2cffe89e4180f073551b50",
   "stable": true
  },
@@ -2817,7 +2817,7 @@
      "tests/test_workflow_lisp_wcc_m5.py"
     ],
     "abb3d5e92c-withheld-upstream": [],
-    "load": 6.63623046875
+    "load": 11.0400390625
    },
    {
     "abb3d5e92c-withheld-base": [
@@ -2828,7 +2828,7 @@
      "tests/test_workflow_lisp_wcc_m5.py"
     ],
     "abb3d5e92c-withheld-upstream": [],
-    "load": 7.1005859375
+    "load": 13.3916015625
    },
    {
     "abb3d5e92c-withheld-base": [
@@ -2839,10 +2839,10 @@
      "tests/test_workflow_lisp_wcc_m5.py"
     ],
     "abb3d5e92c-withheld-upstream": [],
-    "load": 7.8037109375
+    "load": 13.41259765625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "ccff284eaf693a58517c09e924b36b5de02ff744e610990eb7e7b8fa5a2c0551",
   "stable": true
  },
@@ -2878,7 +2878,7 @@
      "tests/test_workflow_lisp_command_boundary_closure.py::test_three_map_projection_emits_resolved_extern_rows_and_keeps_logical_owner_base"
     ],
     "b0ea8e3030-withheld-upstream": [],
-    "load": 6.99755859375
+    "load": 12.99169921875
    },
    {
     "b0ea8e3030-withheld-base": [
@@ -2908,7 +2908,7 @@
      "tests/test_workflow_lisp_command_boundary_closure.py::test_three_map_projection_emits_resolved_extern_rows_and_keeps_logical_owner_base"
     ],
     "b0ea8e3030-withheld-upstream": [],
-    "load": 7.08447265625
+    "load": 8.11279296875
    },
    {
     "b0ea8e3030-withheld-base": [
@@ -2938,10 +2938,10 @@
      "tests/test_workflow_lisp_command_boundary_closure.py::test_three_map_projection_emits_resolved_extern_rows_and_keeps_logical_owner_base"
     ],
     "b0ea8e3030-withheld-upstream": [],
-    "load": 5.3359375
+    "load": 7.59326171875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "c6522ef27e146b061462d9330c712695b4ff2169ba64c1ea65e06eed581899ad",
   "stable": true
  },
@@ -2961,7 +2961,7 @@
      "tests/test_workflow_run_ref_holder.py::test_a_spawner_silent_until_the_ready_deadline_is_unavailable"
     ],
     "b18207f951-upstream": [],
-    "load": 10.22802734375
+    "load": 14.20703125
    },
    {
     "b18207f951-base": [
@@ -2975,7 +2975,7 @@
      "tests/test_workflow_run_ref_holder.py::test_a_spawner_silent_until_the_ready_deadline_is_unavailable"
     ],
     "b18207f951-upstream": [],
-    "load": 8.93408203125
+    "load": 15.12548828125
    },
    {
     "b18207f951-base": [
@@ -2989,10 +2989,10 @@
      "tests/test_workflow_run_ref_holder.py::test_a_spawner_silent_until_the_ready_deadline_is_unavailable"
     ],
     "b18207f951-upstream": [],
-    "load": 12.958984375
+    "load": 14.6474609375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "1e6e1fdd9f6ba1401ebc2a4a304347f0f1b0a1d6a4f0c345338ec2dc60c7f411",
   "stable": true
  },
@@ -3012,7 +3012,7 @@
      "tests/test_workflow_run_ref_holder.py::test_a_spawner_silent_until_the_ready_deadline_is_unavailable"
     ],
     "b18207f951-withheld-upstream": [],
-    "load": 10.22802734375
+    "load": 14.20703125
    },
    {
     "b18207f951-withheld-base": [
@@ -3026,7 +3026,7 @@
      "tests/test_workflow_run_ref_holder.py::test_a_spawner_silent_until_the_ready_deadline_is_unavailable"
     ],
     "b18207f951-withheld-upstream": [],
-    "load": 8.93408203125
+    "load": 15.12548828125
    },
    {
     "b18207f951-withheld-base": [
@@ -3040,10 +3040,10 @@
      "tests/test_workflow_run_ref_holder.py::test_a_spawner_silent_until_the_ready_deadline_is_unavailable"
     ],
     "b18207f951-withheld-upstream": [],
-    "load": 12.958984375
+    "load": 14.6474609375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "bbc5a1c5a2ce9d2c3ce6001d3b0e36e5ffa9a00c8d1ec6c860a97457275d515d",
   "stable": true
  },
@@ -3061,7 +3061,7 @@
      "tests/test_workflow_evaluated_agent_turns.py::test_completed_run_replays_without_current_session_support"
     ],
     "b4dd0caf18-upstream": [],
-    "load": 6.83984375
+    "load": 17.5263671875
    },
    {
     "b4dd0caf18-base": [
@@ -3073,7 +3073,7 @@
      "tests/test_workflow_evaluated_agent_turns.py::test_completed_run_replays_without_current_session_support"
     ],
     "b4dd0caf18-upstream": [],
-    "load": 13.62548828125
+    "load": 14.38037109375
    },
    {
     "b4dd0caf18-base": [
@@ -3085,10 +3085,10 @@
      "tests/test_workflow_evaluated_agent_turns.py::test_completed_run_replays_without_current_session_support"
     ],
     "b4dd0caf18-upstream": [],
-    "load": 10.34716796875
+    "load": 12.76220703125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "026d4ebfec798aa8ebd5c2bf96a0ee6a5a4826a7a3d323fdc5045760eca861fd",
   "stable": true
  },
@@ -3106,7 +3106,7 @@
      "tests/test_workflow_evaluated_agent_turns.py::test_completed_run_replays_without_current_session_support"
     ],
     "b4dd0caf18-withheld-upstream": [],
-    "load": 6.83984375
+    "load": 19.7646484375
    },
    {
     "b4dd0caf18-withheld-base": [
@@ -3118,7 +3118,7 @@
      "tests/test_workflow_evaluated_agent_turns.py::test_completed_run_replays_without_current_session_support"
     ],
     "b4dd0caf18-withheld-upstream": [],
-    "load": 13.62548828125
+    "load": 13.552734375
    },
    {
     "b4dd0caf18-withheld-base": [
@@ -3130,10 +3130,10 @@
      "tests/test_workflow_evaluated_agent_turns.py::test_completed_run_replays_without_current_session_support"
     ],
     "b4dd0caf18-withheld-upstream": [],
-    "load": 10.34716796875
+    "load": 13.822265625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "92c3a33ebb871161935d367980310a42ad1a5e48c98cdfb5d1ef73741d4bf4af",
   "stable": true
  },
@@ -3148,7 +3148,7 @@
      "tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces"
     ],
     "b931b7b827-upstream": [],
-    "load": 7.3046875
+    "load": 13.25
    },
    {
     "b931b7b827-base": [
@@ -3157,7 +3157,7 @@
      "tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces"
     ],
     "b931b7b827-upstream": [],
-    "load": 7.66796875
+    "load": 11.14990234375
    },
    {
     "b931b7b827-base": [
@@ -3166,10 +3166,10 @@
      "tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces"
     ],
     "b931b7b827-upstream": [],
-    "load": 8.1982421875
+    "load": 9.1201171875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "2a5b866617018183edc9516b708260c3b61bc1781322e18c220cb701c7d15ce5",
   "stable": true
  },
@@ -3184,7 +3184,7 @@
      "tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces"
     ],
     "b931b7b827-t0-upstream": [],
-    "load": 7.9638671875
+    "load": 9.2490234375
    },
    {
     "b931b7b827-t0-base": [
@@ -3193,7 +3193,7 @@
      "tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces"
     ],
     "b931b7b827-t0-upstream": [],
-    "load": 7.19775390625
+    "load": 8.4931640625
    },
    {
     "b931b7b827-t0-base": [
@@ -3202,10 +3202,10 @@
      "tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces"
     ],
     "b931b7b827-t0-upstream": [],
-    "load": 6.44677734375
+    "load": 11.55126953125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "6be6ea57be27d9e831213926370b21d821eeefdcc56ffbccd22af46f8010fcb9",
   "stable": true
  },
@@ -3220,7 +3220,7 @@
      "tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces"
     ],
     "b931b7b827-withheld-upstream": [],
-    "load": 7.82177734375
+    "load": 10.0087890625
    },
    {
     "b931b7b827-withheld-base": [
@@ -3229,7 +3229,7 @@
      "tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces"
     ],
     "b931b7b827-withheld-upstream": [],
-    "load": 7.9638671875
+    "load": 9.74560546875
    },
    {
     "b931b7b827-withheld-base": [
@@ -3238,10 +3238,10 @@
      "tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces"
     ],
     "b931b7b827-withheld-upstream": [],
-    "load": 7.19775390625
+    "load": 8.859375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "1a7d9f9c91ab620d8cd775cbca2031f929f1ee06c6c9d50f3088941cca5a9707",
   "stable": true
  },
@@ -3260,7 +3260,7 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-upstream": [],
-    "load": 10.74658203125
+    "load": 16.3017578125
    },
    {
     "bb9f34adf6-base": [
@@ -3273,7 +3273,7 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-upstream": [],
-    "load": 11.314453125
+    "load": 14.69580078125
    },
    {
     "bb9f34adf6-base": [
@@ -3286,10 +3286,10 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-upstream": [],
-    "load": 10.88818359375
+    "load": 14.3017578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "d5dc0c7cb79c913912129e7269826a5fdfbcdf0c88d3e316487dd388e9c8b14b",
   "stable": true
  },
@@ -3308,7 +3308,7 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-withheld-upstream": [],
-    "load": 10.74658203125
+    "load": 16.3017578125
    },
    {
     "bb9f34adf6-withheld-base": [
@@ -3321,7 +3321,7 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-withheld-upstream": [],
-    "load": 11.314453125
+    "load": 14.69580078125
    },
    {
     "bb9f34adf6-withheld-base": [
@@ -3334,10 +3334,10 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-withheld-upstream": [],
-    "load": 10.88818359375
+    "load": 14.3017578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "0b5100d5f55816e4016c091d4db2ed5dc05e71ef79c6bc77724065d11dd4b374",
   "stable": true
  },
@@ -3352,7 +3352,7 @@
      "tests/test_workflow_run_ref_quiescence.py::test_unproved_stop_aborts_lifecycle_before_witness_delta_or_parent_settlement"
     ],
     "c48d8fcc06-upstream": [],
-    "load": 6.3408203125
+    "load": 12.36767578125
    },
    {
     "c48d8fcc06-base": [
@@ -3361,7 +3361,7 @@
      "tests/test_workflow_run_ref_quiescence.py::test_unproved_stop_aborts_lifecycle_before_witness_delta_or_parent_settlement"
     ],
     "c48d8fcc06-upstream": [],
-    "load": 7.1005859375
+    "load": 13.861328125
    },
    {
     "c48d8fcc06-base": [
@@ -3370,10 +3370,10 @@
      "tests/test_workflow_run_ref_quiescence.py::test_unproved_stop_aborts_lifecycle_before_witness_delta_or_parent_settlement"
     ],
     "c48d8fcc06-upstream": [],
-    "load": 8.41455078125
+    "load": 12.85791015625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "adc613e9c8ad3e86888ee4b583245947f6fb696632616e4946d994bc87553cfe",
   "stable": true
  },
@@ -3388,7 +3388,7 @@
      "tests/test_workflow_run_ref_quiescence.py::test_unproved_stop_aborts_lifecycle_before_witness_delta_or_parent_settlement"
     ],
     "c48d8fcc06-withheld-upstream": [],
-    "load": 6.13427734375
+    "load": 13.27490234375
    },
    {
     "c48d8fcc06-withheld-base": [
@@ -3397,7 +3397,7 @@
      "tests/test_workflow_run_ref_quiescence.py::test_unproved_stop_aborts_lifecycle_before_witness_delta_or_parent_settlement"
     ],
     "c48d8fcc06-withheld-upstream": [],
-    "load": 7.01220703125
+    "load": 13.7412109375
    },
    {
     "c48d8fcc06-withheld-base": [
@@ -3406,10 +3406,10 @@
      "tests/test_workflow_run_ref_quiescence.py::test_unproved_stop_aborts_lifecycle_before_witness_delta_or_parent_settlement"
     ],
     "c48d8fcc06-withheld-upstream": [],
-    "load": 7.88916015625
+    "load": 13.08984375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "01ca786c7d76979bd1b9d612b234e71d79f1c5fe8c1819d9bbff8b99b7f47d18",
   "stable": true
  },
@@ -3425,7 +3425,7 @@
      "tests/test_workflow_result_file_freshness.py::test_a_second_run_does_not_read_the_result_file_left_by_the_first"
     ],
     "c68c574e64-upstream": [],
-    "load": 9.43115234375
+    "load": 10.15087890625
    },
    {
     "c68c574e64-base": [
@@ -3435,7 +3435,7 @@
      "tests/test_workflow_result_file_freshness.py::test_a_second_run_does_not_read_the_result_file_left_by_the_first"
     ],
     "c68c574e64-upstream": [],
-    "load": 10.38232421875
+    "load": 13.9990234375
    },
    {
     "c68c574e64-base": [
@@ -3445,10 +3445,10 @@
      "tests/test_workflow_result_file_freshness.py::test_a_second_run_does_not_read_the_result_file_left_by_the_first"
     ],
     "c68c574e64-upstream": [],
-    "load": 10.36572265625
+    "load": 13.93798828125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "f892bc02c23c851004a683820029210367db0c4bb5e089870717e751cff8bfed",
   "stable": true
  },
@@ -3464,7 +3464,7 @@
      "tests/test_workflow_result_file_freshness.py::test_a_second_run_does_not_read_the_result_file_left_by_the_first"
     ],
     "c68c574e64-withheld-upstream": [],
-    "load": 9.43115234375
+    "load": 10.15087890625
    },
    {
     "c68c574e64-withheld-base": [
@@ -3474,7 +3474,7 @@
      "tests/test_workflow_result_file_freshness.py::test_a_second_run_does_not_read_the_result_file_left_by_the_first"
     ],
     "c68c574e64-withheld-upstream": [],
-    "load": 10.43212890625
+    "load": 13.9990234375
    },
    {
     "c68c574e64-withheld-base": [
@@ -3484,10 +3484,10 @@
      "tests/test_workflow_result_file_freshness.py::test_a_second_run_does_not_read_the_result_file_left_by_the_first"
     ],
     "c68c574e64-withheld-upstream": [],
-    "load": 10.36572265625
+    "load": 13.93798828125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "a79674399985172a9441519190c8d87dc3ff5e0c453d2df65c7ef8fdbebd5bfe",
   "stable": true
  },
@@ -3532,7 +3532,7 @@
      "tests/test_provider_isolation_schema_resources.py::test_policy_schema_loads_as_a_packaged_resource_outside_checkout_cwd"
     ],
     "c8de739-ef68af8-withheld-upstream": [],
-    "load": 8.75
+    "load": 10.01953125
    },
    {
     "c8de739-ef68af8-withheld-base": [
@@ -3571,7 +3571,7 @@
      "tests/test_provider_isolation_schema_resources.py::test_policy_schema_loads_as_a_packaged_resource_outside_checkout_cwd"
     ],
     "c8de739-ef68af8-withheld-upstream": [],
-    "load": 6.8173828125
+    "load": 14.12841796875
    },
    {
     "c8de739-ef68af8-withheld-base": [
@@ -3610,10 +3610,10 @@
      "tests/test_provider_isolation_schema_resources.py::test_policy_schema_loads_as_a_packaged_resource_outside_checkout_cwd"
     ],
     "c8de739-ef68af8-withheld-upstream": [],
-    "load": 7.923828125
+    "load": 11.00732421875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "338d0de9f7d5fe494ac0eed2374dcf9495e7f8ea27accb459f906151cf4fcc65",
   "stable": true
  },
@@ -3628,7 +3628,7 @@
      "tests/test_workflow_lisp_generic_unions.py::test_discriminants_of_different_generic_unions_are_not_comparable"
     ],
     "c9527756fe-upstream": [],
-    "load": 8.72265625
+    "load": 13.27001953125
    },
    {
     "c9527756fe-base": [
@@ -3637,7 +3637,7 @@
      "tests/test_workflow_lisp_generic_unions.py::test_discriminants_of_different_generic_unions_are_not_comparable"
     ],
     "c9527756fe-upstream": [],
-    "load": 8.3623046875
+    "load": 12.5263671875
    },
    {
     "c9527756fe-base": [
@@ -3646,10 +3646,10 @@
      "tests/test_workflow_lisp_generic_unions.py::test_discriminants_of_different_generic_unions_are_not_comparable"
     ],
     "c9527756fe-upstream": [],
-    "load": 8.396484375
+    "load": 11.111328125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "b38a1b66f9190aaad9c22e8f6dca1a4fb1dfebec69d636db0ed54476e5865be1",
   "stable": true
  },
@@ -3664,7 +3664,7 @@
      "tests/test_workflow_lisp_generic_unions.py::test_discriminants_of_different_generic_unions_are_not_comparable"
     ],
     "c9527756fe-withheld-upstream": [],
-    "load": 8.2236328125
+    "load": 13.25439453125
    },
    {
     "c9527756fe-withheld-base": [
@@ -3673,7 +3673,7 @@
      "tests/test_workflow_lisp_generic_unions.py::test_discriminants_of_different_generic_unions_are_not_comparable"
     ],
     "c9527756fe-withheld-upstream": [],
-    "load": 8.40576171875
+    "load": 11.6767578125
    },
    {
     "c9527756fe-withheld-base": [
@@ -3682,10 +3682,10 @@
      "tests/test_workflow_lisp_generic_unions.py::test_discriminants_of_different_generic_unions_are_not_comparable"
     ],
     "c9527756fe-withheld-upstream": [],
-    "load": 8.4345703125
+    "load": 10.42138671875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "4617a9c7b6a92b2bc3d50e524fc9ea06e4a3494268d7f3222f0f91c0e16eae81",
   "stable": true
  },
@@ -3702,7 +3702,7 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_runtime_plan_revalidates_executable_authority"
     ],
     "cc4f804136-upstream": [],
-    "load": 6.21728515625
+    "load": 9.90673828125
    },
    {
     "cc4f804136-base": [
@@ -3713,7 +3713,7 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_runtime_plan_revalidates_executable_authority"
     ],
     "cc4f804136-upstream": [],
-    "load": 6.1708984375
+    "load": 8.68115234375
    },
    {
     "cc4f804136-base": [
@@ -3724,10 +3724,10 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_runtime_plan_revalidates_executable_authority"
     ],
     "cc4f804136-upstream": [],
-    "load": 5.8525390625
+    "load": 7.205078125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "dd70be4bf34c8e8f23d7be0217bd9a18eb9e139abffadf17ef87a0ae151d0a3a",
   "stable": true
  },
@@ -3744,7 +3744,7 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_runtime_plan_revalidates_executable_authority"
     ],
     "cc4f804136-withheld-upstream": [],
-    "load": 6.63623046875
+    "load": 9.5478515625
    },
    {
     "cc4f804136-withheld-base": [
@@ -3755,7 +3755,7 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_runtime_plan_revalidates_executable_authority"
     ],
     "cc4f804136-withheld-upstream": [],
-    "load": 5.9912109375
+    "load": 7.6357421875
    },
    {
     "cc4f804136-withheld-base": [
@@ -3766,10 +3766,10 @@
      "tests/test_workflow_lisp_run_ref.py::test_run_ref_runtime_plan_revalidates_executable_authority"
     ],
     "cc4f804136-withheld-upstream": [],
-    "load": 6.7666015625
+    "load": 8.251953125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "838f774b3198808fd379dc8bfc13726096c021bd8e9f762d0be2c9aff3806062",
   "stable": true
  },
@@ -3784,7 +3784,7 @@
      "tests/test_workflow_lisp_agent_turn_admission.py::test_checker_refuses_untraced_turn_narrowed_below_every_allocation"
     ],
     "d1d4172d72-upstream": [],
-    "load": 6.115234375
+    "load": 12.74853515625
    },
    {
     "d1d4172d72-base": [
@@ -3793,7 +3793,7 @@
      "tests/test_workflow_lisp_agent_turn_admission.py::test_checker_refuses_untraced_turn_narrowed_below_every_allocation"
     ],
     "d1d4172d72-upstream": [],
-    "load": 6.88623046875
+    "load": 11.12744140625
    },
    {
     "d1d4172d72-base": [
@@ -3802,10 +3802,10 @@
      "tests/test_workflow_lisp_agent_turn_admission.py::test_checker_refuses_untraced_turn_narrowed_below_every_allocation"
     ],
     "d1d4172d72-upstream": [],
-    "load": 8.158203125
+    "load": 11.05224609375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "f34d39e9231f5a745cb84944c33877bc546b6dc668c92c2b992775213eabdcc5",
   "stable": true
  },
@@ -3820,7 +3820,7 @@
      "tests/test_workflow_lisp_agent_turn_admission.py::test_checker_refuses_untraced_turn_narrowed_below_every_allocation"
     ],
     "d1d4172d72-withheld-upstream": [],
-    "load": 6.7607421875
+    "load": 11.6962890625
    },
    {
     "d1d4172d72-withheld-base": [
@@ -3829,7 +3829,7 @@
      "tests/test_workflow_lisp_agent_turn_admission.py::test_checker_refuses_untraced_turn_narrowed_below_every_allocation"
     ],
     "d1d4172d72-withheld-upstream": [],
-    "load": 7.11181640625
+    "load": 11.607421875
    },
    {
     "d1d4172d72-withheld-base": [
@@ -3838,10 +3838,10 @@
      "tests/test_workflow_lisp_agent_turn_admission.py::test_checker_refuses_untraced_turn_narrowed_below_every_allocation"
     ],
     "d1d4172d72-withheld-upstream": [],
-    "load": 8.3359375
+    "load": 11.96435546875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "5b72a74dd2693893c39298a94d05ea68465e4451c854757d724bc50262b0f59a",
   "stable": true
  },
@@ -3856,7 +3856,7 @@
      "tests/test_provider_isolation_policy.py::test_integral_float_is_reported_as_a_stable_policy_issue_before_load"
     ],
     "d3f83ef4c4-upstream": [],
-    "load": 7.82666015625
+    "load": 14.43603515625
    },
    {
     "d3f83ef4c4-base": [
@@ -3865,7 +3865,7 @@
      "tests/test_provider_isolation_policy.py::test_integral_float_is_reported_as_a_stable_policy_issue_before_load"
     ],
     "d3f83ef4c4-upstream": [],
-    "load": 7.267578125
+    "load": 15.55615234375
    },
    {
     "d3f83ef4c4-base": [
@@ -3874,10 +3874,10 @@
      "tests/test_provider_isolation_policy.py::test_integral_float_is_reported_as_a_stable_policy_issue_before_load"
     ],
     "d3f83ef4c4-upstream": [],
-    "load": 6.91845703125
+    "load": 13.95556640625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "357976b5a6a0e1676fe723721bf560f0ca2a0b4c144a2c72c2a789b71de5bb1f",
   "stable": true
  },
@@ -3892,7 +3892,7 @@
      "tests/test_provider_isolation_policy.py::test_integral_float_is_reported_as_a_stable_policy_issue_before_load"
     ],
     "d3f83ef4c4-withheld-upstream": [],
-    "load": 7.68017578125
+    "load": 15.3623046875
    },
    {
     "d3f83ef4c4-withheld-base": [
@@ -3901,7 +3901,7 @@
      "tests/test_provider_isolation_policy.py::test_integral_float_is_reported_as_a_stable_policy_issue_before_load"
     ],
     "d3f83ef4c4-withheld-upstream": [],
-    "load": 7.0859375
+    "load": 14.95068359375
    },
    {
     "d3f83ef4c4-withheld-base": [
@@ -3910,10 +3910,10 @@
      "tests/test_provider_isolation_policy.py::test_integral_float_is_reported_as_a_stable_policy_issue_before_load"
     ],
     "d3f83ef4c4-withheld-upstream": [],
-    "load": 6.8447265625
+    "load": 13.478515625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "6a076d42896872e9d758c51ca400b82d92967d54e8c16fcf43053bef7efa0299",
   "stable": true
  },
@@ -3951,7 +3951,7 @@
      "tests/test_workflow_evaluated_confined_dispatch.py::test_tokens_resolve_from_the_guest_cwd_inside_the_workspace_only"
     ],
     "d61614ec93-withheld-upstream": [],
-    "load": 6.4560546875
+    "load": 10.05859375
    },
    {
     "d61614ec93-withheld-base": [
@@ -3983,7 +3983,7 @@
      "tests/test_workflow_evaluated_confined_dispatch.py::test_tokens_resolve_from_the_guest_cwd_inside_the_workspace_only"
     ],
     "d61614ec93-withheld-upstream": [],
-    "load": 4.439453125
+    "load": 8.208984375
    },
    {
     "d61614ec93-withheld-base": [
@@ -4015,10 +4015,10 @@
      "tests/test_workflow_evaluated_confined_dispatch.py::test_tokens_resolve_from_the_guest_cwd_inside_the_workspace_only"
     ],
     "d61614ec93-withheld-upstream": [],
-    "load": 4.6806640625
+    "load": 9.125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "8568f0a8a176a0c454596280b597d92b2e634f376dbe2a9e23b3ec54da130df2",
   "stable": true
  },
@@ -4033,7 +4033,7 @@
      "tests/test_workflow_lisp_closed_boundary_topology.py::test_union_split_into_unconditional_native_slots_is_rejected"
     ],
     "db209a27f3-upstream": [],
-    "load": 9.93017578125
+    "load": 16.19091796875
    },
    {
     "db209a27f3-base": [
@@ -4042,7 +4042,7 @@
      "tests/test_workflow_lisp_closed_boundary_topology.py::test_union_split_into_unconditional_native_slots_is_rejected"
     ],
     "db209a27f3-upstream": [],
-    "load": 9.857421875
+    "load": 15.8076171875
    },
    {
     "db209a27f3-base": [
@@ -4051,10 +4051,10 @@
      "tests/test_workflow_lisp_closed_boundary_topology.py::test_union_split_into_unconditional_native_slots_is_rejected"
     ],
     "db209a27f3-upstream": [],
-    "load": 8.8671875
+    "load": 14.578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "9004e5bbd9495a1d2aff502b5c6fbb4ed641240541956d9138d35a60407a3572",
   "stable": true
  },
@@ -4069,7 +4069,7 @@
      "tests/test_workflow_lisp_closed_boundary_topology.py::test_union_split_into_unconditional_native_slots_is_rejected"
     ],
     "db209a27f3-t0-upstream": [],
-    "load": 8.7685546875
+    "load": 13.6708984375
    },
    {
     "db209a27f3-t0-base": [
@@ -4078,7 +4078,7 @@
      "tests/test_workflow_lisp_closed_boundary_topology.py::test_union_split_into_unconditional_native_slots_is_rejected"
     ],
     "db209a27f3-t0-upstream": [],
-    "load": 7.9287109375
+    "load": 14.0478515625
    },
    {
     "db209a27f3-t0-base": [
@@ -4087,10 +4087,10 @@
      "tests/test_workflow_lisp_closed_boundary_topology.py::test_union_split_into_unconditional_native_slots_is_rejected"
     ],
     "db209a27f3-t0-upstream": [],
-    "load": 7.2119140625
+    "load": 13.55517578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "66dc3bcb4dafb5ec45c16e87f3129467c1acef8ac519b6d12e9e9e8f3bf69f9d",
   "stable": true
  },
@@ -4105,7 +4105,7 @@
      "tests/test_workflow_lisp_closed_boundary_topology.py::test_union_split_into_unconditional_native_slots_is_rejected"
     ],
     "db209a27f3-withheld-upstream": [],
-    "load": 10.1064453125
+    "load": 15.70361328125
    },
    {
     "db209a27f3-withheld-base": [
@@ -4114,7 +4114,7 @@
      "tests/test_workflow_lisp_closed_boundary_topology.py::test_union_split_into_unconditional_native_slots_is_rejected"
     ],
     "db209a27f3-withheld-upstream": [],
-    "load": 8.7685546875
+    "load": 13.6708984375
    },
    {
     "db209a27f3-withheld-base": [
@@ -4123,10 +4123,10 @@
      "tests/test_workflow_lisp_closed_boundary_topology.py::test_union_split_into_unconditional_native_slots_is_rejected"
     ],
     "db209a27f3-withheld-upstream": [],
-    "load": 7.9287109375
+    "load": 14.0478515625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "5c788155b592a69414df670ee57941e605a149fbc1f94f3406fc6e25885740ea",
   "stable": true
  },
@@ -4140,7 +4140,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_after_exhaustive_chain_gets_no_erased_facts"
     ],
     "e0e53c4dda-upstream": [],
-    "load": 8.7685546875
+    "load": 14.578125
    },
    {
     "e0e53c4dda-base": [
@@ -4148,7 +4148,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_after_exhaustive_chain_gets_no_erased_facts"
     ],
     "e0e53c4dda-upstream": [],
-    "load": 8.009765625
+    "load": 14.36474609375
    },
    {
     "e0e53c4dda-base": [
@@ -4156,10 +4156,10 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_after_exhaustive_chain_gets_no_erased_facts"
     ],
     "e0e53c4dda-upstream": [],
-    "load": 7.43310546875
+    "load": 13.55517578125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "6ffe0b5fa15a9a77de6f0c48ceffa9435b241ce9546f4a658a2ab398526957a8",
   "stable": true
  },
@@ -4173,7 +4173,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_after_exhaustive_chain_gets_no_erased_facts"
     ],
     "e0e53c4dda-t0-upstream": [],
-    "load": 7.31787109375
+    "load": 14.0390625
    },
    {
     "e0e53c4dda-t0-base": [
@@ -4181,7 +4181,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_after_exhaustive_chain_gets_no_erased_facts"
     ],
     "e0e53c4dda-t0-upstream": [],
-    "load": 7.337890625
+    "load": 13.27490234375
    },
    {
     "e0e53c4dda-t0-base": [
@@ -4189,10 +4189,10 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_after_exhaustive_chain_gets_no_erased_facts"
     ],
     "e0e53c4dda-t0-upstream": [],
-    "load": 7.29345703125
+    "load": 14.23583984375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "3335d5cbbd8265f056e1f03f0292205b20f850b1dde95544e82b4fb2197ea1bd",
   "stable": true
  },
@@ -4206,7 +4206,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_after_exhaustive_chain_gets_no_erased_facts"
     ],
     "e0e53c4dda-withheld-upstream": [],
-    "load": 7.69384765625
+    "load": 14.0478515625
    },
    {
     "e0e53c4dda-withheld-base": [
@@ -4214,7 +4214,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_after_exhaustive_chain_gets_no_erased_facts"
     ],
     "e0e53c4dda-withheld-upstream": [],
-    "load": 7.2119140625
+    "load": 13.55517578125
    },
    {
     "e0e53c4dda-withheld-base": [
@@ -4222,10 +4222,10 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_after_exhaustive_chain_gets_no_erased_facts"
     ],
     "e0e53c4dda-withheld-upstream": [],
-    "load": 7.47119140625
+    "load": 12.93212890625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "aa8f196163d04bc56bd48212e2fc1fc15aca01c96757fc704aead6170e27fbe0",
   "stable": true
  },
@@ -4241,7 +4241,7 @@
      "tests/test_workflow_run_ref_config.py::test_static_config_authority_rejects_wrong_type_and_subclass"
     ],
     "e1b500dcb9-upstream": [],
-    "load": 12.5107421875
+    "load": 16.201171875
    },
    {
     "e1b500dcb9-base": [
@@ -4251,7 +4251,7 @@
      "tests/test_workflow_run_ref_config.py::test_static_config_authority_rejects_wrong_type_and_subclass"
     ],
     "e1b500dcb9-upstream": [],
-    "load": 11.01806640625
+    "load": 15.91357421875
    },
    {
     "e1b500dcb9-base": [
@@ -4261,10 +4261,10 @@
      "tests/test_workflow_run_ref_config.py::test_static_config_authority_rejects_wrong_type_and_subclass"
     ],
     "e1b500dcb9-upstream": [],
-    "load": 10.2724609375
+    "load": 15.00244140625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "aa70ef0fb5d50d1948653e9d48c1eb92a47c32ba211566146d18f3921c24e22d",
   "stable": true
  },
@@ -4280,7 +4280,7 @@
      "tests/test_workflow_run_ref_config.py::test_static_config_authority_rejects_wrong_type_and_subclass"
     ],
     "e1b500dcb9-t0-upstream": [],
-    "load": 11.5419921875
+    "load": 15.91357421875
    },
    {
     "e1b500dcb9-t0-base": [
@@ -4290,7 +4290,7 @@
      "tests/test_workflow_run_ref_config.py::test_static_config_authority_rejects_wrong_type_and_subclass"
     ],
     "e1b500dcb9-t0-upstream": [],
-    "load": 10.7314453125
+    "load": 15.16259765625
    },
    {
     "e1b500dcb9-t0-base": [
@@ -4300,10 +4300,10 @@
      "tests/test_workflow_run_ref_config.py::test_static_config_authority_rejects_wrong_type_and_subclass"
     ],
     "e1b500dcb9-t0-upstream": [],
-    "load": 10.1064453125
+    "load": 15.18212890625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "9eeb6e13aeb555a464b08ccecf59e8656663419e9cc8dbde75de01f4c8fca18c",
   "stable": true
  },
@@ -4319,7 +4319,7 @@
      "tests/test_workflow_run_ref_config.py::test_static_config_authority_rejects_wrong_type_and_subclass"
     ],
     "e1b500dcb9-withheld-upstream": [],
-    "load": 11.9375
+    "load": 14.5048828125
    },
    {
     "e1b500dcb9-withheld-base": [
@@ -4329,7 +4329,7 @@
      "tests/test_workflow_run_ref_config.py::test_static_config_authority_rejects_wrong_type_and_subclass"
     ],
     "e1b500dcb9-withheld-upstream": [],
-    "load": 10.7314453125
+    "load": 14.654296875
    },
    {
     "e1b500dcb9-withheld-base": [
@@ -4339,10 +4339,10 @@
      "tests/test_workflow_run_ref_config.py::test_static_config_authority_rejects_wrong_type_and_subclass"
     ],
     "e1b500dcb9-withheld-upstream": [],
-    "load": 10.1064453125
+    "load": 15.70361328125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "e21b71799d1e8e3d325d1d5e08bacfea24d742c3d912c4200da8e006b8d2b00e",
   "stable": true
  },
@@ -4356,7 +4356,7 @@
      "tests/test_provider_isolation_policy.py::test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path"
     ],
     "ef68af8963-upstream": [],
-    "load": 6.35302734375
+    "load": 11.802734375
    },
    {
     "ef68af8963-base": [
@@ -4364,7 +4364,7 @@
      "tests/test_provider_isolation_policy.py::test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path"
     ],
     "ef68af8963-upstream": [],
-    "load": 6.14453125
+    "load": 12.2431640625
    },
    {
     "ef68af8963-base": [
@@ -4372,10 +4372,10 @@
      "tests/test_provider_isolation_policy.py::test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path"
     ],
     "ef68af8963-upstream": [],
-    "load": 6.63818359375
+    "load": 11.72216796875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "3215cfa5248c31f1fdd4a036b5da941b23f2c3f78a59f81e0c0214ef1c5d26ba",
   "stable": true
  },
@@ -4389,7 +4389,7 @@
      "tests/test_provider_isolation_policy.py::test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path"
     ],
     "ef68af8963-t0-upstream": [],
-    "load": 6.5087890625
+    "load": 10.99560546875
    },
    {
     "ef68af8963-t0-base": [
@@ -4397,7 +4397,7 @@
      "tests/test_provider_isolation_policy.py::test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path"
     ],
     "ef68af8963-t0-upstream": [],
-    "load": 6.87255859375
+    "load": 10.22705078125
    },
    {
     "ef68af8963-t0-base": [
@@ -4405,10 +4405,10 @@
      "tests/test_provider_isolation_policy.py::test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path"
     ],
     "ef68af8963-t0-upstream": [],
-    "load": 7.2890625
+    "load": 10.02978515625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "934fdfb6607ab062c86081e3b6c73f1ffa9b8a8c5fc49f19852e6e0deb366c6f",
   "stable": true
  },
@@ -4422,7 +4422,7 @@
      "tests/test_provider_isolation_policy.py::test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path"
     ],
     "ef68af8963-withheld-upstream": [],
-    "load": 6.4658203125
+    "load": 10.99560546875
    },
    {
     "ef68af8963-withheld-base": [
@@ -4430,7 +4430,7 @@
      "tests/test_provider_isolation_policy.py::test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path"
     ],
     "ef68af8963-withheld-upstream": [],
-    "load": 6.94873046875
+    "load": 10.22705078125
    },
    {
     "ef68af8963-withheld-base": [
@@ -4438,10 +4438,10 @@
      "tests/test_provider_isolation_policy.py::test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path"
     ],
     "ef68af8963-withheld-upstream": [],
-    "load": 6.87890625
+    "load": 9.9453125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "32ad855cd72c13dd58d32c03fd4a7182998c351a5770b73a03a1dd2d0e2a5ff3",
   "stable": true
  },
@@ -4457,7 +4457,7 @@
      "tests/test_workflow_resume_after_known_failure.py::test_resume_runs_again_the_failed_command_of_the_selected_match_arm"
     ],
     "f4378f6036-upstream": [],
-    "load": 11.48291015625
+    "load": 14.1904296875
    },
    {
     "f4378f6036-base": [
@@ -4467,7 +4467,7 @@
      "tests/test_workflow_resume_after_known_failure.py::test_resume_runs_again_the_failed_command_of_the_selected_match_arm"
     ],
     "f4378f6036-upstream": [],
-    "load": 13.62548828125
+    "load": 14.38037109375
    },
    {
     "f4378f6036-base": [
@@ -4477,10 +4477,10 @@
      "tests/test_workflow_resume_after_known_failure.py::test_resume_runs_again_the_failed_command_of_the_selected_match_arm"
     ],
     "f4378f6036-upstream": [],
-    "load": 13.00439453125
+    "load": 12.1533203125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "a504032067cf082c31408c527125db7e7ff9cd375b28adae1a22f5d83b302634",
   "stable": true
  },
@@ -4496,7 +4496,7 @@
      "tests/test_workflow_resume_after_known_failure.py::test_resume_runs_again_the_failed_command_of_the_selected_match_arm"
     ],
     "f4378f6036-withheld-upstream": [],
-    "load": 11.48291015625
+    "load": 14.1904296875
    },
    {
     "f4378f6036-withheld-base": [
@@ -4506,7 +4506,7 @@
      "tests/test_workflow_resume_after_known_failure.py::test_resume_runs_again_the_failed_command_of_the_selected_match_arm"
     ],
     "f4378f6036-withheld-upstream": [],
-    "load": 13.62548828125
+    "load": 13.94921875
    },
    {
     "f4378f6036-withheld-base": [
@@ -4516,10 +4516,10 @@
      "tests/test_workflow_resume_after_known_failure.py::test_resume_runs_again_the_failed_command_of_the_selected_match_arm"
     ],
     "f4378f6036-withheld-upstream": [],
-    "load": 13.00439453125
+    "load": 12.1533203125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "3d43e746e94b50e878e32b947926f17cffd18a3ef83670bd67c3f1e9f911e6d7",
   "stable": true
  },
@@ -4535,7 +4535,7 @@
      "tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_appearing_between_commit_and_resume_reuses_the_commit"
     ],
     "f57104af2a-upstream": [],
-    "load": 7.38916015625
+    "load": 9.021484375
    },
    {
     "f57104af2a-base": [
@@ -4545,7 +4545,7 @@
      "tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_appearing_between_commit_and_resume_reuses_the_commit"
     ],
     "f57104af2a-upstream": [],
-    "load": 6.33056640625
+    "load": 10.98974609375
    },
    {
     "f57104af2a-base": [
@@ -4555,10 +4555,10 @@
      "tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_appearing_between_commit_and_resume_reuses_the_commit"
     ],
     "f57104af2a-upstream": [],
-    "load": 6.5068359375
+    "load": 11.4365234375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "a357183227cccee961d3ac0b7858c05a5aebeb408ee4a3b8c57c8234e3fbd877",
   "stable": true
  },
@@ -4574,7 +4574,7 @@
      "tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_appearing_between_commit_and_resume_reuses_the_commit"
     ],
     "f57104af2a-t0-upstream": [],
-    "load": 6.38427734375
+    "load": 11.55126953125
    },
    {
     "f57104af2a-t0-base": [
@@ -4584,7 +4584,7 @@
      "tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_appearing_between_commit_and_resume_reuses_the_commit"
     ],
     "f57104af2a-t0-upstream": [],
-    "load": 6.4658203125
+    "load": 11.34375
    },
    {
     "f57104af2a-t0-base": [
@@ -4594,10 +4594,10 @@
      "tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_appearing_between_commit_and_resume_reuses_the_commit"
     ],
     "f57104af2a-t0-upstream": [],
-    "load": 7.185546875
+    "load": 9.787109375
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "87ecbb79c7166d5b7a1b4d2a4db021f1b1675c433411d81630a16aaeaac35de8",
   "stable": true
  },
@@ -4613,7 +4613,7 @@
      "tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_appearing_between_commit_and_resume_reuses_the_commit"
     ],
     "f57104af2a-withheld-upstream": [],
-    "load": 7.38916015625
+    "load": 9.021484375
    },
    {
     "f57104af2a-withheld-base": [
@@ -4623,7 +4623,7 @@
      "tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_appearing_between_commit_and_resume_reuses_the_commit"
     ],
     "f57104af2a-withheld-upstream": [],
-    "load": 6.38427734375
+    "load": 10.98974609375
    },
    {
     "f57104af2a-withheld-base": [
@@ -4633,10 +4633,10 @@
      "tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_appearing_between_commit_and_resume_reuses_the_commit"
     ],
     "f57104af2a-withheld-upstream": [],
-    "load": 6.4658203125
+    "load": 11.72216796875
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "24a3a4c1ce9781dbfe1cf48e358453eea5ebf4e5e12c9cd7a80fdb461862df73",
   "stable": true
  },
@@ -4654,7 +4654,7 @@
      "tests/test_workflow_lisp_closed_phase_target.py::test_path_join_preserves_runtime_child_escape_guard"
     ],
     "f7822614a6-upstream": [],
-    "load": 7.14453125
+    "load": 13.8115234375
    },
    {
     "f7822614a6-base": [
@@ -4666,7 +4666,7 @@
      "tests/test_workflow_lisp_closed_phase_target.py::test_path_join_preserves_runtime_child_escape_guard"
     ],
     "f7822614a6-upstream": [],
-    "load": 7.7392578125
+    "load": 12.15625
    },
    {
     "f7822614a6-base": [
@@ -4678,10 +4678,10 @@
      "tests/test_workflow_lisp_closed_phase_target.py::test_path_join_preserves_runtime_child_escape_guard"
     ],
     "f7822614a6-upstream": [],
-    "load": 6.9091796875
+    "load": 14.95556640625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "6e2531111516ecae82b3a9f4aac5f634877306cc78c00141394732c7f6e27714",
   "stable": true
  },
@@ -4699,7 +4699,7 @@
      "tests/test_workflow_lisp_closed_phase_target.py::test_path_join_preserves_runtime_child_escape_guard"
     ],
     "f7822614a6-withheld-upstream": [],
-    "load": 7.109375
+    "load": 13.8115234375
    },
    {
     "f7822614a6-withheld-base": [
@@ -4711,7 +4711,7 @@
      "tests/test_workflow_lisp_closed_phase_target.py::test_path_join_preserves_runtime_child_escape_guard"
     ],
     "f7822614a6-withheld-upstream": [],
-    "load": 7.3173828125
+    "load": 12.22412109375
    },
    {
     "f7822614a6-withheld-base": [
@@ -4723,10 +4723,10 @@
      "tests/test_workflow_lisp_closed_phase_target.py::test_path_join_preserves_runtime_child_escape_guard"
     ],
     "f7822614a6-withheld-upstream": [],
-    "load": 7.6923828125
+    "load": 14.95556640625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "df5d5d1285f456989a541f034f2a23b228c36ed26d1a50998aef8ddbf15c3e4e",
   "stable": true
  },
@@ -4742,7 +4742,7 @@
      "tests/test_workflow_dry_run_replay_index.py::test_resume_reports_the_rejection_as_run_does"
     ],
     "fd107dae29-upstream": [],
-    "load": 6.318359375
+    "load": 13.52490234375
    },
    {
     "fd107dae29-base": [
@@ -4752,7 +4752,7 @@
      "tests/test_workflow_dry_run_replay_index.py::test_resume_reports_the_rejection_as_run_does"
     ],
     "fd107dae29-upstream": [],
-    "load": 6.88623046875
+    "load": 10.95703125
    },
    {
     "fd107dae29-base": [
@@ -4762,10 +4762,10 @@
      "tests/test_workflow_dry_run_replay_index.py::test_resume_reports_the_rejection_as_run_does"
     ],
     "fd107dae29-upstream": [],
-    "load": 9.046875
+    "load": 13.72900390625
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "fc02392af1c4f0f6a865189cf62e61e0d15996e5aca009be2b90952228d1e9a5",
   "stable": true
  },
@@ -4781,7 +4781,7 @@
      "tests/test_workflow_dry_run_replay_index.py::test_resume_reports_the_rejection_as_run_does"
     ],
     "fd107dae29-withheld-upstream": [],
-    "load": 6.318359375
+    "load": 13.162109375
    },
    {
     "fd107dae29-withheld-base": [
@@ -4791,7 +4791,7 @@
      "tests/test_workflow_dry_run_replay_index.py::test_resume_reports_the_rejection_as_run_does"
     ],
     "fd107dae29-withheld-upstream": [],
-    "load": 7.2958984375
+    "load": 11.921875
    },
    {
     "fd107dae29-withheld-base": [
@@ -4801,10 +4801,10 @@
      "tests/test_workflow_dry_run_replay_index.py::test_resume_reports_the_rejection_as_run_does"
     ],
     "fd107dae29-withheld-upstream": [],
-    "load": 9.046875
+    "load": 13.27001953125
    }
   ],
-  "scoring_path": "cf41ea46ef6f4b87bfd4a19f5d3e6eec7c02c31ccc95d912e64a99b81345257d",
+  "scoring_path": "0f5e509b111fc68215f9b8fb05e3c7907372e8faebf46fce88c5e5bb0fbc864b",
   "sha256": "22ea7828a01e3aec107ce447c3b758d0329b1cd238b940cac82414ec51e0051a",
   "stable": true
  }
