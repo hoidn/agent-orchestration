@@ -3,8 +3,8 @@
 Input is a list of records, one per pooled clone and per unrated run, built by `pool_records` from the pools'
 `results.json` (the harness's clone-id join) and nothing else:
 
-    {"task", "pool": "first"|"retest", "role": "base"|"reference"|"candidate", "arm", "model", "run",
-     "patch": sha256 of the pooled patch, "hidden": pass fraction or None, "scores": {judge: 0..8},
+    {"task", "pool": "first"|"retest"|"seed", "role": "base"|"reference"|"candidate", "arm", "model", "run",
+     "clone": the clone id (None for a run without a clone), "patch": sha256 of the pooled patch, "hidden": pass fraction or None, "scores": {judge: 0..8},
      "judged": {judge: sha256 of the patch that judge read}, "unbound": [judges whose rating was refused],
      "status": "rated"|"failed"|"excluded"|"incident", "reason"}
 
@@ -55,21 +55,21 @@ def anchor_role(label):
 
 
 def pool_records(task, pool, results, patch_sha, models, judged):
-    """Records of one pool's results.json: every clone, and every pooled run without a clone (failed or excluded).
-    `patch_sha` maps clone id to the pooled patch's sha256; `models` maps arm to its bound model; `judged` maps
+    """Records of one pool's results.json: every clone, and every pooled run without a clone (failed or excluded);
+    a clone's record keeps its clone id, by which a seed pool's records are grouped into its batches. `patch_sha` maps clone id to the pooled patch's sha256; `models` maps arm to its bound model; `judged` maps
     judge to {clone id: sha256 of the patch it read}, which must equal the pooled patch for the rating to count."""
     records, rated = [], set()
     for cid, clone in results["clones"].items():
         role = anchor_role(clone["labels"][0]) if clone["arm"] == "anchor" else "candidate"
         rated.add(clone["run"])
         records.append({"task": task, "pool": pool, "role": role, "arm": clone["arm"], "model": models.get(clone["arm"]),
-                        "run": clone["run"], "patch": patch_sha[cid], "hidden": clone["hidden"],
+                        "run": clone["run"], "clone": cid, "patch": patch_sha[cid], "hidden": clone["hidden"],
                         **bound_scores(clone["ratings"], judged, cid, patch_sha[cid]), "status": "rated", "reason": None})
     for row in results["runs"]:
         if row["run"] not in rated:
             records.append({"task": task, "pool": pool, "role": "candidate", "arm": row["arm"],
-                            "model": models.get(row["arm"]), "run": row["run"], "patch": None, "hidden": None,
-                            "scores": {}, "status": "excluded" if row["excluded"] else "failed",
+                            "model": models.get(row["arm"]), "run": row["run"], "clone": None, "patch": None,
+                            "hidden": None, "scores": {}, "status": "excluded" if row["excluded"] else "failed",
                             "reason": row["excluded"] or (row["failure"] or {}).get("code")})
     return records, {"task": task, "pool": pool, "excluded_judges": dict(results["excluded_judges"])}
 

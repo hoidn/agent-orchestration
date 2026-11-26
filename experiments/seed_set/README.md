@@ -21,6 +21,7 @@ are the only authorized spend (`AGENTS.md`, "Experiment rules"); the seed evalua
 | The caps, the priced ceiling and the pause events | The docstring of `spend.py` |
 | The task packages and the difficulty ladder | `build_tasks.py`, `tiers.py`, `tasks.jsonl`, `tasks/` |
 | The anchors' stability record | `anchors.py`, `anchor_stability.json`, and the section below |
+| The seed evaluation's report (anchor and control checks per batch, arm figures, the selection rule, `seeds.json`); not yet wired to a command | The docstring of `seeds.py`, and the [seed evaluation apparatus plan](../../docs/plans/2026-11-25-seed-evaluation-apparatus-plan.md) |
 
 ## Before a tranche's first start
 

@@ -64,13 +64,14 @@ def measure_free(runs):
     return table
 
 
-def direct_runs(records, runs, judge, tasks):
-    """Per task, its first-pool Haiku direct runs as (score by `judge`, visible check passed); a run whose visible
-    check ran past its bound is left out (re-review N2)."""
+def direct_runs(records, runs, judge, tasks, pool="first"):
+    """Per task with at least three of them, its direct runs in pools of kind `pool` (the calibration's first pools,
+    or the seed evaluation's `seed` pools) as (score by `judge`, visible check passed); a run whose visible check ran
+    past its bound is left out (re-review N2)."""
     per_task = {}
     for r in records:
         visible = runs.get(r["run"], {}).get("visible") or {}
-        if r["pool"] == "first" and r["task"] in tasks and r["arm"] == "direct" and gates.score(r, judge) is not None \
+        if r["pool"] == pool and r["task"] in tasks and r["arm"] == "direct" and gates.score(r, judge) is not None \
                 and not visible.get("timed_out"):
             per_task.setdefault(r["task"], []).append((gates.score(r, judge), visible.get("passed") is True))
     return {task: rows for task, rows in per_task.items() if len(rows) >= 3}

@@ -5,7 +5,8 @@ provider."""
 import pytest
 
 from experiments.compare.repos import dump, load
-from experiments.seed_set import layout, spend, study
+from experiments.orc_structural_search import metering
+from experiments.seed_set import gates, layout, seeds, spend, study
 
 ARMS = ["direct", "retry_until_check", "implement_check_repair", "implement_review_revise"]  # arms.json order
 PLANNED = {"direct": 6, "retry_until_check": 2, "implement_check_repair": 3, "implement_review_revise": 3}
@@ -134,3 +135,314 @@ def test_the_calibration_readout_refuses_once_the_seed_task_list_is_written(tmp_
     spend.record(s.ledger, "seed_tasks", tasks_sha256="x", calibration_sha256="y")
     with pytest.raises(SystemExit, match="seed_tasks"):
         study.write_readout(s)
+
+
+# --- the seed report (A4) ----------------------------------------------------------------------------------
+
+J = gates.HAIKU
+PROGRAMS = {name: {"source": f"{name}.orc", "lines": 30, "model": J, "effort": "medium"} for name in ARMS}
+DIRECT_SCORES = (4, 5, 6, 4, 5, 6)
+
+
+def candidate(task, arm, k, score, batch, calls=1, passed=True):
+    """(path, run facts, its rated record, batch) of one seed run: USD 0.25 a call, all metered, no nested session."""
+    path = f"/w/{task}/{arm}/run-{k}"
+    facts = {"tranche": layout.SEED_EVALUATION, "task": task, "arm": arm, "model": J, "effort": "medium",
+             "outcome": "completed", "calls": calls, "priced": {"usd": 0.25 * calls, "missing": []},
+             "nested_sessions": 0, "tokens": 1000 * calls, "visible": {"passed": passed}}
+    record = {"task": task, "pool": layout.SEED_POOL, "role": "candidate", "arm": arm, "model": J, "run": path,
+              "clone": f"{task}-{arm}-{k}", "patch": f"p-{task}-{arm}-{k}", "hidden": 1.0 if score >= 5 else 0.5,
+              "scores": {J: score}, "status": "rated", "reason": None}
+    return path, facts, record, batch
+
+
+def anchor(task, role, b, score):
+    return {"task": task, "pool": layout.SEED_POOL, "role": role, "arm": "anchor", "model": None, "run": None,
+            "clone": f"{task}-{role}-{b}", "patch": gates.EMPTY_SHA if role == "base" else f"ref-{task}",
+            "hidden": 0.5 if role == "base" else 1.0, "scores": {J: score}, "status": "rated", "reason": None}
+
+
+def seed_world(n=16, workflow=5):
+    """A sound seed evaluation on `n` tasks: per task direct's six runs (scores `DIRECT_SCORES`, the first run's
+    visible check failing), retry's two on the first six tasks (2 calls), implement-check-repair's three (2 calls)
+    and implement-review-revise's three (3 calls), the workflows scoring `workflow`; every batch holds base 0 and
+    reference 8; runs alternate between the two batches; each pool's judge made 2 calls at USD 0.25."""
+    w = {"tasks": [f"t{i:02d}" for i in range(n)], "records": [], "pools": [], "runs": {}, "judges": []}
+    for i, task in enumerate(w["tasks"]):
+        members = [candidate(task, "direct", k, s, (i + k) % 2, passed=k > 0) for k, s in enumerate(DIRECT_SCORES)]
+        members += [candidate(task, "retry_until_check", k, workflow, (i + k) % 2, 2) for k in range(2 if i < 6 else 0)]
+        members += [candidate(task, arm, k, workflow, (i + k) % 2, calls) for arm, calls in
+                    (("implement_check_repair", 2), ("implement_review_revise", 3)) for k in range(3)]
+        batches = [[], []]
+        for b in (0, 1):
+            for role, score in (("base", 0), ("reference", 8)):
+                w["records"].append(anchor(task, role, b, score))
+                batches[b].append(f"{task}-{role}-{b}")
+        for path, facts, record, b in members:
+            w["runs"][path] = facts
+            w["records"].append(record)
+            batches[b].append(record["clone"])
+        w["pools"].append({"task": task, "pool": layout.SEED_POOL, "excluded_judges": {}, "batches": batches})
+        w["judges"].append({"calls": 2, "priced": {"usd": 0.5, "missing": []}})
+    return w
+
+
+def seed_report(w):
+    return seeds.report(w["records"], w["pools"], w["runs"], J, w["tasks"], PROGRAMS, w["judges"])
+
+
+def anchor_record(w, task, role, b):
+    return next(r for r in w["records"] if r["clone"] == f"{task}-{role}-{b}")
+
+
+def weaken_controls(w, count):
+    """Give `count` batches, from the first task on, a reference of 3 (reference minus base under 4)."""
+    for k in range(count):
+        anchor_record(w, w["tasks"][k // 2], "reference", k % 2)["scores"][J] = 3
+
+
+def make_pool_incident(w, task):
+    w["records"] = [r for r in w["records"] if r["task"] != task]
+    w["pools"] = [p for p in w["pools"] if p["task"] != task] + [
+        {"task": task, "pool": layout.SEED_POOL, "incident": "arm-identifying text in judged content"}]
+
+
+def test_a_sound_seed_evaluation_selects_both_live_workflows_beside_direct():
+    assert seed_report(seed_world())["selection"]["seeds"] == ["direct", "implement_check_repair",
+                                                               "implement_review_revise"]
+
+
+def test_two_base_anchors_in_one_batch_give_an_anchor_failure_and_no_figure():
+    w = seed_world()
+    anchor_record(w, "t03", "reference", 1).update(role="base", patch=gates.EMPTY_SHA, hidden=0.5)
+    result = seed_report(w)
+    assert (len(result["anchor_failures"]), result["controls"], result["selection"], "q" in result["arms"]["direct"]) \
+        == (1, None, None, False)
+
+
+def test_a_rating_bound_to_another_patch_gives_no_figure():
+    w = seed_world()
+    w["records"][-1]["unbound"] = [J]
+    assert seed_report(w)["selection"] is None
+
+
+@pytest.mark.parametrize("under, claim", [(3, True), (4, False)])
+def test_more_than_three_of_32_batches_under_four_withhold_the_quality_figure(under, claim):
+    w = seed_world()
+    weaken_controls(w, under)
+    assert (seed_report(w)["selection"] is not None) == claim
+
+
+@pytest.mark.parametrize("under, claim", [(2, True), (3, False)])
+def test_with_12_survivors_the_batch_bound_is_three_32nds_of_24_batches(under, claim):
+    w = seed_world(n=12)
+    weaken_controls(w, under)
+    assert (seed_report(w)["selection"] is not None) == claim
+
+
+def test_a_reference_exactly_four_above_the_base_is_not_under():
+    w = seed_world()
+    for b in (0, 1):
+        for task in w["tasks"][:2]:
+            anchor_record(w, task, "reference", b)["scores"][J] = 4
+    assert seed_report(w)["controls"]["under"] == 0
+
+
+@pytest.mark.parametrize("weak, claim", [(1, True), (2, False)])
+def test_a_pool_incident_counts_its_two_batches_under_four(weak, claim):
+    w = seed_world()
+    make_pool_incident(w, "t15")
+    weaken_controls(w, weak)
+    assert (seed_report(w)["selection"] is not None) == claim
+
+
+def test_the_missing_second_batch_of_a_one_batch_pool_counts_under_four():
+    w = seed_world()
+    pool = next(p for p in w["pools"] if p["task"] == "t15")
+    pool["batches"] = pool["batches"][:1]
+    assert seed_report(w)["controls"]["under_batches"] == ["t15#1"]
+
+
+def test_only_direct_passing_gives_no_workflow_qualified_and_seeds_json_names_that_stop():
+    out = seeds.seeds_json(seed_report(seed_world(workflow=3)), PROGRAMS)
+    assert (out["decision"], out["stop"], [s["arm"] for s in out["seeds"]]) == (
+        seeds.NO_WORKFLOW, seeds.NO_WORKFLOW, ["direct"])
+
+
+def test_seeds_json_lists_the_selected_programs_with_their_figures_and_no_stop():
+    out = seeds.seeds_json(seed_report(seed_world()), PROGRAMS)
+    assert (out["stop"], [(s["arm"], s["q"], s["c"]) for s in out["seeds"]]) == (None, [
+        ("direct", 5.0, 1.0), ("implement_check_repair", 5.0, 2.0), ("implement_review_revise", 5.0, 3.0)])
+
+
+def test_seeds_json_after_a_failed_check_names_the_stop_and_lists_no_program():
+    w = seed_world()
+    weaken_controls(w, 4)
+    out = seeds.seeds_json(seed_report(w), PROGRAMS)
+    assert (out["stop"].startswith(seeds.NO_CLAIM), out["seeds"]) == (True, [])
+
+
+def make_incident(w, task, arm, k):
+    """A run the harness could not collect: an incident, with the unpooled record `study.unpooled_runs` makes."""
+    path = f"/w/{task}/{arm}/run-{k}"
+    w["runs"][path] |= {"incident": "provider: error", "outcome": None}
+    clone = f"{task}-{arm}-{k}"
+    next(r for r in w["records"] if r["run"] == path).update(clone=None, patch=None, hidden=None, scores={},
+                                                             status="incident", reason="provider: error")
+    for pool in w["pools"]:
+        for batch in pool.get("batches", []):
+            if clone in batch:
+                batch.remove(clone)
+    return path
+
+
+def test_a_run_left_out_as_an_incident_is_listed_and_not_scored():
+    w = seed_world()
+    path = make_incident(w, "t00", "direct", 2)  # its score would have been 6
+    result = seed_report(w)
+    assert ([row["run"] for row in result["left_out"]], result["arms"]["direct"]["tasks"]["t00"]) == ([path], 4.8)
+
+
+def test_an_incident_leaves_the_completion_and_cost_denominators():
+    w = seed_world()
+    make_incident(w, "t00", "implement_check_repair", 0)
+    arm = seed_report(w)["arms"]["implement_check_repair"]
+    assert (arm["runs"], arm["completed"]) == (47, 1.0)
+
+
+def pool_incident_with_failed_direct_runs():
+    """A seed world whose t15 pool is an incident while three of t15's direct runs failed (unpooled records)."""
+    w = seed_world()
+    make_pool_incident(w, "t15")
+    for k in range(3):
+        failed = f"/w/t15/direct/run-{k}"
+        w["runs"][failed] |= {"outcome": "failed", "failure": {"code": "provider_timeout"}}
+        w["records"].append({"task": "t15", "pool": layout.SEED_POOL, "role": "candidate", "arm": "direct",
+                             "model": J, "run": failed, "clone": None, "patch": None, "hidden": None, "scores": {},
+                             "status": "failed", "reason": None})
+    return w
+
+
+def test_a_task_whose_pool_is_an_incident_has_no_score_even_for_its_failed_runs():
+    assert "t15" not in seed_report(pool_incident_with_failed_direct_runs())["arms"]["direct"]["tasks"]
+
+
+def test_a_task_whose_pool_is_an_incident_has_no_baseline():
+    assert "t15" not in seed_report(pool_incident_with_failed_direct_runs())["baselines"]["tasks"]
+
+
+def cut_world():
+    """A seed world where implement-review-revise's first run on t00 is cut at the call limit on its second call,
+    that call's usage missing and priced at a worst case of USD 1 (USD 1.25 in all), and its second run is cut by a
+    usage limit (no observation)."""
+    w = seed_world()
+    w["runs"]["/w/t00/implement_review_revise/run-0"] |= {"outcome": "failed", "failure": {"code": "provider_timeout"},
+                                                          "calls": 2, "priced": {"usd": 1.25, "missing": ["2"]}}
+    w["runs"]["/w/t00/implement_review_revise/run-1"] |= {"cut": {"text": "limit"}, "calls": 1}
+    return w
+
+
+def test_a_call_limit_cut_is_in_the_cut_table_at_its_call_and_priced_apart():
+    cut = seed_report(cut_world())["arms"]["implement_review_revise"]["cut"]
+    assert (cut["runs"], cut["by_call"], cut["priced_usd"], cut["rate"]) == (1, {2: 1}, 1.25, 1 / 47)
+
+
+def test_calls_count_a_call_limit_cut_and_leave_out_a_usage_limit_cut():
+    arm = seed_report(cut_world())["arms"]["implement_review_revise"]
+    assert (arm["runs"], arm["calls"]) == (47, (46 * 3 + 2) / 47)
+
+
+def test_priced_cost_is_given_at_the_worst_case_bound_and_over_metered_runs_only():
+    arm = seed_report(cut_world())["arms"]["implement_review_revise"]
+    assert (arm["priced_worst"], arm["priced_metered"], arm["priced_metered_runs"]) == ((46 * 0.75 + 1.25) / 47,
+                                                                                         0.75, 46)
+
+
+def test_a_call_limit_cut_counts_against_completion():
+    assert seed_report(cut_world())["arms"]["implement_review_revise"]["completed"] == 46 / 47
+
+
+def test_the_share_of_runs_with_a_nested_session_is_reported():
+    w = seed_world()
+    w["runs"]["/w/t00/implement_check_repair/run-0"]["nested_sessions"] = 1
+    assert seed_report(w)["arms"]["implement_check_repair"]["nested"] == 1 / 48
+
+
+def test_the_hidden_pass_rate_is_over_an_arms_scored_runs():
+    w = seed_world()
+    make_incident(w, "t00", "direct", 2)  # a hidden-passing run, now left out
+    assert seed_report(w)["arms"]["direct"]["hidden"] == 63 / 95
+
+
+@pytest.mark.parametrize("score, seed", [(5, True), (7, False)])
+def test_retry_is_a_seed_only_when_its_parity_with_the_offline_figure_holds(score, seed):
+    """Direct's offline Q3 is 5.2 at 7/6 calls; retry runs one call, a second on a quarter of its runs."""
+    w = seed_world()
+    retry = [path for path, facts in w["runs"].items() if facts["arm"] == "retry_until_check"]
+    for k, path in enumerate(retry):
+        w["runs"][path] |= {"calls": 2 if k % 4 == 0 else 1}
+        next(r for r in w["records"] if r["run"] == path)["scores"][J] = score
+    assert ("retry_until_check" in seed_report(w)["selection"]["seeds"]) == seed
+
+
+def test_an_arms_summary_has_exactly_the_keys_the_selection_takes():
+    arm = {"tasks": {}, "completed": 1, "calls": 1, "priced_worst": 1, "priced_metered": None, "nested": 0,
+           "distinctive": None, "parity": None, "runs": 6, "cut": {}}
+    assert set(seeds.summary(arm, PROGRAMS["direct"])) == {
+        "tasks", "completed", "calls", "priced_worst", "priced_metered", "nested", "model", "effort", "distinctive",
+        "parity", "lines"}
+
+
+def test_the_visible_checks_rate_is_shown_beside_the_rerolls_fail_rate():
+    w = seed_world()
+    w["runs"]["/w/t00/direct/run-1"]["visible"] = {"passed": None, "timed_out": "past its bound"}
+    power = seed_report(w)["visible_power"]
+    assert (power["failed"], power["checked"], power["visible_fail_rate"]) == (16, 95, (15 / 6 + 1 / 5) / 16)
+
+
+def test_another_tranches_run_of_a_seed_task_is_not_read():
+    w = seed_world()
+    w["runs"]["/w/t00/direct/calibration-run"] = {"tranche": "calibration", "task": "t00", "arm": "direct",
+                                                  "outcome": "completed", "calls": 1}
+    assert list(seed_report(w)["measure_free"]) == [f"{layout.SEED_EVALUATION}/{name}" for name in ARMS]
+
+
+def test_judge_calls_and_their_priced_cost_are_reported_apart():
+    result = seed_report(seed_world())
+    assert (result["judge_cost"], result["arms"]["direct"]["priced_worst"]) == (
+        {"units": 16, "calls": 32, "priced_usd": 8.0, "missing_usage": 0}, 0.25)
+
+
+def test_the_withheld_arms_are_reported_as_not_run():
+    w = seed_world()
+    w["runs"] = {p: f for p, f in w["runs"].items() if f["arm"] not in ("retry_until_check", "implement_check_repair")}
+    assert seed_report(w)["not_run"] == ["retry_until_check", "implement_check_repair"]
+
+
+def test_an_observed_run_without_its_settled_facts_is_refused():
+    w = seed_world()
+    del w["runs"]["/w/t00/direct/run-0"]["nested_sessions"]
+    with pytest.raises(SystemExit, match="nested_sessions"):
+        seed_report(w)
+
+
+def test_an_arm_exactly_on_rule_2s_line_is_named_extension_eligible():
+    w = seed_world()
+    for r in w["records"]:
+        if r["arm"] == "implement_check_repair" and r["task"] in w["tasks"][:8]:
+            r["scores"][J] = 4  # its mean 4.5, direct's 5 less half a point
+    assert seed_report(w)["extension_eligible"] == ["implement_check_repair"]
+
+
+def test_metered_tokens_sum_the_providers_that_made_calls_and_none_when_unavailable():
+    receipt = {"consumption": {"claude": {"calls": 2, "tokens": 300}, "codex": {"calls": 0, "tokens": "unavailable"}}}
+    assert (seeds.metered_tokens(receipt), seeds.metered_tokens({"consumption": metering.UNAVAILABLE})) == (300, None)
+
+
+@pytest.mark.parametrize("edit", [lambda w: None, lambda w: weaken_controls(w, 4),
+                                  lambda w: anchor_record(w, "t00", "base", 0).update(patch="x")])
+def test_the_seed_section_renders_on_every_branch_with_its_decision(edit):
+    w = seed_world()
+    edit(w)
+    result = seed_report(w)
+    assert f"Decision: {result['decision']}." in seeds.markdown(result)
