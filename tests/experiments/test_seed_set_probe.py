@@ -169,13 +169,16 @@ def test_the_probe_is_charged_to_the_redraw_cap_only(s, monkeypatch):
         probing.probe(s)
 
 
+SUPERSEDED = 20  # ruling R19: the calibration Haiku runs made under the 1,200 s programs, inside the cap
+
+
 def test_budget_arithmetic_fits_the_caps():
     caps, tasks = spend.CAPS, ladder.CALIBRATION_TASKS
     worst_probe = (len(ladder.FLAT) + max(len(ladder.EASY_EXTENSION), len(ladder.HARD_EXTENSION))) * ladder.PROBE_TASKS
-    assert (worst_probe <= caps["redraw"]["candidate"][H], tasks * layout.PLANNED["calibration"]["direct"],
+    assert (worst_probe <= caps["redraw"]["candidate"][H], tasks * layout.PLANNED["calibration"]["direct"] + SUPERSEDED,
             tasks * layout.PLANNED["calibration"]["direct_sonnet"], tasks + layout.RETESTS["calibration"]) == (
         True, caps["calibration"]["candidate"][H], caps["calibration"]["candidate"][S],
-        caps["calibration"]["judge"][H])  # 36 <= 40, 80, 20, 30: the early look judges three of the 20 first pools
+        caps["calibration"]["judge"][H])  # 36 <= 40, 80 + 20, 20, 30: the early look judges three of the 20 first pools
 
 
 def test_the_41st_probe_call_refuses(s):
@@ -237,7 +240,86 @@ def test_after_a_freeze_with_other_programs_the_calibration_plans_its_whole_haik
     refreeze(s, programs_changed=True)
     planned, limits = study.slot_limits(s, [], "calibration", "direct", tasks)
     jobs = study.due_jobs([], "calibration", "direct", layout.load_arms(s)["direct"], planned, limits)
-    assert (len(tasks), len(jobs)) == (ladder.CALIBRATION_TASKS, spend.CAPS["calibration"]["candidate"][H])  # 20, 80
+    assert (len(tasks), len(jobs)) == (ladder.CALIBRATION_TASKS, ladder.CALIBRATION_TASKS * 4)  # 20, 80
+
+
+def first_stage(s, tasks, **extra):
+    """The calibration's first stage as the real ledger holds it: four reserved and settled Haiku direct runs of
+    each of `tasks`, the third failed at the call limit without a patch; `extra` joins every run's facts."""
+    for task in tasks:
+        for k in range(4):
+            records = s.work / "records" / "direct" / f"run-calibration-{task}-{k}"
+            records.mkdir(parents=True)
+            ended = {"outcome": "failed", "failure": {"code": "provider_timeout"}} if k == 2 else {"outcome": "completed"}
+            (records / "study.json").write_text(json.dumps({
+                "tranche": "calibration", "task": task, "arm": "direct", "model": H, "effort": "medium", "max_calls": 1,
+                "calls": 1, "scan_hits": 0, **ended, **extra}))
+            (records / "record.json").write_text("{}")
+            spend.reserve(s.ledger, "calibration", "candidate", H, 1, records, {spend.AUTHORIZATION: "calibration"},
+                          task=task, arm="direct", price=P)
+            spend.record(s.ledger, "settle", unit=str(records), usd=0.01, missing=[])
+
+
+def restarted(s, programs_changed=True, **extra):
+    """The real ledger's shape before ruling R19's restart: the probe and its chosen tasks, ruling R17's freeze with
+    other programs, the first stage on the first five tasks, then a freeze (with other programs, or code only)."""
+    tasks = chosen_world(s)
+    refreeze(s, programs_changed=True)
+    first_stage(s, tasks[:5], **extra)
+    refreeze(s, programs_changed=programs_changed)
+    return tasks
+
+
+def due(s, arm, tasks):
+    starts = spend.starts(spend.rows(s.ledger))
+    planned, limits = study.slot_limits(s, starts, "calibration", arm, tasks)
+    return study.due_jobs(starts, "calibration", arm, layout.load_arms(s)[arm], planned, limits), limits
+
+
+def test_after_a_freeze_with_other_programs_the_first_stages_tasks_plan_four_fresh_runs_each(s):  # ruling R19
+    tasks = restarted(s)
+    assert sorted(due(s, "direct", tasks[:5])[0]) == sorted(tasks[:5] * 4)
+
+
+def test_after_a_freeze_with_other_programs_every_planned_calibration_run_fits_the_caps(s):
+    tasks = restarted(s)
+    assert (len(due(s, "direct", tasks)[0]), len(due(s, "direct_sonnet", tasks)[0])) == (80, 20)
+
+
+def test_a_superseded_start_holds_no_slot_at_the_reservation(s):
+    task = restarted(s)[0]
+    limit = due(s, "direct", [task])[1][task]
+    for k in range(4):
+        spend.reserve(s.ledger, "calibration", "candidate", H, 1, f"/w/new-{k}", {spend.AUTHORIZATION: "calibration"},
+                      limit=limit, task=task, arm="direct", price=P)
+    with pytest.raises(SystemExit, match="planned runs started"):
+        spend.reserve(s.ledger, "calibration", "candidate", H, 1, "/w/new-4", {spend.AUTHORIZATION: "calibration"},
+                      limit=limit, task=task, arm="direct", price=P)
+
+
+def stage_seen(s, tasks):
+    """(the first stage's runs in the pools of the first five tasks, in the readout's records) and the ledger's
+    reserved calibration Haiku candidate calls."""
+    stage = {str(path) for path in (s.work / "records" / "direct").glob("run-calibration-*")}
+    pooled = {str(run) for task in tasks[:5] for run in study.runs_to_pool(s, task)} & stage
+    records = {r["run"] for r in study.load_records(s, {"direct": H}, tasks)[0]} & stage
+    return len(pooled), len(records), spend.totals(s.ledger)["calibration"]["candidate"][H]["reserved"]
+
+
+def test_after_a_freeze_with_other_programs_no_pool_or_record_holds_a_superseded_run_and_the_ledger_counts_it(s):
+    tasks = restarted(s)
+    rules.audit_ledger(s)  # no refusal: the audit sees every run and its reservation
+    assert stage_seen(s, tasks) == (0, 0, 20)
+
+
+def test_after_a_code_only_freeze_the_first_stage_keeps_its_runs_and_plans_nothing(s):  # ruling R17's note
+    tasks = restarted(s, programs_changed=False)
+    assert (due(s, "direct", tasks[:5])[0], stage_seen(s, tasks)) == ([], (20, 20, 20))
+
+
+def test_the_incident_stop_counts_superseded_incidents(s):
+    restarted(s, incident="session audit: stand-in")
+    assert any("20 incidents in the calibration tranche" in reason for reason in rules.stop_reasons(s))
 
 
 def early_pool(s, task, base, upstream):
@@ -341,10 +423,10 @@ def test_a_t0_draw_filled_from_t2_fits_the_calibration_caps_and_one_more_call_re
     out = probing.probe_readout(s)
     monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
     tasks, planned = len(out["chosen"]), layout.PLANNED["calibration"]
-    spend.check(s.ledger, "calibration", "candidate", H, tasks * planned["direct"])  # 80 of 80: no refusal
+    spend.check(s.ledger, "calibration", "candidate", H, tasks * planned["direct"] + SUPERSEDED)  # 100: no refusal
     spend.check(s.ledger, "calibration", "candidate", S, tasks * planned["direct_sonnet"])  # 20 of 20
     with pytest.raises(SystemExit, match="of the cap remain"):
-        spend.check(s.ledger, "calibration", "candidate", H, tasks * planned["direct"] + 1)
+        spend.check(s.ledger, "calibration", "candidate", H, tasks * planned["direct"] + SUPERSEDED + 1)
     assert (out["drawn"], tasks) == ({"T0": 8, "T2": 12}, 20)
 
 

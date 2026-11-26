@@ -116,7 +116,7 @@ JUDGE_PROVIDERS = "judge.providers.json"  # the judges' metered template (ruling
 PROVIDERS = {"claude": "providers.json", "codex": "providers.codex.json"}  # an arm's metered template, by its CLI
 INPUTS = ("task", "intent", "repo", "model", "effort")
 MAX_POOLS = 2
-CALL_SEC, JUDGE_SEC, SLACK_SEC = 1200, 3600, 600  # the programs' and score_functional.orc's :timeout-sec
+CALL_SEC, JUDGE_SEC, SLACK_SEC = 2400, 3600, 600  # the programs' and score_functional.orc's :timeout-sec
 
 
 def unit_sec(calls, per_call):
@@ -222,7 +222,8 @@ def live_homes(study):
 
 @exclusive
 def candidates(study, tranche, arm, tasks):
-    """Launch the planned runs of `arm` not yet started on each task, four at a time (the first wave two)."""
+    """Launch the planned runs of `arm` not yet started on each task, four at a time (the first wave two). Refused
+    before anything is planned or reserved while the machine's load is above its cores (`units.require_quiet`)."""
     spend.authorize(tranche)
     if tranche == "redraw":
         raise SystemExit("the redraw cap serves the ladder probe only: use `probe`")
@@ -231,6 +232,7 @@ def candidates(study, tranche, arm, tasks):
     if arm not in PLANNED[tranche]:
         raise SystemExit(f"{tranche} runs {sorted(PLANNED[tranche])}, not {arm}")
     rules.enforce(study, tranche)
+    units.require_quiet()  # once per command, before any slot is computed or reserved (ruling R19)
     spec, entries = load_arms(study)[arm], spend.starts(spend.rows(study.ledger))
     planned, limits = slot_limits(study, entries, tranche, arm, tasks)
     jobs = due_jobs(entries, tranche, arm, spec, planned, limits)
@@ -238,14 +240,18 @@ def candidates(study, tranche, arm, tasks):
 
 
 def slot_limits(study, entries, tranche, arm, tasks):
-    """({task: planned starts of `arm`}, {task: the starts it may have}). A probe run of a chosen package (the same
-    id and the same frozen programs are the same form, `layout.counted_runs`) that is not an incident is the first
-    of its Haiku direct runs; a planned slot cut by a usage limit runs once more, except in the smoke (a cut fails
-    the smoke)."""
+    """({task: planned starts of `arm` in the ledger's starts `entries`}, {task: the starts it may have}). A probe run
+    of a chosen package (the same id and the same frozen programs are the same form, `layout.counted_runs`) that is
+    not an incident is the first of its Haiku direct runs; a superseded start of the task and arm
+    (`layout.superseded`) holds no slot, so it adds one to the planned starts; a planned slot cut by a usage limit
+    runs once more, except in the smoke (a cut fails the smoke)."""
     facts = {str(path.parent): load(path) for path in counted_runs(study)}
+    stale = layout.superseded(spend.rows(study.ledger))
+    old = {task: sum(row["unit"] in stale and (row["tranche"], row.get("task"), row.get("arm")) == (tranche, task, arm)
+                     for row in entries) for task in tasks}
     probed = [f for f in facts.values() if f["tranche"] == "redraw" and "incident" not in f and "cut" not in f]
-    planned = {task: PLANNED[tranche][arm] - (sum(f["task"] == task and f["arm"] == arm for f in probed)
-                                              if tranche == "calibration" else 0) for task in tasks}
+    planned = {task: old[task] + PLANNED[tranche][arm] - (sum(f["task"] == task and f["arm"] == arm for f in probed)
+                                                          if tranche == "calibration" else 0) for task in tasks}
     limits = {task: n + (cut_reruns(entries, facts, tranche, task, arm, n) if tranche not in layout.SMOKES else 0)
               for task, n in planned.items()}
     return planned, limits
@@ -340,6 +346,7 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
         (records / "study.json").unlink()  # refused: nothing started, nothing left on disk
         shutil.rmtree(record["tree"])
         raise
+    facts["load_1min"] = {"reservation": os.getloadavg()[0]}  # measured only; nothing reads it (ruling R19)
     facts["exit"] = launch(records / "command.sh", env, records / "run.log", unit_sec(spec["max_calls"], CALL_SEC))
     pause_on_limit(study, records, str(records), record["sandbox"]["home"])  # before the settlement (review3 minor 1)
     dump(records / "study.json", facts)
@@ -347,6 +354,9 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
 
 
 def finish(study, records, facts, fix):
+    """Settle the run (`settle`), price it, record its facts with the 1-minute load average at its reservation and
+    at its settlement (`load_1min`, measured only), then record the stops the rules give."""
+    facts["load_1min"] = facts.get("load_1min", {}) | {"settlement": os.getloadavg()[0]}
     facts |= settle(study, records, task_dir(study, facts["task"]), fix, facts["max_calls"], facts["model"],
                     facts.get("exit"), facts["effort"])
     facts["priced"] = settle_price(study, str(records), records, facts["tranche"], facts["model"])

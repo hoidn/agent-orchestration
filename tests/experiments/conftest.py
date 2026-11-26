@@ -21,6 +21,14 @@ def restore_subreaper_after_experiment():
         assert libc.prctl(36, prior.value, 0, 0, 0) == 0
 
 
+@pytest.fixture(autouse=True)
+def quiet_machine_for_seed_set(request, monkeypatch):
+    """The seed-set kit refuses a `candidates` command while the machine's load is above its cores
+    (`units.require_quiet`); its tests see a quiet machine, whatever else runs on it, unless a test sets its own."""
+    if request.path.name.startswith('test_seed_set'):
+        monkeypatch.setattr(os, 'getloadavg', lambda: (0.5, 0.5, 0.5))
+
+
 # Imported by live studies (prr_direct_orc runner, orc_gp_example) and cheap to run.
 _ALWAYS_RUN = frozenset(
     f'test_orc_structural_search_{name}.py' for name in ('pricing', 'metering', 'records', 'pareto')

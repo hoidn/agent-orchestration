@@ -261,6 +261,45 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     assert subprocess.run(["bash", str(resume)], capture_output=True).returncode == 64  # no unit ever resumes
 
 
+def test_offline_a_freeze_with_other_programs_restarts_the_calibration_without_the_superseded_runs(world, monkeypatch):
+    """Ruling R19: the first stage runs under the first programs; a program's text changes, the freeze is recorded
+    again with a reason, and the calibration runs again from its first task. The new runs take fresh slots and new
+    records directories; no pool, judge, summary, early look or readout reads a superseded run, while the ledger's
+    totals and audit count every run."""
+    s, tasks = world.study, DRAWN
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, tasks)
+    spend.record(s.ledger, "smoke", passed=True)
+    study.candidates(s, "calibration", "direct", tasks)  # the first stage, under the first programs
+    old = {str(path.parent): path.read_text() for path in study.study_runs(s)}
+    direct = s.programs / "direct.orc"
+    direct.write_text(direct.read_text().replace(";; One implementer call.", ";; One implementer call, timed."))
+    git(s.runtime, "add", "-A", str(layout.PROGRAMS))
+    git(s.runtime, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "programs")
+    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(world.fakebin))
+    rules.record_freeze(s, reason="ruling R19: the call limit")
+    study.candidates(s, "calibration", "direct", tasks)
+    study.candidates(s, "calibration", "direct_sonnet", tasks)
+    for kind in ("first", "retest"):
+        study.build_pools(s, "calibration", kind, tasks)
+        if kind == "retest":
+            assert rules.early_look(s)["passed"] is True
+        study.judge(s, "calibration", kind, tasks)
+        study.summarize_pools(s, kind, tasks)
+    report = study.write_readout(s)
+
+    new = {str(path.parent): json.loads(path.read_text()) for path in study.study_runs(s) if str(path.parent) not in old}
+    pooled = {run for path in (s.results / "pools").glob("*/mapping.json") for run in json.loads(path.read_text())["runs"]}
+    records = {r["run"] for r in study.load_records(s, {"direct": H, "direct_sonnet": S}, tasks)[0]}
+    assert ({path: Path(path, "study.json").read_text() for path in old} == old, len(old), len(new),
+            {str(Path(run).resolve()) for run in old} & pooled, set(old) & records,
+            report["measure_free"]["calibration/direct"]["runs"]) == (True, 8, 10, set(), set(), 8)
+    totals = study.ledger_report(s)["calibration"]  # audits the ledger against every run
+    assert {model: (row["reserved"], row.get("made")) for model, row in totals["candidate"].items()} == {
+        H: (16, 16), S: (2, 2)}
+    assert {tuple(sorted(f["load_1min"])) for f in new.values()} == {("reservation", "settlement")}  # measured
+
+
 def test_offline_smoke_runs_every_program_once_behind_the_real_shims(world, monkeypatch):
     s = world.study
     monkeypatch.setenv(spend.AUTHORIZATION, "smoke")

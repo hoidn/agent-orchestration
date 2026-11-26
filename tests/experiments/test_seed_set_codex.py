@@ -383,7 +383,8 @@ def test_an_expired_codex_login_refuses(tmp_path, monkeypatch):
 
 def test_a_codex_login_expiring_inside_the_units_bound_refuses(tmp_path, monkeypatch):
     codex_login(tmp_path, exp=int(NOW) + CANDIDATE_SEC + units.EXPIRY_MARGIN_SEC - 1)
-    assert re.search(r"in 44 minutes; a unit needs 45 minutes", refusal(monkeypatch, tmp_path))
+    needs = (CANDIDATE_SEC + units.EXPIRY_MARGIN_SEC) // 60
+    assert re.search(rf"in {needs - 1} minutes; a unit needs {needs} minutes", refusal(monkeypatch, tmp_path))
 
 
 def test_a_codex_login_holding_an_api_key_refuses(tmp_path, monkeypatch):

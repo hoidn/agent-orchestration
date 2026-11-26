@@ -14,6 +14,7 @@ import sys
 import pytest
 
 from experiments.compare.repos import build_candidate, git
+from experiments.seed_set import study
 from experiments.seed_set.selection import COMMON_TYPES, MAX_PROGRAM_LINES, common_definitions, program_lines
 from tests.agent_session_shims import closed_path
 
@@ -146,10 +147,10 @@ def test_no_program_names_a_model():
     assert [p.name for p in PROGRAMS.glob("*.orc") if re.search(r'claude-|gpt-|:model "', p.read_text())] == []
 
 
-def command_forms(text):
-    """Every `(command-result ...)` form of a program, parentheses balanced."""
+def command_forms(text, head="command-result"):
+    """Every `(<head> ...)` form of a program (a command step by default), parentheses balanced."""
     forms = []
-    for start in [m.start() for m in re.finditer(r"\(command-result\b", text)]:
+    for start in [m.start() for m in re.finditer(rf"\({head}\b", text)]:
         depth = 0
         for end in range(start, len(text)):
             depth += {"(": 1, ")": -1}.get(text[end], 0)
@@ -167,6 +168,12 @@ def test_no_command_step_has_a_timeout_below_the_checks_own():
     forms = [form for path in sorted(PROGRAMS.glob("*.orc")) for form in command_forms(path.read_text())]
     limits = [int(m[1]) for form in forms if (m := re.search(r":timeout-sec\s+(\d+)", form))]
     assert (own, len(forms), [limit for limit in limits if limit < max(own)]) == ({600}, 3, [])
+
+
+def test_every_provider_call_has_the_kits_call_limit():  # the launch guard and the login check use study.CALL_SEC
+    forms = [form for path in sorted(PROGRAMS.glob("*.orc"))
+             for form in command_forms(path.read_text(), "provider-result")]
+    assert ({re.search(r":timeout-sec\s+(\d+)", form)[1] for form in forms}, len(forms)) == ({str(study.CALL_SEC)}, 7)
 
 
 def test_every_real_withheld_package_names_its_tests_for_the_check_and_keeps_none_in_its_seed():

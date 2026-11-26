@@ -47,10 +47,12 @@ MODELS = tuple(CLI)
 AUTHORIZATION = "SEED_SET_AUTHORIZED_TRANCHE"
 LEDGER = Path("~/.local/state/seed-set/spend-ledger.jsonl")  # expanded against $HOME when used
 # Provider calls per tranche, kind and model, as the plan's Budget table and its 2026-11-11 ledger rows authorize
-# them. Allowance does not move between tranches (smoke + calibration = 90/21 candidates, 31/31 judges).
+# them. Allowance does not move between tranches (smoke + calibration = 110/21 candidates, 31/31 judges).
 CAPS = {
     "smoke": {"candidate": {HAIKU: 10, SONNET: 1}, "judge": {HAIKU: 1, SONNET: 1}},
-    "calibration": {"candidate": {HAIKU: 80, SONNET: 20}, "judge": {HAIKU: 30, SONNET: 30}},
+    # calibration Haiku candidates: the Budget table's 80 and the 20 runs a freeze with other programs superseded
+    # (ruling R19 in the plan's ledger)
+    "calibration": {"candidate": {HAIKU: 100, SONNET: 20}, "judge": {HAIKU: 30, SONNET: 30}},
     # the redraw serves the ladder probe only: Haiku direct runs, no Sonnet run, no judge (coordinator, review2 M4)
     "redraw": {"candidate": {HAIKU: 40, SONNET: 0}, "judge": {HAIKU: 0, SONNET: 0}},
     # the Luna smoke (Luna plan, ruling L-R8): direct and retry-until-check on Luna once, one Haiku judge call

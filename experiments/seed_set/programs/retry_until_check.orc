@@ -11,7 +11,7 @@
   (defprompt implement-prompt
     (:fills (task :text) (repo :text))
     -> Change
-    "Work in the git repository at {repo} and nowhere else. This call ends after 20 minutes of wall-clock time; work that is not finished and reported by then is lost. Implement this change there:\n\n{task}\n\nReport two things. `summary`: one sentence. `account`: what you changed and why.")
+    "Work in the git repository at {repo} and nowhere else. This call ends after 40 minutes of wall-clock time; work that is not finished and reported by then is lost. Implement this change there:\n\n{task}\n\nReport two things. `summary`: one sentence. `account`: what you changed and why.")
 
   (defworkflow run
     ((task String) (intent String) (repo String) (model String) (effort String))
@@ -23,7 +23,7 @@
         (let* ((reset (command-result reset-clone :argv ("python" "reset_clone.py") :returns Bool))
                (change (provider-result providers.coder
                          :prompt (implement-prompt :task task :repo repo)
-                         :model model :effort effort :timeout-sec 1200))
+                         :model model :effort effort :timeout-sec 2400))
                (report (command-result dev-check :argv ("python" "dev_check.py") :returns CheckReport)))
           (if report.passed
             (done (variant Outcome DONE :summary change.summary))

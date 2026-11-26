@@ -58,7 +58,7 @@ def test_an_unknown_tranche_refuses():
 def test_caps_are_the_plans_budget():
     caps = {t: {k: dict(m) for k, m in kinds.items()} for t, kinds in spend.CAPS.items()}
     assert caps == {"smoke": {"candidate": {H: 10, S: 1}, "judge": {H: 1, S: 1}},
-                    "calibration": {"candidate": {H: 80, S: 20}, "judge": {H: 30, S: 30}},
+                    "calibration": {"candidate": {H: 100, S: 20}, "judge": {H: 30, S: 30}},  # ruling R19
                     "redraw": {"candidate": {H: 40, S: 0}, "judge": {H: 0, S: 0}},  # review2 M4: probe only
                     "luna_smoke": {"candidate": {spend.LUNA: 4}, "judge": {H: 1}}}  # Luna plan, ruling L-R8
 
@@ -1261,12 +1261,12 @@ def test_a_login_file_without_a_usable_expiry_fails_closed_without_its_content(t
     assert (str(path) in str(refused.value), "stand-in-token" in str(refused.value)) == (True, False)
 
 
-CANDIDATE_SEC = study.unit_sec(1, study.CALL_SEC)  # a one-call unit's launch limit: 1,800 s
+CANDIDATE_SEC = study.unit_sec(1, study.CALL_SEC)  # a one-call unit's launch limit: 3,000 s
 
 
 def test_a_units_login_check_and_its_launch_share_one_wall_clock_limit():
     assert (study.unit_sec(1, study.CALL_SEC), study.unit_sec(3, study.CALL_SEC), study.unit_sec(2, study.JUDGE_SEC),
-            units.EXPIRY_MARGIN_SEC) == (1800, 4200, 7800, 900)
+            units.EXPIRY_MARGIN_SEC) == (3000, 7800, 7800, 900)
 
 
 @pytest.mark.parametrize("left, starts", [(CANDIDATE_SEC + units.EXPIRY_MARGIN_SEC, True),
@@ -1278,7 +1278,8 @@ def test_a_unit_starts_only_if_the_token_outlives_its_limit_and_the_margin(tmp_p
     if starts:
         units.require_login(CANDIDATE_SEC, now=now)
     else:
-        with pytest.raises(SystemExit, match="expires .*, in 44 minutes"):
+        short = (CANDIDATE_SEC + units.EXPIRY_MARGIN_SEC) // 60 - 1  # a second short of the unit's need
+        with pytest.raises(SystemExit, match=f"expires .*, in {short} minutes"):
             units.require_login(CANDIDATE_SEC, now=now)
 
 
@@ -1297,6 +1298,43 @@ def test_candidates_refuse_before_preparing_or_reserving_a_unit_the_token_would_
     with pytest.raises(SystemExit, match="refreshed the login"):
         study.candidates(runner, "calibration", "direct", ["t1"])
     assert (spend.starts(spend.rows(runner.ledger)), sorted(p.name for p in runner.work.iterdir())) == ([], [])
+
+
+def loaded(monkeypatch, five_minutes, cores=32):
+    """A machine of `cores` cores whose 5-minute load average is `five_minutes` (the 1- and 15-minute ones low)."""
+    monkeypatch.setattr(units.os, "getloadavg", lambda: (1.0, five_minutes, 1.0))
+    monkeypatch.setattr(units.os, "cpu_count", lambda: cores)
+
+
+def test_candidates_refuse_above_the_core_count_and_write_nothing(runner, monkeypatch):  # ruling R19
+    monkeypatch.setenv(AUTH, "calibration")
+    ready(runner)
+    before = spend.rows(runner.ledger)
+    loaded(monkeypatch, 32.5)
+    monkeypatch.setattr(study, "one_run", lambda *a, **k: pytest.fail("a unit was prepared"))
+    with pytest.raises(SystemExit, match="5-minute load average is 32.5, above the machine's 32 cores"):
+        study.candidates(runner, "calibration", "direct", ["t1"])
+    assert (spend.rows(runner.ledger), runner.work.exists()) == (before, False)  # no start, stop or pause
+
+
+def test_candidates_start_at_a_load_equal_to_the_core_count(runner, monkeypatch):
+    monkeypatch.setenv(AUTH, "calibration")
+    ready(runner)
+    loaded(monkeypatch, 32.0)
+    started = []
+    monkeypatch.setattr(study, "one_run", lambda *a, **k: started.append(a[4]) or (a[4], {"calls": 0}))
+    study.candidates(runner, "calibration", "direct", ["t1"])
+    assert started == ["t1"] * 4
+
+
+def test_a_judge_is_not_refused_by_the_load(runner, monkeypatch, tmp_path):
+    monkeypatch.setenv(AUTH, "calibration")
+    ready(runner)
+    pool_dir_of(runner, "t1", scan=[])
+    loaded(monkeypatch, 500.0)
+    short_login(tmp_path, monkeypatch, study.unit_sec(1, study.JUDGE_SEC))  # the next guard a judge meets
+    with pytest.raises(SystemExit, match="refreshed the login"):
+        study.judge(runner, "calibration", "first", ["t1"])
 
 
 def test_a_judge_refuses_before_its_reservation_when_the_token_would_not_outlive_it(runner, monkeypatch, tmp_path):
@@ -1580,7 +1618,7 @@ def test_re_runs_of_cut_slots_beyond_the_caps_room_are_left_out_not_refused(runn
     for k in range(1, 5):  # t1's four direct slots started, the first cut
         records = run_dir(runner, k=k, **({"cut": CUT, "outcome": "failed"} if k == 1 else {"outcome": "completed"}))
         spend.reserve(runner.ledger, "calibration", "candidate", H, 1, records, task="t1", arm="direct", price=P)
-    for k in range(76):  # the Haiku cap is full
+    for k in range(spend.CAPS["calibration"]["candidate"][H] - 4):  # the Haiku cap is full
         spend.reserve(runner.ledger, "calibration", "candidate", H, 1, f"/elsewhere/{k}", task="t2", arm="x", price=P)
     assert study.candidates(runner, "calibration", "direct", ["t1"]) == []
     assert "keeps" in capsys.readouterr().out

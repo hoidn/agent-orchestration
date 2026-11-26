@@ -259,17 +259,23 @@ def study_runs(study):
     return sorted(study.work.glob("records/*/run-*/study.json"))
 
 
-def counted_runs(study):
-    """`study_runs` without the probe runs whose form is not the current one: the calibration's slots, pools and
-    readout count a probe run only when the programs of the freeze in force at its reservation (the last `freeze`
-    before its row) are those of the latest freeze (ruling R17: the programs' text is part of the form)."""
-    entries = spend.rows(study.ledger)
+def superseded(entries):
+    """The units of the ledger `entries` whose form is not the current one: the probe (`redraw`) and calibration
+    starts reserved under a freeze (the last `freeze` before the start's row) whose programs differ from the latest
+    freeze's (rulings R17 and R19: the programs' text is part of the form). A freeze that keeps the programs
+    supersedes nothing; the smoke's and the other tranches' starts are never superseded."""
     freezes = [row for row in entries if row["kind"] == "event" and row["event"] == "freeze"]
     latest = freezes[-1].get("programs") if freezes else None
     def programs(seq):
         return next((row.get("programs") for row in reversed(freezes) if row["seq"] < seq), None)
-    stale = {row["unit"] for row in spend.starts(entries)
-             if row["tranche"] == "redraw" and programs(row["seq"]) != latest}
+    return {row["unit"] for row in spend.starts(entries)
+            if row["tranche"] in ("redraw", "calibration") and programs(row["seq"]) != latest}
+
+
+def counted_runs(study):
+    """`study_runs` without the `superseded` ones: what the slots, the pools, the records and the readouts count. The
+    incident stop, the ledger audit and the spend totals read every run (`study_runs`, the ledger)."""
+    stale = superseded(spend.rows(study.ledger))
     return [path for path in study_runs(study) if str(path.parent) not in stale]
 
 

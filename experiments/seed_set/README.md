@@ -38,6 +38,18 @@ same steps repeat after any change to the kit's code, with `record-freeze --reas
 2. **The tranche's spend row** in the ledger, with the meter reading ruling R13 asks for.
 3. **The tranche**, through `study.py` with `SEED_SET_AUTHORIZED_TRANCHE` set to its name.
 
+A freeze whose programs differ from the previous freeze's supersedes the probe and calibration runs reserved
+before it (rulings R17 and R19: the programs' text is part of a run's form; `layout.superseded`). A superseded run
+holds no slot, so its task and arm get a fresh start in its place, and no pool, record, early look or readout reads
+it (`layout.counted_runs`); the incident stop, the ledger audit and the spend totals still count it, and so do the
+caps (the calibration's Haiku candidate cap holds the 20 runs superseded by ruling R19). A freeze that keeps the
+programs supersedes nothing. The smoke's runs are never superseded.
+
+`candidates` refuses, before it plans or reserves anything and without writing to the ledger, while the
+machine's 5-minute load average is above its core count (`units.require_quiet`, ruling R19); the operator runs the
+command again later. Pools, judges and summaries have no such guard. Each candidate run records the 1-minute load
+average at its reservation and at its settlement (`load_1min` in its `study.json`); nothing reads it.
+
 ## Running a tranche again after a stop or a failed smoke
 
 A `stop` in the spend ledger is final and a failed `smoke` row stays: no command lifts either, and the caps count
@@ -75,7 +87,7 @@ and nothing else, from the login file the unit would copy (`units.login_expiry`:
 refuses the start unless the token outlives the unit's wall-clock limit plus 15 minutes
 (`units.EXPIRY_MARGIN_SEC`: the preparation before the launch and the CLI's refresh ahead of the expiry). The limit
 is `study.unit_sec`, the same value at which the launch guard kills the unit's whole tree, checks between calls
-included: 1,200 s a candidate call or 3,600 s a judge batch, plus 600 s. A file without a numeric expiry refuses
+included: 2,400 s a candidate call or 3,600 s a judge batch, plus 600 s. A file without a numeric expiry refuses
 too. After a refusal nothing is reserved; start again once the owner's own session has refreshed the
 login. `study.py login-expiry` prints `expires <ISO time>, in <N> minutes` without opening anything else. A
 refresh before the expiry, such as a new login by the owner, still ends the units in flight as incidents.

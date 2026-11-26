@@ -41,6 +41,8 @@
   copies, and the refusal of a unit's start unless the token outlives the unit's wall-clock limit plus
   `EXPIRY_MARGIN_SEC` (coordinator ruling R16). For Codex (`codex_login_expiry`, ruling L-R3) also whether the file
   holds an API key or is not a ChatGPT login, either of which refuses.
+- `require_quiet`: the refusal of a `candidates` command while the machine's 5-minute load average is above its
+  core count (coordinator ruling R19).
 - `remove_tree`: a unit's tree removed, read-only directories its agent's own tests left included, no link
   followed and nothing outside its root touched; it reports a tree it cannot remove instead of raising, so the
   settlement is not lost (ruling R16).
@@ -216,6 +218,16 @@ def require_login(seconds, now=None, provider="claude"):
         raise SystemExit(f"the login's access token {expiry_text(expires, now)}; a unit needs "
                          f"{(seconds + EXPIRY_MARGIN_SEC) // 60:.0f} minutes. Nothing started: start again after "
                          "the owner's own session has refreshed the login")
+
+
+def require_quiet():
+    """Refuse a `candidates` command (SystemExit, nothing written) while the machine's 5-minute load average
+    (`os.getloadavg`) is above its core count (`os.cpu_count`): candidate runs are timed (ruling R19). No wait and
+    no retry: the operator runs the command again later."""
+    load, cores = os.getloadavg()[1], os.cpu_count()
+    if load > cores:
+        raise SystemExit(f"the 5-minute load average is {load:.1f}, above the machine's {cores} cores. Nothing "
+                         "started: start again when the machine is quieter")
 
 
 def remove_tree(path, root):
