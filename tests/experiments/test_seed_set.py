@@ -1,6 +1,8 @@
 """Seed-set judge gate, task gates, anchor checks, re-roll baselines and the seed selection rule on small synthetic
 record sets (experiments/seed_set/gates.py, selection.py). No harness, no provider."""
 
+from fractions import Fraction
+
 import pytest
 
 from experiments.seed_set import gates, selection
@@ -224,7 +226,7 @@ def test_an_unexpected_anchor_is_refused():
 def test_rerolls_average_every_ordered_triple():
     out = selection.rerolls([(8, True), (2, False), (5, False)])
     # Q2 over the six orders: 8 8 (first passes), 8 8 (second passes), 5 2 (neither: the second attempt)
-    assert (out["Q1"], out["Q2"], out["Q2_calls"], out["Q3"], out["Q3_calls"]) == (5, 6.5, 10 / 6, 8, 2)
+    assert (out["Q1"], out["Q2"], out["Q2_calls"], out["Q3"], out["Q3_calls"]) == (5, 6.5, Fraction(10, 6), 8, 2)
 
 
 def test_rerolls_need_three_runs():
@@ -276,6 +278,29 @@ def test_a_program_file_counts_every_physical_line(tmp_path):
 def test_direct_stays_in_the_set_as_the_reference_whatever_its_size():
     result = selection.select_seeds({"direct": {**DIRECT, "lines": 50}}, REROLLED)
     assert (result["seeds"], result["arms"]["direct"]["lines"]) == (["direct"], 50)
+
+
+def test_a_quality_exactly_half_a_point_under_direct_in_thirds_passes_rule_2():
+    # q = 11/3 and q_direct = 25/6: exactly q_direct - 0.5, which a float mean of these thirds misses
+    thirds = lambda *n: dict(enumerate(Fraction(k, 3) for k in n))
+    direct = {**DIRECT, "tasks": thirds(23, 7, 18, 2)}
+    candidate = {**arm([0]), "tasks": thirds(0, 22, 14, 8)}
+    result = selection.select_seeds({"direct": direct, "implement_check_repair": candidate}, REROLLED)
+    assert result["arms"]["implement_check_repair"]["rules"]["2_quality"] is True
+
+
+def test_select_seeds_runs_its_dominance_test_on_exact_inputs():
+    # equal quality at 2.2 times direct's calls: direct dominates; Fractions reach `pareto.dominates` as floats
+    exact = lambda summary, calls: {**summary, "tasks": {t: Fraction(v) for t, v in summary["tasks"].items()},
+                                    "calls": Fraction(calls)}
+    result = selection.select_seeds({"direct": exact(DIRECT, 1), "implement_review_revise": exact(DIRECT, Fraction(11, 5))},
+                                    REROLLED)
+    assert result["arms"]["implement_review_revise"]["dominated_by_direct"] is True
+
+
+def test_rerolls_return_exact_means():
+    out = selection.rerolls([(1, True), (1, False), (2, False)])
+    assert (out["Q1"], out["random_of_3"]) == (Fraction(4, 3), Fraction(4, 3))
 
 
 def test_a_pool_incident_costs_its_task_and_suppresses_nothing_else():
