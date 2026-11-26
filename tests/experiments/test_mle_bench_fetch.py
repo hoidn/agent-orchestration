@@ -1,7 +1,8 @@
 """fetch.sh, the one command of the MLE-bench line that reads the Kaggle token (family plan M10, Task 10a).
 
-Every run is against a stand-in `mlebench` (and a stand-in `df`) on a closed PATH, with a fake token this module
-generates: no Kaggle, no real credential, no network. The stand-in does what the real tool may do with the token:
+Every run is against a stand-in for the benchmark's python (planted at <home>/lh-cache/mle/venv/bin/python, where
+fetch.sh runs `python -I -m mlebench.cli prepare`), a stand-in `df` and a decoy `mlebench` on a closed PATH, with
+a fake token this module generates: no Kaggle, no real credential, no network. The stand-in does what the real tool may do with the token:
 it reads kaggle.json from KAGGLE_CONFIG_DIR, prints the account name and key on stdout and stderr, writes them to
 its working and temporary directories, tries /dev/tty and asks a question on standard input. The tests then
 check that the key and the account name are nowhere outside the token directory, and that the pane shows only
@@ -26,10 +27,11 @@ FETCH = Path(__file__).resolve().parents[2] / "experiments" / "mle_bench_tasks" 
 FLOOR = 20 * 10**9  # the ladder's free-disk floor, 20 GB (family plan M9)
 DONE, FAILED, NO_ROOM = "done", "rules not accepted or download failed", "no room"
 
-# Slug suffixes pick the stand-in's behaviour: `-fail` fails noisily, `-ask` asks the rules question, `-hang` sleeps,
-# else done.
+# Slug suffixes pick the stand-in's behaviour: `-fail` fails noisily, `-ask` asks the rules question, `-killed` kills
+# itself with SIGKILL, `-hang` starts a child in its process group and sleeps, `-stubborn` does the same ignoring
+# SIGTERM; else done.
 STAND_IN = r'''
-import json, os, pathlib, resource, sys, tempfile
+import json, os, pathlib, resource, signal, subprocess, sys, tempfile, time
 here = pathlib.Path(__file__).parent
 slug, data = sys.argv[sys.argv.index("-c") + 1], sys.argv[sys.argv.index("--data-dir") + 1]
 with open(here / "calls", "a") as calls:
@@ -49,9 +51,15 @@ print("stdout " + secret, flush=True)
 print("stderr " + secret, file=sys.stderr, flush=True)
 pathlib.Path("leak-cwd").write_text(secret)
 pathlib.Path(tempfile.gettempdir(), "leak-tmp").write_text(secret)
-if slug.endswith("-hang"):
-    (here / "hang.pid").write_text(str(os.getpid()))
-    import time; time.sleep(60)
+if slug.endswith("-killed"):
+    os.kill(os.getpid(), signal.SIGKILL)
+if slug.endswith(("-hang", "-stubborn")):
+    if slug.endswith("-stubborn"):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)  # inherited by the child
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
+    (here / "pids.part").write_text(f"{os.getpid()} {child.pid}")
+    (here / "pids.part").rename(here / "pids")
+    time.sleep(300)
 if slug.endswith("-fail"):
     raise RuntimeError("download failed for " + secret)
 if slug.endswith("-ask"):
@@ -68,18 +76,24 @@ STAND_IN_DF = r'''
 import sys
 print("Avail")
 for _ in [a for a in sys.argv[1:] if not a.startswith("-")]:
-    print(%d)
+    print(%r)
+'''
+
+DECOY = r'''
+import pathlib
+(pathlib.Path(__file__).parent / "decoy-called").write_text("")
 '''
 
 
 class Box:
     """One fake machine under tmp_path: a home with the token directory, a bin directory of stand-ins."""
 
-    def __init__(self, root: Path, free: int = 10 * FLOOR):
+    def __init__(self, root: Path, free: int | str = 10 * FLOOR):
         self.root, self.home, self.bin = root, root / "home", root / "bin"
+        self.python = self.home / "lh-cache" / "mle" / "venv" / "bin" / "python"
         self.token_dir = self.home / ".local" / "state" / "mle-secret"
         self.work, self.tmp = root / "work", root / "tmp"
-        for d in (self.bin, self.work, self.tmp):
+        for d in (self.bin, self.work, self.tmp, self.python.parent):
             d.mkdir(parents=True)
         self.token_dir.mkdir(parents=True, mode=0o700)
         self.token_dir.chmod(0o700)
@@ -87,12 +101,14 @@ class Box:
         token = self.token_dir / "kaggle.json"
         token.write_text(json.dumps({"username": self.username, "key": self.key}))
         token.chmod(0o600)
-        self._tool("mlebench", STAND_IN)
-        self._tool("df", STAND_IN_DF % free)
+        self._tool(self.python, STAND_IN)
+        self._tool(self.bin / "df", STAND_IN_DF % str(free))
+        self._tool(self.bin / "mlebench", DECOY)
 
-    def _tool(self, name: str, body: str) -> None:
-        (self.bin / name).write_text(f"#!{sys.executable}\n" + body)
-        (self.bin / name).chmod(0o700)
+    @staticmethod
+    def _tool(path: Path, body: str) -> None:
+        path.write_text(f"#!{sys.executable}\n" + body)
+        path.chmod(0o700)
 
     def env(self, **extra) -> dict:
         env = {"HOME": str(self.home), "PATH": closed_path(self.bin), "TMPDIR": str(self.tmp),
@@ -104,7 +120,7 @@ class Box:
                               capture_output=True, text=True, timeout=60)
 
     def calls(self) -> list[str]:
-        path = self.bin / "calls"
+        path = self.python.parent / "calls"
         return path.read_text().split() if path.exists() else []
 
     def reports(self) -> list[dict]:
@@ -190,6 +206,27 @@ def test_refuses_when_no_competition_is_named(box):
     assert (done.returncode, box.calls()) == (2, [])
 
 
+@pytest.mark.parametrize("suffix", ["/", "//", "/.", "/./"])
+def test_refuses_a_linked_token_directory_given_with_a_trailing_slash_or_dot(box, suffix):
+    link = box.root / "link-dir"
+    link.symlink_to(box.token_dir)
+    done = box.run("leaf-classification", KAGGLE_CONFIG_DIR=str(link) + suffix)
+    assert (done.returncode, box.calls()) == (2, [])
+
+
+def test_refuses_without_the_benchmark_s_python(box):
+    box.python.unlink()
+    done = box.run("leaf-classification")
+    assert (done.returncode, done.stdout) == (2, "")
+
+
+def test_refuses_a_temporary_directory_in_the_token_directory_that_is_a_link(box):
+    (box.root / "elsewhere-tmp").mkdir()
+    (box.token_dir / "tmp").symlink_to(box.root / "elsewhere-tmp")
+    done = box.run("leaf-classification")
+    assert (done.returncode, box.calls()) == (2, [])
+
+
 # --- what the pane shows ---------------------------------------------------------------------------------------
 
 def test_prints_one_fixed_line_per_competition_when_the_tool_fails_noisily_or_asks(box):
@@ -212,6 +249,17 @@ def test_says_no_room_and_does_not_start_the_tool_under_the_disk_floor(tmp_path)
     box = Box(tmp_path, free=FLOOR - 1)
     done = box.run("leaf-classification")
     assert (done.returncode, done.stdout.splitlines(), box.calls()) == (1, [f"leaf-classification: {NO_ROOM}"], [])
+
+
+def test_an_unreadable_disk_reading_counts_as_no_room(tmp_path):
+    box = Box(tmp_path, free="unknown")
+    done = box.run("leaf-classification")
+    assert (done.stdout.splitlines(), done.stderr, box.calls()) == ([f"leaf-classification: {NO_ROOM}"], "", [])
+
+
+def test_runs_the_benchmark_s_python_and_never_a_mlebench_found_on_path(box):
+    done = box.run("leaf-classification")
+    assert (done.stdout.splitlines(), (box.bin / "decoy-called").exists()) == ([f"leaf-classification: {DONE}"], False)
 
 
 # --- where the key and the account name can go -----------------------------------------------------------------
@@ -256,11 +304,33 @@ def test_the_tool_is_given_the_directory_path_and_never_the_key_in_its_environme
         str(box.token_dir), False, False, [])
 
 
+def test_no_other_kaggle_variable_reaches_the_tool(box):
+    box.run("leaf-classification", KAGGLE_PROXY="http://proxy.invalid:1", KAGGLE_SSL_CA_CERT="/x", KAGGLE_ANY="y")
+    (report,) = box.reports()
+    assert sorted(k for k in report["env"] if k.startswith("KAGGLE_")) == ["KAGGLE_CONFIG_DIR"]
+
+
+def test_a_link_in_place_of_the_log_receives_nothing(box):
+    outside = box.root / "outside.log"
+    outside.write_text("")
+    (box.token_dir / "fetch-birds-fail.log").symlink_to(outside)
+    box.run("birds-fail")
+    assert outside.read_text() == ""
+
+
+def test_an_open_log_left_from_before_is_replaced_by_a_private_one(box):
+    log = box.token_dir / "fetch-birds-fail.log"
+    log.write_text("")
+    log.chmod(0o644)
+    box.run("birds-fail")
+    assert oct(log.stat().st_mode & 0o777) == oct(0o600)
+
+
 def test_the_tool_s_arguments_are_the_slug_and_the_data_directory_only(box):
     box.run("leaf-classification")
     (report,) = box.reports()
     data = str(box.home / "mle-cache" / "prepared")
-    assert report["argv"] == ["prepare", "-c", "leaf-classification", "--data-dir", data]
+    assert report["argv"] == ["-I", "-m", "mlebench.cli", "prepare", "-c", "leaf-classification", "--data-dir", data]
 
 
 def test_the_tool_cannot_write_a_core_dump_even_when_fetch_may(box):
@@ -268,22 +338,45 @@ def test_the_tool_cannot_write_a_core_dump_even_when_fetch_may(box):
     assert [r["core"] for r in box.reports()] == [0]
 
 
-def test_stopping_fetch_stops_the_tool_it_started(box):
-    proc = subprocess.Popen([str(FETCH), "leaf-hang"], cwd=box.work, env=box.env(), stdin=subprocess.DEVNULL,
+def _alive(pid: int) -> bool:
+    """A process that exists and is not a zombie (an orphan may wait to be reaped by a subreaper)."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
+
+
+def _stop_while_running(box: Box, slug: str) -> list[int]:
+    """Start fetch.sh on a slug whose stand-in starts a child and sleeps, send fetch SIGTERM, and return the pids of
+    the stand-in and its child still alive a minute later (killed afterwards, so no test leaves them behind)."""
+    proc = subprocess.Popen([str(FETCH), slug], cwd=box.work, env=box.env(), stdin=subprocess.DEVNULL,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    pid_file, deadline = box.bin / "hang.pid", time.monotonic() + 30
-    while not pid_file.exists() and time.monotonic() < deadline:
-        time.sleep(0.05)
-    tool = int(pid_file.read_text())
+    pids_file, deadline = box.python.parent / "pids", time.monotonic() + 120
+    while not pids_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    pids = [int(p) for p in pids_file.read_text().split()]
     proc.send_signal(signal.SIGTERM)
-    proc.wait(timeout=10)
-    deadline = time.monotonic() + 10
-    while Path(f"/proc/{tool}").exists() and time.monotonic() < deadline:
-        time.sleep(0.05)
-    alive = Path(f"/proc/{tool}").exists()
-    if alive:
-        os.kill(tool, signal.SIGKILL)  # leave no stand-in behind when the test fails
-    assert alive is False
+    proc.wait(timeout=120)
+    deadline = time.monotonic() + 60
+    while any(map(_alive, pids)) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    alive = [p for p in pids if _alive(p)]
+    for pid in alive:
+        os.kill(pid, signal.SIGKILL)
+    return alive
+
+
+def test_stopping_fetch_stops_the_tool_and_the_children_in_its_process_group(box):
+    assert _stop_while_running(box, "leaf-hang") == []
+
+
+def test_stopping_fetch_stops_a_tool_that_ignores_the_terminate_signal(box):
+    assert _stop_while_running(box, "leaf-stubborn") == []
+
+
+def test_a_tool_killed_by_a_signal_shows_only_the_fixed_line(box):
+    done = box.run("leaf-killed")
+    assert (done.stdout.splitlines(), done.stderr) == ([f"leaf-killed: {FAILED}"], "")
 
 
 def _run_on_a_terminal(box: Box, *slugs: str) -> tuple[int, bytes]:
