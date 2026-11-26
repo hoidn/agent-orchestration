@@ -38,15 +38,30 @@ def test_every_arm_alternates_between_the_batches():
     assert all(s[1:] == [1 - i for i in s[:-1]] for s in sequences.values())
 
 
-def test_over_two_consecutive_tasks_each_three_run_arm_has_three_runs_in_each_batch():
-    runs = usable(PLANNED)
+def three_run_arms_over(tasks):
+    """Per three-run arm, its runs in batch 0 and batch 1 over consecutive tasks, each task's usable runs given."""
     counts = {arm: [0, 0] for arm in ("implement_check_repair", "implement_review_revise")}
-    for index in (4, 5):
+    for index, runs in enumerate(tasks, start=4):
         where = placed(study.seed_batches(runs, ARMS, index))
         for arm, count in counts.items():
             for path, _ in runs[arm]:
                 count[where[path]] += 1
+    return counts
+
+
+def test_over_two_consecutive_tasks_each_three_run_arm_has_three_runs_in_each_batch():
+    counts = three_run_arms_over([usable(PLANNED), usable(PLANNED)])
     assert counts == {arm: [3, 3] for arm in counts}
+
+
+def test_a_direct_run_missing_on_one_task_leaves_the_three_run_arms_balanced_over_the_pair():
+    counts = three_run_arms_over([usable({**PLANNED, "direct": 5}), usable(PLANNED)])
+    assert counts == {arm: [3, 3] for arm in counts}
+
+
+def test_a_batch_above_eight_runs_is_refused():
+    with pytest.raises(SystemExit, match="batch of 9"):
+        study.seed_batches(usable({"direct": 9, "implement_check_repair": 7}), ARMS, 0)
 
 
 def test_an_arm_alternates_within_a_task_whatever_the_task_index():

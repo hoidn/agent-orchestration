@@ -570,18 +570,25 @@ SEED_BATCH = 8  # a seed pool's batch: at most eight candidates plus the two anc
 def seed_batches(usable, arms, task_index):
     """A seed pool's two judge batches, in the members' shape `pool.write_pool` takes ((records path, record,
     ["final"])). `usable` is `pool.pool_runs`' usable runs per arm, `arms` the arm names in `arms.json` order, and
-    `task_index` the task's place in the seed task list. The runs with a final patch, arm by arm in `arms` order and
-    each arm's in records order, are dealt alternately into the two batches, starting in batch `task_index % 2`:
-    each arm alternates within a task, and a three-run arm's odd run falls in batch 1 on one task and batch 2 on
-    the next, so a batch shift cancels in arm differences over the task list (the plan's review). Refuses more than
-    16 dealt runs and an arm outside `arms`; one dealt run gives one batch, none gives no batch."""
+    `task_index` the task's place in the seed task list. Each arm is dealt on its own: its runs with a final patch,
+    in records order, alternate between batches 0 and 1, run `j` of the arm at position `i` in `arms` going to batch
+    `(task_index + i + j) % 2`. An arm with an even number of runs is balanced within the task; an arm with an odd
+    number puts its extra run in batch 0 on one task and batch 1 on the next, so over two consecutive tasks with the
+    same number of that arm's runs a shift between the batches cancels in that arm's difference from another,
+    whatever the other arms' counts. It does not cancel when the arm's own count differs between the two tasks, or
+    on an unpaired last task. Refuses more than 16 dealt runs, a batch above `SEED_BATCH` and an arm outside `arms`;
+    one dealt run gives one batch, none gives no batch."""
     if unknown := sorted(set(usable) - set(arms)):
         raise SystemExit(f"usable runs of arms outside the arm order: {unknown}")
-    dealt = [(path, record, ["final"]) for name in arms for path, record in usable.get(name, [])
-             if "final" in record.get("patches", {})]
-    if len(dealt) > 2 * SEED_BATCH:
-        raise SystemExit(f"{len(dealt)} usable runs exceed the two batches of {SEED_BATCH} a seed pool holds")
-    batches = [dealt[(task_index + k) % 2::2] for k in range(2)]
+    batches = [[], []]
+    for i, name in enumerate(arms):
+        runs = [(path, record, ["final"]) for path, record in usable.get(name, []) if "final" in record.get("patches", {})]
+        for j, member in enumerate(runs):
+            batches[(task_index + i + j) % 2].append(member)
+    if (total := sum(map(len, batches))) > 2 * SEED_BATCH:
+        raise SystemExit(f"{total} usable runs exceed the two batches of {SEED_BATCH} a seed pool holds")
+    if over := [len(batch) for batch in batches if len(batch) > SEED_BATCH]:
+        raise SystemExit(f"a seed batch of {over[0]} runs exceeds {SEED_BATCH}")
     return [batch for batch in batches if batch]
 
 
