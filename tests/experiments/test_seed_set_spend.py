@@ -1327,6 +1327,12 @@ def test_candidates_start_at_a_load_equal_to_the_core_count(runner, monkeypatch)
     assert started == ["t1"] * 4
 
 
+def test_an_unknown_core_count_counts_as_one_core(monkeypatch):
+    loaded(monkeypatch, 1.5, cores=None)
+    with pytest.raises(SystemExit, match="above the machine's 1 cores"):
+        units.require_quiet()
+
+
 def test_a_judge_is_not_refused_by_the_load(runner, monkeypatch, tmp_path):
     monkeypatch.setenv(AUTH, "calibration")
     ready(runner)

@@ -197,20 +197,38 @@ def require_spend_bounds(study):
                              f"unit's worst case USD {worst:g}")
 
 
-def record_freeze(study, reason=None):
+def record_freeze(study, reason=None, supersede=False):
     """Record the freeze's identity in the ledger: the first spend needs it, and spend terms the runtime or two
     units in flight would breach refuse it (`require_spend_bounds`), as does a `judge-seeds.json` that criterion.json
     names and whose shape is wrong (`layout.check_seed_criterion`, against the selected judge once one is known).
     Once a start exists, a new freeze needs a reason (an apparatus fix the plan's ledger records), which the event
-    keeps."""
+    keeps; a freeze that would supersede calibration runs needs `supersede` too (`require_supersede`), which the
+    event records."""
     layout.load_criterion(study)
     if study.frozen.is_file() and layout.SEED_CRITERION in load(study.frozen).get("sha256", {}):
         layout.check_seed_criterion(study, layout.selected_judge(study))
-    if spend.starts(spend.rows(study.ledger)) and not reason:
+    entries = spend.rows(study.ledger)
+    if spend.starts(entries) and not reason:
         raise SystemExit("starts exist: a new freeze needs --reason (the apparatus fix it records)")
     identity = frozen_identity(study)
+    require_supersede(entries, identity["programs"], supersede)
     require_spend_bounds(study)
-    return spend.record(study.ledger, "freeze", **identity, **({"reason": reason} if reason else {}))
+    return spend.record(study.ledger, "freeze", **identity, **({"reason": reason} if reason else {}),
+                        **({"supersede": True} if supersede else {}))
+
+
+def require_supersede(entries, programs, supersede):
+    """Refuse, without `supersede`, a freeze whose `programs` differ from the latest freeze's while calibration runs
+    reserved under the latest programs exist: the freeze would make them superseded (`layout.superseded`), no
+    calibration data. A first freeze, a code-only freeze and a freeze before any calibration run need no flag."""
+    latest = spend.latest(entries, "freeze")
+    stale = layout.superseded(entries)
+    counted = [row["unit"] for row in spend.starts(entries)
+               if row["tranche"] == "calibration" and row["unit"] not in stale]
+    if latest and latest.get("programs") != programs and counted and not supersede:
+        raise SystemExit(f"the programs differ from the latest freeze's: this freeze would supersede {len(counted)} "
+                         "calibration runs (no calibration data); record it with --supersede beside --reason only "
+                         "on a ruling in the plan's ledger")
 
 
 def require_order(study, tranche):

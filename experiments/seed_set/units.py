@@ -222,9 +222,9 @@ def require_login(seconds, now=None, provider="claude"):
 
 def require_quiet():
     """Refuse a `candidates` command (SystemExit, nothing written) while the machine's 5-minute load average
-    (`os.getloadavg`) is above its core count (`os.cpu_count`): candidate runs are timed (ruling R19). No wait and
-    no retry: the operator runs the command again later."""
-    load, cores = os.getloadavg()[1], os.cpu_count()
+    (`os.getloadavg`) is above its core count (`os.cpu_count`; one core when it is unknown): candidate runs are timed
+    (ruling R19). No wait and no retry: the operator runs the command again later."""
+    load, cores = os.getloadavg()[1], os.cpu_count() or 1
     if load > cores:
         raise SystemExit(f"the 5-minute load average is {load:.1f}, above the machine's {cores} cores. Nothing "
                          "started: start again when the machine is quieter")

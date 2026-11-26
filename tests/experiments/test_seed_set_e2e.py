@@ -277,7 +277,9 @@ def test_offline_a_freeze_with_other_programs_restarts_the_calibration_without_t
     git(s.runtime, "add", "-A", str(layout.PROGRAMS))
     git(s.runtime, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "programs")
     write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(world.fakebin))
-    rules.record_freeze(s, reason="ruling R19: the call limit")
+    with pytest.raises(SystemExit, match="would supersede 8 calibration runs"):
+        rules.record_freeze(s, reason="ruling R19: the call limit")
+    rules.record_freeze(s, reason="ruling R19: the call limit", supersede=True)
     study.candidates(s, "calibration", "direct", tasks)
     study.candidates(s, "calibration", "direct_sonnet", tasks)
     for kind in ("first", "retest"):
@@ -298,6 +300,43 @@ def test_offline_a_freeze_with_other_programs_restarts_the_calibration_without_t
     assert {model: (row["reserved"], row.get("made")) for model, row in totals["candidate"].items()} == {
         H: (16, 16), S: (2, 2)}
     assert {tuple(sorted(f["load_1min"])) for f in new.values()} == {("reservation", "settlement")}  # measured
+
+
+def failing_load_after(monkeypatch, readings):
+    """`os.getloadavg` answering `readings` times, then failing as it does when the load cannot be read."""
+    left = [readings]
+
+    def reading():
+        left[0] -= 1
+        if left[0] < 0:
+            raise OSError("Load averages are unobtainable")
+        return (0.5, 0.5, 0.5)
+    monkeypatch.setattr(os, "getloadavg", reading)
+
+
+def test_offline_a_failed_reservation_reading_leaves_nothing_reserved_or_prepared(world, monkeypatch):  # R19
+    s, task = world.study, DRAWN[0]
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    failing_load_after(monkeypatch, 0)
+    with pytest.raises(OSError):
+        study.one_run(s, "calibration", "direct", layout.load_arms(s)["direct"], task, world.fixes[task], limit=4)
+    assert (spend.starts(spend.rows(s.ledger)), study.study_runs(s), list(s.work.glob("agents/*"))) == ([], [], [])
+
+
+def test_offline_a_failed_settlement_reading_leaves_the_run_settled(world, monkeypatch):  # R19
+    s, task = world.study, DRAWN[0]
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    failing_load_after(monkeypatch, 1)  # the reservation's reading only
+    with pytest.raises(OSError):
+        study.one_run(s, "calibration", "direct", layout.load_arms(s)["direct"], task, world.fixes[task], limit=4)
+    (path,) = study.study_runs(s)
+    facts, rows = json.loads(path.read_text()), spend.rows(s.ledger)
+    assert (facts["outcome"], facts["load_1min"], [r["unit"] for r in rows if r.get("event") == "settle"]) == (
+        "completed", {"reservation": 0.5}, [str(path.parent)])
 
 
 def test_offline_smoke_runs_every_program_once_behind_the_real_shims(world, monkeypatch):

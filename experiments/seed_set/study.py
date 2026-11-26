@@ -1,7 +1,8 @@
 """Seed-set calibration runner (plan `docs/plans/2026-11-11-seed-set-calibration-plan.md`, Steps 1d and 2).
 
-  study.py record-freeze [--reason R]                     the freeze's identity into the ledger (needed before any
-                                                          start; `rules.frozen_identity`); after a start, a reason
+  study.py record-freeze [--reason R] [--supersede]       the freeze's identity into the ledger (needed before any
+                                                          start; `rules.frozen_identity`); after a start, a reason;
+                                                          other programs over calibration runs, --supersede
   study.py probe [--rung R ...]                           the ladder probe (`probing.py`, redraw cap): direct on
                                                           Haiku once on four tasks of each rung the answer asks for
   study.py probe-readout                                  the probe figures and the answer: the next rung, the 20
@@ -235,7 +236,7 @@ def candidates(study, tranche, arm, tasks):
     units.require_quiet()  # once per command, before any slot is computed or reserved (ruling R19)
     spec, entries = load_arms(study)[arm], spend.starts(spend.rows(study.ledger))
     planned, limits = slot_limits(study, entries, tranche, arm, tasks)
-    jobs = due_jobs(entries, tranche, arm, spec, planned, limits)
+    jobs = due_jobs(study, entries, tranche, arm, spec, planned, limits)
     return run_jobs(jobs, lambda task: one_run(study, tranche, arm, spec, task, fixes[task], limit=limits[task]))
 
 
@@ -246,9 +247,7 @@ def slot_limits(study, entries, tranche, arm, tasks):
     (`layout.superseded`) holds no slot, so it adds one to the planned starts; a planned slot cut by a usage limit
     runs once more, except in the smoke (a cut fails the smoke)."""
     facts = {str(path.parent): load(path) for path in counted_runs(study)}
-    stale = layout.superseded(spend.rows(study.ledger))
-    old = {task: sum(row["unit"] in stale and (row["tranche"], row.get("task"), row.get("arm")) == (tranche, task, arm)
-                     for row in entries) for task in tasks}
+    old = start_counts(entries, tranche, arm, tasks, layout.superseded(spend.rows(study.ledger)))
     probed = [f for f in facts.values() if f["tranche"] == "redraw" and "incident" not in f and "cut" not in f]
     planned = {task: old[task] + PLANNED[tranche][arm] - (sum(f["task"] == task and f["arm"] == arm for f in probed)
                                                           if tranche == "calibration" else 0) for task in tasks}
@@ -257,22 +256,40 @@ def slot_limits(study, entries, tranche, arm, tasks):
     return planned, limits
 
 
-def due_jobs(entries, tranche, arm, spec, planned, limits):
+def start_counts(entries, tranche, arm, tasks, only=None):
+    """{task: the starts of (tranche, task, arm) among the ledger's starts `entries`; with `only`, of its units}."""
+    return {task: sum((row["tranche"], row.get("task"), row.get("arm")) == (tranche, task, arm)
+                      and (only is None or row["unit"] in only) for row in entries) for task in tasks}
+
+
+def due_jobs(study, entries, tranche, arm, spec, planned, limits):
     """The starts due, one task per start: every planned slot not started (refused unless the cap holds them all),
-    then the re-runs of cut slots that the cap's room still holds; a re-run beyond it is left out and its task keeps
-    the runs it has (review3 minor 8)."""
-    started = {task: sum((row["tranche"], row.get("task"), row.get("arm")) == (tranche, task, arm) for row in entries)
-               for task in planned}
+    then the re-runs of cut slots for which the cap has room once every planned slot of the tranche not yet started
+    has its calls (`unstarted_calls`): a re-run takes its calls from the same cap, never a planned run's. A re-run
+    without room is left out and its task keeps the runs it has (review3 minor 8)."""
+    started = start_counts(entries, tranche, arm, planned)
     first = [task for task, n in planned.items() for _ in range(max(n - started[task], 0))]
     again = [task for task in planned for _ in range(limits[task] - max(planned[task], started[task]))]
     left = spend.remaining(entries, tranche, "candidate", spec["model"])
     if spec["max_calls"] * len(first) > left:
         raise SystemExit(f"{tranche} candidate {spec['model']}: {spec['max_calls'] * len(first)} calls planned but "
                          f"{left} of the cap remain")
-    room = (left - spec["max_calls"] * len(first)) // spec["max_calls"]
+    room = max(left - unstarted_calls(study, entries, tranche, spec["model"]), 0) // spec["max_calls"]
     for task in again[room:]:
         print(f"{tranche} {arm} on {task}: no room in the cap to run a cut slot again; the task keeps the runs it has")
     return first + again[:room]
+
+
+def unstarted_calls(study, entries, tranche, model):
+    """The calls of every planned slot of `tranche` not yet started (`slot_limits` against the starts `entries`),
+    over the tasks (`layout.arm_tasks`) of every arm the tranche plans that runs `model`, at each arm's
+    `max_calls`: the part of the model's cap no re-run of a cut slot may take."""
+    arms, calls = load_arms(study), 0
+    for arm in [name for name in PLANNED[tranche] if arms[name]["model"] == model]:
+        planned = slot_limits(study, entries, tranche, arm, layout.arm_tasks(study, tranche, arm))[0]
+        started = start_counts(entries, tranche, arm, planned)
+        calls += arms[arm]["max_calls"] * sum(max(n - started[task], 0) for task, n in planned.items())
+    return calls
 
 
 def cut_reruns(entries, facts, tranche, task, arm, planned):
@@ -298,6 +315,7 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
     spend.refuse_closed(spend.rows(study.ledger), spec["model"])  # after a limit or a stop, no clone for nothing
     rules.require_free(study, study.work)
     units.require_login(unit_sec(spec["max_calls"], CALL_SEC), provider=cli)  # before the login copy (R16, L-R3)
+    reading = os.getloadavg()[0]  # the reservation's load, read before anything exists to strand (ruling R19)
     env, programs = launch_env(spec["model"], spec["max_calls"]), study.programs
     arm_spec = prepare.ArmSpec(programs / spec["source"], spec["entry"], programs, programs / PROVIDERS[cli],
                                INPUTS, command_boundaries=programs / "commands.json")
@@ -311,7 +329,7 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
         units.forget_credentials(record["sandbox"]["home"])
         raise SystemExit(f"{records}: prepared for {bound}, not {spec['model']}; nothing started")
     try:  # the unit's copied credentials go however it ends (review2 minor 7, coordinator ruling)
-        return records, start_run(study, tranche, arm, spec, task, fix, limit, records, record, extra)
+        return records, start_run(study, tranche, arm, spec, task, fix, limit, records, record, extra, reading)
     finally:
         units.forget_credentials(record["sandbox"]["home"])
 
@@ -328,12 +346,14 @@ def bound_model(records, record, cli):
     return model if (declared, lists) == ([units.CODEX], [model]) else f"providers {declared}, Codex models {lists}"
 
 
-def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extra):
+def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extra, reading):
+    """Reserve and launch a prepared unit, then settle it (`finish`); its facts carry the 1-minute load average
+    `reading`, read just before the unit was prepared, as `load_1min`'s reservation figure (measured only)."""
     boundaries(study, Path(record["candidates"][0]))
     env = launch_env(spec["model"], spec["max_calls"], records / "host-home",
                      withheld=stage_withheld(task_dir(study, task), records))
     facts = {"tranche": tranche, "task": task, "arm": arm, "model": spec["model"], "effort": spec["effort"],
-             "max_calls": spec["max_calls"], **extra}
+             "max_calls": spec["max_calls"], **extra, "load_1min": {"reservation": reading}}
     dump(records / "study.json", facts)  # before the reservation: every reserved run has its facts file
     try:
         rules.require_order(study, tranche)  # per unit: an edit in the middle of a batch refuses (review3 minor 6)
@@ -346,7 +366,6 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
         (records / "study.json").unlink()  # refused: nothing started, nothing left on disk
         shutil.rmtree(record["tree"])
         raise
-    facts["load_1min"] = {"reservation": os.getloadavg()[0]}  # measured only; nothing reads it (ruling R19)
     facts["exit"] = launch(records / "command.sh", env, records / "run.log", unit_sec(spec["max_calls"], CALL_SEC))
     pause_on_limit(study, records, str(records), record["sandbox"]["home"])  # before the settlement (review3 minor 1)
     dump(records / "study.json", facts)
@@ -354,15 +373,17 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
 
 
 def finish(study, records, facts, fix):
-    """Settle the run (`settle`), price it, record its facts with the 1-minute load average at its reservation and
-    at its settlement (`load_1min`, measured only), then record the stops the rules give."""
-    facts["load_1min"] = facts.get("load_1min", {}) | {"settlement": os.getloadavg()[0]}
+    """Settle the run (`settle`), price it, record its facts and the stops the rules give; only then add the
+    1-minute load average at its settlement to `load_1min` (measured only), so a failed reading leaves the run
+    settled."""
     facts |= settle(study, records, task_dir(study, facts["task"]), fix, facts["max_calls"], facts["model"],
                     facts.get("exit"), facts["effort"])
     facts["priced"] = settle_price(study, str(records), records, facts["tranche"], facts["model"])
     dump(records / "study.json", facts)
     for reason in rules.stop_reasons(study):
         rules.stop(study, reason)
+    facts["load_1min"] = facts.get("load_1min", {}) | {"settlement": os.getloadavg()[0]}
+    dump(records / "study.json", facts)
     return facts
 
 
@@ -1199,7 +1220,10 @@ def parser():
                                                help="whose smoke: the Claude smoke (default) or the Luna smoke")
     sub.add_parser("login-expiry").add_argument("--provider", choices=("claude", units.CODEX), default="claude",
                                                 help="whose login file: the Claude CLI's (default) or the Codex CLI's")
-    sub.add_parser("record-freeze").add_argument("--reason", help="needed once a start exists: the apparatus fix")
+    freeze = sub.add_parser("record-freeze")
+    freeze.add_argument("--reason", help="needed once a start exists: the apparatus fix")
+    freeze.add_argument("--supersede", action="store_true",
+                        help="needed when other programs would supersede calibration runs (layout.superseded)")
     sub.add_parser("seed-readout").add_argument("--reason", help="needed once a seed_decision exists: why again")
     sub.add_parser("probe").add_argument("--rung", action="append", help="repeatable; default: the readout's next")
     limit = sub.add_parser("resume-after-limit", help="reopen the starts a usage limit closed (coordinator ruling R2)")
@@ -1246,7 +1270,7 @@ def main(argv=None):
         "pool": lambda: build_pools(study, a.tranche, a.kind, a.tasks),
         "judge": lambda: judge(study, a.tranche, a.kind, a.tasks),
         "summarize": lambda: summarize_pools(study, a.kind, a.tasks),
-        "record-freeze": lambda: print(json.dumps(rules.record_freeze(study, a.reason))),
+        "record-freeze": lambda: print(json.dumps(rules.record_freeze(study, a.reason, a.supersede))),
         "smoke-check": lambda: print(json.dumps(rules.smoke_check(study, a.tranche), indent=2)),
         "probe": lambda: probing.probe(study, a.rung),
         "probe-readout": lambda: print(json.dumps(probing.probe_readout(study), indent=2)),

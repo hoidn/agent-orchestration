@@ -197,16 +197,16 @@ def test_a_probed_task_that_is_drawn_keeps_its_probe_run_as_a_first_haiku_run(s,
     assert study.candidates(s, "calibration", "direct", ["T3-00"]) == []
 
 
-def refreeze(s, programs_changed):
+def refreeze(s, programs_changed, supersede=False):
     """A second freeze after the probe: the programs edited and committed first when `programs_changed`, else a
-    code-only freeze with the same programs."""
+    code-only freeze with the same programs; `supersede` is `record-freeze --supersede`."""
     if programs_changed:
         with (s.programs / "direct.orc").open("a") as program:
             program.write("# edited after the probe\n")
         for args in (["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "edit"]):
             subprocess.run(["git", "-C", str(s.runtime), *args], check=True, capture_output=True)
         write_frozen_criterion(s)
-    rules.record_freeze(s, reason="an apparatus fix")
+    rules.record_freeze(s, reason="an apparatus fix", supersede=supersede)
 
 
 def probe_run_counts(s, task="T3-00"):
@@ -239,21 +239,23 @@ def test_after_a_freeze_with_other_programs_the_calibration_plans_its_whole_haik
     tasks = chosen_world(s)
     refreeze(s, programs_changed=True)
     planned, limits = study.slot_limits(s, [], "calibration", "direct", tasks)
-    jobs = study.due_jobs([], "calibration", "direct", layout.load_arms(s)["direct"], planned, limits)
+    jobs = study.due_jobs(s, [], "calibration", "direct", layout.load_arms(s)["direct"], planned, limits)
     assert (len(tasks), len(jobs)) == (ladder.CALIBRATION_TASKS, ladder.CALIBRATION_TASKS * 4)  # 20, 80
 
 
-def first_stage(s, tasks, **extra):
+def first_stage(s, tasks, name="calibration", cut=None, **extra):
     """The calibration's first stage as the real ledger holds it: four reserved and settled Haiku direct runs of
-    each of `tasks`, the third failed at the call limit without a patch; `extra` joins every run's facts."""
+    each of `tasks`, the third failed at the call limit without a patch; `extra` joins every run's facts. A later
+    stage takes another `name`; `cut` (task, k) is a run a usage limit cut."""
     for task in tasks:
         for k in range(4):
-            records = s.work / "records" / "direct" / f"run-calibration-{task}-{k}"
+            extra_k = extra | ({"cut": {"text": "usage limit"}} if (task, k) == cut else {})
+            records = s.work / "records" / "direct" / f"run-{name}-{task}-{k}"
             records.mkdir(parents=True)
             ended = {"outcome": "failed", "failure": {"code": "provider_timeout"}} if k == 2 else {"outcome": "completed"}
             (records / "study.json").write_text(json.dumps({
                 "tranche": "calibration", "task": task, "arm": "direct", "model": H, "effort": "medium", "max_calls": 1,
-                "calls": 1, "scan_hits": 0, **ended, **extra}))
+                "calls": 1, "scan_hits": 0, **ended, **extra_k}))
             (records / "record.json").write_text("{}")
             spend.reserve(s.ledger, "calibration", "candidate", H, 1, records, {spend.AUTHORIZATION: "calibration"},
                           task=task, arm="direct", price=P)
@@ -266,14 +268,14 @@ def restarted(s, programs_changed=True, **extra):
     tasks = chosen_world(s)
     refreeze(s, programs_changed=True)
     first_stage(s, tasks[:5], **extra)
-    refreeze(s, programs_changed=programs_changed)
+    refreeze(s, programs_changed=programs_changed, supersede=programs_changed)
     return tasks
 
 
 def due(s, arm, tasks):
     starts = spend.starts(spend.rows(s.ledger))
     planned, limits = study.slot_limits(s, starts, "calibration", arm, tasks)
-    return study.due_jobs(starts, "calibration", arm, layout.load_arms(s)[arm], planned, limits), limits
+    return study.due_jobs(s, starts, "calibration", arm, layout.load_arms(s)[arm], planned, limits), limits
 
 
 def test_after_a_freeze_with_other_programs_the_first_stages_tasks_plan_four_fresh_runs_each(s):  # ruling R19
@@ -320,6 +322,60 @@ def test_after_a_code_only_freeze_the_first_stage_keeps_its_runs_and_plans_nothi
 def test_the_incident_stop_counts_superseded_incidents(s):
     restarted(s, incident="session audit: stand-in")
     assert any("20 incidents in the calibration tranche" in reason for reason in rules.stop_reasons(s))
+
+
+def test_after_the_restart_a_cut_slot_takes_no_planned_runs_call_and_every_stage_starts_whole(s, capsys):  # review
+    tasks = restarted(s)
+    first_stage(s, tasks[:5], name="stage1", cut=(tasks[0], 1))
+    again = due(s, "direct", tasks[:5])[0]
+    for n, part in ((2, tasks[5:10]), (3, tasks[10:15])):
+        first_stage(s, part, name=f"stage{n}")
+    assert (again, "no room in the cap" in capsys.readouterr().out, len(due(s, "direct", tasks[15:])[0]),
+            len(due(s, "direct_sonnet", tasks)[0])) == ([], True, 20, 20)
+
+
+def test_a_tranche_with_spare_cap_runs_a_cut_slot_again_once(s, monkeypatch):
+    monkeypatch.setitem(spend.CAPS["calibration"]["candidate"], H, spend.CAPS["calibration"]["candidate"][H] + 1)
+    tasks = restarted(s)
+    first_stage(s, tasks[:5], name="stage1", cut=(tasks[0], 1))
+    once = due(s, "direct", tasks[:5])[0]
+    spend.reserve(s.ledger, "calibration", "candidate", H, 1, "/w/re-run", {spend.AUTHORIZATION: "calibration"},
+                  task=tasks[0], arm="direct", price=P)
+    assert (once, due(s, "direct", tasks[:5])[0]) == ([tasks[0]], [])
+
+
+def test_a_freeze_with_other_programs_over_calibration_runs_refuses_without_supersede(s):
+    first_stage(s, chosen_world(s)[:5])
+    before = spend.rows(s.ledger)
+    with pytest.raises(SystemExit, match="would supersede 20 calibration runs"):
+        refreeze(s, programs_changed=True)
+    assert spend.rows(s.ledger) == before
+
+
+def test_a_freeze_with_other_programs_and_supersede_is_recorded_with_it(s):
+    first_stage(s, chosen_world(s)[:5])
+    refreeze(s, programs_changed=True, supersede=True)
+    assert spend.latest(spend.rows(s.ledger), "freeze")["supersede"] is True
+
+
+def test_a_code_only_freeze_over_calibration_runs_needs_no_supersede(s):
+    first_stage(s, chosen_world(s)[:5])
+    refreeze(s, programs_changed=False)  # no refusal
+    assert "supersede" not in spend.latest(spend.rows(s.ledger), "freeze")
+
+
+def test_a_first_freeze_and_a_freeze_before_any_calibration_run_need_no_supersede(s):
+    chosen_world(s)  # probe runs only
+    refreeze(s, programs_changed=True)  # no refusal; the fixture recorded the first freeze
+    assert ["supersede" in row for row in spend.rows(s.ledger) if row.get("event") == "freeze"] == [False, False]
+
+
+def test_a_smoke_run_is_never_superseded():
+    def start(seq, tranche):
+        return {"seq": seq, "kind": "candidate", "tranche": tranche, "unit": f"/w/{tranche}"}
+    entries = [{"seq": 1, "kind": "event", "event": "freeze", "programs": {"direct.orc": "a"}}, start(2, "smoke"),
+               start(3, "calibration"), {"seq": 4, "kind": "event", "event": "freeze", "programs": {"direct.orc": "b"}}]
+    assert layout.superseded(entries) == {"/w/calibration"}
 
 
 def early_pool(s, task, base, upstream):
