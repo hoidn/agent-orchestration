@@ -24,7 +24,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from experiments.compare import pool as pooling, prepare
+from experiments.compare import pool as pooling, prepare, scan
 from experiments.compare.repos import sha256_file
 from experiments.seed_set import forms, host, layout, probing, rules, spend, study, units
 from tests.experiments.compare_harness_support import (
@@ -32,7 +32,8 @@ from tests.experiments.compare_harness_support import (
 )
 from tests.agent_session_shims import closed_path
 from tests.experiments.seed_set_offline_support import (
-    STUB, VERSION, hanging_harness, stable_anchors, stand_in_login, stand_in_terms, write_frozen_criterion,
+    CODEX_STUB, CODEX_USD, CODEX_VERSION, SPEND_TERMS, STUB, VERSION, hanging_harness, stable_anchors,
+    stand_in_codex_login, stand_in_login, stand_in_terms, write_frozen_criterion,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -120,15 +121,16 @@ def world(tmp_path, monkeypatch):
     outside = Path(tempfile.mkdtemp(dir=OUTSIDE_SANDBOX_MOUNTS))
     fakebin = outside / "fakebin"
     fakebin.mkdir()
-    for name in ("claude", "codex"):
-        (fakebin / name).write_text(STUB)
+    for name, stub in (("claude", STUB), ("codex", CODEX_STUB)):
+        (fakebin / name).write_text(stub)
         (fakebin / name).chmod(0o755)
     stub_plan = outside / "stub-plan.json"
     stub_plan.write_text(json.dumps(plan))
     declaration = write_test_sandbox_config(fakebin, outside / "sandbox.json", readonly_files=(stub_plan,),
                                             environment_names=("SEED_SET_STUB_PLAN",))
     empty = tmp_path / "empty-home"
-    stand_in_login(empty / ".claude")  # a stand-in the sandbox copies into each unit
+    stand_in_login(empty / ".claude")  # stand-ins the sandbox copies into each unit
+    stand_in_codex_login(empty / ".codex")
     for key, value in {"PATH": closed_path(fakebin), "COMPARE_SANDBOX": declaration, "SEED_SET_STUB_PLAN": stub_plan,
                        "HOME": empty,
                        "CODEX_HOME": empty / ".codex", "CLAUDE_CONFIG_DIR": empty / ".claude"}.items():
@@ -424,6 +426,73 @@ def test_offline_a_cli_other_than_the_pinned_one_refuses_the_start_and_leaves_no
     with pytest.raises(SystemExit, match="not the pinned"):
         study.candidates(s, "smoke", "direct", [SMOKE])
     assert (spend.starts(spend.rows(s.ledger)), list((s.work / "agents").iterdir()), study.study_runs(s)) == ([], [], [])
+
+
+LUNA_TRANCHE = "luna-offline"  # a test-only tranche: no tranche the plan's ledger authorizes holds a Luna call
+
+
+@pytest.fixture
+def luna_world(world, monkeypatch):
+    """The world with a test-only tranche that plans one `direct_luna` run on `a0a0a0a0a0` (one Luna call, USD 5
+    ceiling), the stand-in Luna fixing it on its first attempt, and a freeze naming both stand-in CLIs' pins."""
+    s, task = world.study, "a0a0a0a0a0"
+    monkeypatch.setitem(spend.CAPS, LUNA_TRANCHE, {"candidate": {spend.LUNA: 1}, "judge": {}})
+    monkeypatch.setitem(layout.PLANNED, LUNA_TRANCHE, {"direct_luna": 1})
+    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(world.fakebin, ceiling_usd={
+        **SPEND_TERMS["ceiling_usd"], LUNA_TRANCHE: 5.0}))
+    rules.record_freeze(s)
+    plan = json.loads(Path(world.plan).read_text())
+    plan["tasks"][task]["fix"][spend.LUNA] = 1
+    Path(world.plan).write_text(json.dumps(plan))
+    monkeypatch.setenv(spend.AUTHORIZATION, LUNA_TRANCHE)
+    choose(s, [task])  # a tranche outside the plan's three draws on the chosen tasks
+    return world
+
+
+def luna_unit(world):
+    """Run the test tranche's Luna unit; return (records, its study.json facts)."""
+    study.candidates(world.study, LUNA_TRANCHE, "direct_luna", ["a0a0a0a0a0"])
+    (path,) = study.study_runs(world.study)
+    return path.parent, json.loads(path.read_text())
+
+
+def test_offline_a_luna_unit_settles_with_its_fix_scan_and_session_audit_clean(luna_world):
+    """Luna plan T7: one Luna unit behind the real shims, sandbox and model guard, the stand-in `codex` answering."""
+    records, facts = luna_unit(luna_world)
+    keys = ("outcome", "calls", "scan_hits", "sessions", "incident", "metering_complete")
+    assert ({k: facts.get(k) for k in keys}, facts["visible"]["passed"],
+            json.loads((records / "record.json").read_text())["scan"]["hits"]) == (
+        {"outcome": "completed", "calls": 1, "scan_hits": 0, "sessions": 1, "incident": None,
+         "metering_complete": True}, True, [])
+
+
+def test_offline_a_luna_unit_is_priced_from_its_codex_usage_and_reserved_on_the_codex_pin(luna_world):
+    records, facts = luna_unit(luna_world)
+    (start,) = spend.starts(spend.rows(luna_world.study.ledger))
+    assert (facts["priced"], start["cli"], spend.priced(luna_world.study.ledger)[LUNA_TRANCHE]["settled_usd"]) == (
+        {"usd": CODEX_USD, "missing": [], "calls": {"1": CODEX_USD}},
+        {"path": str((luna_world.fakebin / "codex").resolve()), "version": CODEX_VERSION}, CODEX_USD)
+
+
+def test_offline_a_luna_unit_calls_codex_alone_bound_to_its_model_and_effort(luna_world):
+    """Its one call is Codex's with the model and effort bound; its one rollout is the one the scan reads; no Claude
+    session, no user skill, and no credential copy left."""
+    records, facts = luna_unit(luna_world)
+    record = json.loads((records / "record.json").read_text())
+    home = Path(record["sandbox"]["home"])
+    assert ((records / "calls" / "1" / "provider.txt").read_text(), rules.bound_argv(records, spend.LUNA, "medium"),
+            units.rollouts(home), list(home.glob(".claude/projects/*/*.jsonl")), list(home.glob(".codex/skills/*")),
+            credentials(luna_world.study)) == (
+        "codex\n", True, list(scan.codex_sessions(Path(record["tree"]), record["created_at"], home)), [], [], [])
+    assert len(units.rollouts(home)) == 1
+
+
+def test_offline_a_luna_unit_is_refused_by_a_freeze_with_only_the_claude_pin(luna_world):
+    s = luna_world.study
+    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(luna_world.fakebin, ceiling_usd={
+        **SPEND_TERMS["ceiling_usd"], LUNA_TRANCHE: 5.0}, cli=stand_in_terms(luna_world.fakebin)["cli"]["claude"]))
+    with pytest.raises(SystemExit, match="codex CLI pin"):
+        rules.record_freeze(s)  # the Luna cap needs the Codex pin
 
 
 def test_offline_judge_cut_by_a_usage_limit_rebuilds_the_pool_once_from_the_same_records(world, monkeypatch):

@@ -1,5 +1,6 @@
 """The scripted `claude` for offline seed-set runs: it stands in for the candidate agent, the reviewer and the judges
-behind the comparison harness's real shims, sandbox and model guard. No provider is called.
+behind the comparison harness's real shims, sandbox and model guard. No provider is called. The scripted `codex`
+(`CODEX_STUB`, below) stands in for a Luna candidate agent and reviewer the same way.
 
 It reads its plan from $SEED_SET_STUB_PLAN (a read-only file the sandbox declaration admits):
 `{"tasks": {id: {"marker", "patch", "visible", "fix": {model: first fixing attempt or null}}}, "usage_limit": {...}}`.
@@ -43,9 +44,15 @@ REPORTED_USD = 0.001
 # criterion.json's spend terms for tests (rulings R4, R5; review3 X3: the largest ordinary-rate call each per-call
 # worst case must cover at the table's highest tier); a test that launches the stand-in names its own CLI pin
 SPEND_TERMS = {"ceiling_usd": {"smoke": 20.0, "redraw": 40.0, "calibration": 100.0},
-               "per_call_usd": {"claude-haiku-5-5": 0.25, "claude-sonnet-5-5": 1.0},
-               "largest_call_usd": {"claude-haiku-5-5": 0.01, "claude-sonnet-5-5": 0.1},
-               "cli": {"path": "/stand-in/bin/claude", "version": VERSION}}
+               "per_call_usd": {"claude-haiku-5-5": 0.25, "claude-sonnet-5-5": 1.0, "gpt-6-luna": 0.5},
+               "largest_call_usd": {"claude-haiku-5-5": 0.01, "claude-sonnet-5-5": 0.1, "gpt-6-luna": 0.016},
+               "cli": {"path": "/stand-in/bin/claude", "version": VERSION}}  # one pin: the Claude CLI's (older form)
+# The stand-in `codex` (CODEX_STUB): its version line, and each call's `turn.completed` usage, which the frozen table
+# prices at USD 0.016 for gpt-6-luna (100,000 charged input, 100,000 cached, 10,000 output tokens).
+CODEX_VERSION = "codex-cli 0.171.0-stand-in"
+CODEX_USAGE = {"input_tokens": 200_000, "cached_input_tokens": 100_000, "cache_write_input_tokens": 0,
+               "output_tokens": 10_000}
+CODEX_USD = 0.016
 
 
 def stand_in_login(config, expires_in_sec=30 * 86400):
@@ -61,10 +68,30 @@ def stand_in_login(config, expires_in_sec=30 * 86400):
     return path
 
 
-def stand_in_terms(fakebin, **change):
-    """SPEND_TERMS pinned to the stand-in `claude` in `fakebin` (the path the sandbox declaration resolves)."""
+def stand_in_codex_login(codex_home, expires_in_sec=30 * 86400):
+    """A hand-made ChatGPT login file in the Codex home `codex_home` (`auth.json`): `auth_mode` chatgpt, no API key,
+    a JWT-shaped access token whose `exp` claim is `expires_in_sec` from now, and stand-in values elsewhere, never a
+    real token."""
+    import base64
+    import json
+    import time
     from pathlib import Path
-    return {**SPEND_TERMS, "cli": {"path": str(Path(fakebin, "claude").resolve()), "version": VERSION}, **change}
+    claims = base64.urlsafe_b64encode(json.dumps({"exp": int(time.time() + expires_in_sec)}).encode()).decode()
+    path = Path(codex_home) / "auth.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"OPENAI_API_KEY": None, "auth_mode": "chatgpt", "tokens": {
+        "id_token": "e30.e30.stand-in", "access_token": f"e30.{claims.rstrip('=')}.stand-in",
+        "refresh_token": "stand-in-refresh", "account_id": "stand-in-account"}}))
+    return path
+
+
+def stand_in_terms(fakebin, **change):
+    """SPEND_TERMS pinned, one pin per CLI, to the stand-ins `claude` and `codex` in `fakebin` (the paths the sandbox
+    declaration resolves)."""
+    from pathlib import Path
+    pins = {"claude": {"path": str(Path(fakebin, "claude").resolve()), "version": VERSION},
+            "codex": {"path": str(Path(fakebin, "codex").resolve()), "version": CODEX_VERSION}}
+    return {**SPEND_TERMS, "cli": pins, **change}
 
 STUB = f"""#!{sys.executable} -I
 import json, os, re, subprocess, sys, time
@@ -151,6 +178,79 @@ if plan.get("stderr_warning"):
     print(plan["stderr_warning"], file=sys.stderr, flush=True)
 ended()
 """
+
+# The scripted `codex` (Codex CLI 0.171.0's `exec --json` shapes; plan 2026-11-23-gpt-6-luna-third-tier, T7): the same
+# plan file as STUB, read for an implementer (its task's marker, `fix` keyed by the model it was invoked with, none
+# meaning never) or a reviewer (any other prompt); no judge, no usage limit, no error answer. `--version` prints
+# CODEX_VERSION. Every call writes a rollout under $CODEX_HOME/sessions/YYYY/MM/DD/ (session_meta with a new thread
+# id and the working directory, a turn_context naming the model and the `model_reasoning_effort=` it was given, the
+# prompt as a user message, the visible check as a shell call when it applies the fix, a token_count with the
+# cumulative usage and rate limits well inside their windows and no credits), prints thread.started, turn.started,
+# item.completed events (a command_execution when it ran the check, an agent_message) and a turn.completed with
+# CODEX_USAGE, and writes its result to the prompt's last `- path:` line.
+CODEX_STUB = """#!@PYTHON@ -I
+import json, os, re, subprocess, sys, time, uuid
+from pathlib import Path
+if sys.argv[1:] == ["--version"]:
+    print(@VERSION@)
+    sys.exit(0)
+args, prompt = sys.argv[1:], sys.stdin.read()
+model = args[args.index("--model") + 1]
+effort = next(a.split("=", 1)[1] for a in args if a.startswith("model_reasoning_effort="))
+plan = json.loads(Path(os.environ["SEED_SET_STUB_PLAN"]).read_text())
+thread, now = str(uuid.uuid4()), time.gmtime()
+rollout = Path(os.environ["CODEX_HOME"], "sessions", time.strftime("%Y/%m/%d", now),
+               f"rollout-{time.strftime('%Y-%m-%dT%H-%M-%S', now)}-{thread}.jsonl")
+rollout.parent.mkdir(parents=True, exist_ok=True)
+
+def record(kind, payload):
+    with rollout.open("a") as log:
+        log.write(json.dumps({"type": kind, "payload": payload}) + "\\n")
+
+def emit(event):
+    print(json.dumps(event), flush=True)
+
+def changed(repo):
+    status = subprocess.run(["git", "-C", repo, "diff", "--quiet", "HEAD"]).returncode
+    if status not in (0, 1):
+        sys.exit(f"git diff failed in {repo}")
+    return status == 1
+
+record("session_meta", {"id": thread, "cwd": os.getcwd(), "cli_version": "0.171.0"})
+record("turn_context", {"cwd": os.getcwd(), "model": model, "effort": effort})
+record("event_msg", {"type": "user_message", "message": prompt})
+emit({"type": "thread.started", "thread_id": thread})
+emit({"type": "turn.started"})
+entry = next((entry for entry in plan["tasks"].values() if entry["marker"] in prompt), None)
+if entry is None:
+    result = ({"variant": "APPROVE", "notes": []} if changed(".")
+              else {"variant": "REQUEST_CHANGES", "findings": ["nothing is implemented"]})
+else:
+    counter = Path(".orchestrate/stub-attempts")
+    attempt = (int(counter.read_text()) if counter.exists() else 0) + 1
+    counter.write_text(str(attempt))
+    first = entry["fix"].get(model)
+    fixes = first is not None and attempt >= first and subprocess.run(
+        ["git", "apply", "--check", "-"], input=entry["patch"], text=True, capture_output=True).returncode == 0
+    if fixes:
+        subprocess.run(["git", "apply", "--binary", "-"], input=entry["patch"], text=True, check=True)
+        check = subprocess.run(entry["visible"], capture_output=True, text=True)
+        record("response_item", {"type": "function_call", "name": "shell",
+                                 "arguments": json.dumps({"command": entry["visible"]})})
+        emit({"type": "item.completed", "item": {"id": "item_0", "type": "command_execution", "status": "completed",
+              "command": " ".join(entry["visible"]), "exit_code": check.returncode}})
+    result = {"summary": f"attempt {attempt}", "account": "applied the reference fix" if fixes else "none"}
+Path(re.findall(r"^- path: (.+)$", prompt, re.M)[-1]).write_text(json.dumps(result))
+usage = @USAGE@
+reset = int(time.time()) + 3600
+record("event_msg", {"type": "token_count", "info": {"total_token_usage": {
+    **usage, "total_tokens": usage["input_tokens"] + usage["output_tokens"]}}, "rate_limits": {
+    "primary": {"used_percent": 5.0, "window_minutes": 300, "resets_at": reset},
+    "secondary": {"used_percent": 10.0, "window_minutes": 10080, "resets_at": reset + 86400},
+    "credits": {"has_credits": False, "unlimited": False}}})
+emit({"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": "done"}})
+emit({"type": "turn.completed", "usage": usage})
+""".replace("@PYTHON@", sys.executable).replace("@VERSION@", repr(CODEX_VERSION)).replace("@USAGE@", repr(CODEX_USAGE))
 
 
 def hanging_harness(root, pids):

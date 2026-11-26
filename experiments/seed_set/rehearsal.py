@@ -3,9 +3,10 @@ the flat ladder probe and its readout, the calibration tranche (candidates, the 
 retest pool with both judges, summaries with hidden tests) and the readout with the judge gate and task gates,
 then one implement-check-repair run on a real check-withheld package through a real orchestrator launch.
 
-Every provider is the scripted `claude` of tests/experiments/seed_set_offline_support.py behind the comparison
-harness's real shims, sandbox and model guard; no model is called. The criterion pins that stand-in as the CLI
-(path and version) and sets the rehearsal's priced ceilings (`TERMS`). The ladder probe meets one injected usage
+Every provider is the scripted `claude` of tests/experiments/seed_set_offline_support.py (its scripted `codex` for
+a unit the Codex CLI runs) behind the comparison harness's real shims, sandbox and model guard; no model is called.
+The criterion pins those stand-ins, one per CLI (path and version), and sets the rehearsal's priced ceilings
+(`TERMS`); the rehearsal's tranches hold no Luna call. The ladder probe meets one injected usage
 limit: the stand-in answers the first probe task's Haiku call as the vendor does at a limit, starts close, the
 limit is lifted, `resume-after-limit` reopens them and the probe runs the cut slot again (rulings R1 and R2), every
 call that succeeds then printing a limit warning on stderr, which must close nothing (re-review N1). After
@@ -14,10 +15,10 @@ With `--cut-in smoke` the limit cuts the smoke's Haiku `direct` run instead: the
 resume, the smoke check must fail, and the rehearsal ends after showing that neither the probe nor the calibration
 may start (review3 X1). In the calibration the stand-in Sonnet's code on the first task makes one hidden test hang
 past the kit's bound on one hidden test (fix round 3, ruling 1): the test must count as failed and the task's pools
-be summarised (`hidden_hang`). The process runs with an empty HOME, no
-provider credentials (a stand-in login file holds only the expiry every start checks), a closed PATH behind the Thread M no-provider stubs, and a ledger under ROOT/state (the
-study's own ledger is never opened). The stand-in fixes T1 and T2 always, every second T3 task (two of the four
-probe tasks), never T4 or T5; Sonnet fixes everything; on the smoke task Haiku fixes from its second attempt.
+be summarised (`hidden_hang`). The process runs with an empty HOME, no provider credentials (a stand-in login file per
+CLI holds only the expiry every start checks), a closed PATH behind the Thread M no-provider stubs, and a ledger under
+ROOT/state (the study's own ledger is never opened). The stand-in fixes T1 and T2 always, every second T3 task (two of
+the four probe tasks), never T4 or T5; Sonnet fixes everything; on the smoke task Haiku fixes from its second attempt.
 
   PATH=<checkout>/experiments/thread_m/no_provider:$PATH PYTHONPATH=<checkout> \
       python -m experiments.seed_set.rehearsal ROOT [--calibration-tasks N] [--cut-in probe|smoke]
@@ -47,7 +48,9 @@ from experiments.compare.repos import dump, load
 from experiments.seed_set import ladder, layout, probing, reaper, rules, spend, study, units
 from tests.agent_session_shims import closed_path
 from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, open_up, write_test_sandbox_config
-from tests.experiments.seed_set_offline_support import STUB, stand_in_login, stand_in_terms
+from tests.experiments.seed_set_offline_support import (
+    CODEX_STUB, STUB, stand_in_codex_login, stand_in_login, stand_in_terms,
+)
 
 CHECKOUT = Path(__file__).resolve().parents[2]
 GUARD = CHECKOUT / "experiments" / "thread_m" / "no_provider"
@@ -98,10 +101,11 @@ def setup(root):
     git("-C", main, "worktree", "add", "-q", "--detach", runtime, head)  # the committed runner and packages
     for directory in (home, fakebin, root / "freeze"):
         directory.mkdir()
-    for name in ("claude", "codex"):
-        (fakebin / name).write_text(STUB)
+    for name, stub in (("claude", STUB), ("codex", CODEX_STUB)):
+        (fakebin / name).write_text(stub)
         (fakebin / name).chmod(0o755)
     stand_in_login(home / ".claude")  # the expiry every unit's start reads (ruling R16); no real token
+    stand_in_codex_login(home / ".codex")  # the same for a Codex unit (ruling L-R3)
     tasks_file = runtime / "experiments" / "seed_set" / "tasks.jsonl"
     plan = outside / "stub-plan.json"
     dump(plan, stand_in_plan([json.loads(line) for line in tasks_file.read_text().splitlines()],
