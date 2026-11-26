@@ -234,29 +234,33 @@ def test_rerolls_need_three_runs():
         selection.rerolls([(8, True), (2, False)])
 
 
-def arm(scores, calls=1.0, completed=1.0, distinctive=0.5, parity=None, lines=40, tokens=None, nested=0):
-    return {"tasks": dict(enumerate(scores)), "calls": calls, "completed": completed, "tokens": tokens,
-            "distinctive": distinctive, "parity": parity, "lines": lines, "nested": nested}
+def arm(scores, calls=1, completed=1, distinctive=Fraction(1, 2), parity=None, lines=40, priced_worst=None,
+        priced_metered=None, nested=0, model=H, effort="medium"):
+    return {"tasks": dict(enumerate(scores)), "calls": calls, "completed": completed, "priced_worst": priced_worst,
+            "priced_metered": priced_metered, "distinctive": distinctive, "parity": parity, "lines": lines,
+            "nested": nested, "model": model, "effort": effort}
 
 
 DIRECT = arm([4, 5, 6, 5])
-REROLLED = {"tasks": {t: {"Q1": q, "Q2": 5.5, "Q3": 5.5} for t, q in enumerate([4, 5, 6, 5])},
-            "Q1": 5, "Q2": 5.5, "Q3": 5.5}
+HALF = Fraction(11, 2)
+REROLLED = {"tasks": {t: {"Q1": q, "Q2": HALF, "Q3": HALF} for t, q in enumerate([4, 5, 6, 5])},
+            "Q1": 5, "Q2": HALF, "Q3": HALF}
 
 
 def test_a_workflow_at_direct_quality_and_two_calls_is_a_seed():
-    result = selection.select_seeds({"direct": DIRECT, "implement_review_revise": arm([4, 5, 6, 5], calls=2.2)}, REROLLED)
+    result = selection.select_seeds({"direct": DIRECT, "implement_review_revise": arm([4, 5, 6, 5], calls=Fraction(11, 5))},
+                                    REROLLED)
     assert result["seeds"] == ["direct", "implement_review_revise"]
 
 
 @pytest.mark.parametrize("name, candidate, rule", [
-    ("retry_until_check", arm([3, 4, 5, 4], calls=1.4, parity=True), "2_quality"),
-    ("implement_check_repair", arm([4.5] * 4, calls=2.6), "3_reroll"),
-    ("implement_check_repair", arm([5, 5, 6, 5], calls=3.2), "4_cost"),
-    ("implement_check_repair", arm([5, 5, 6, 5], completed=0.9), "1_completes"),
-    ("implement_check_repair", arm([5, 5, 6, 5], distinctive=0.1), "5_distinctive"),
-    ("retry_until_check", arm([5, 5, 6, 5], calls=2.6, parity=False), "6_parity"),
-    ("implement_review_revise", arm([5, 5, 6, 5], calls=2.2, lines=50), "7_lines"),
+    ("retry_until_check", arm([3, 4, 5, 4], calls=Fraction(7, 5), parity=True), "2_quality"),
+    ("implement_check_repair", arm([Fraction(9, 2)] * 4, calls=Fraction(13, 5)), "3_reroll"),
+    ("implement_check_repair", arm([5, 5, 6, 5], calls=Fraction(16, 5)), "4_cost"),
+    ("implement_check_repair", arm([5, 5, 6, 5], completed=Fraction(9, 10)), "1_completes"),
+    ("implement_check_repair", arm([5, 5, 6, 5], distinctive=Fraction(1, 10)), "5_distinctive"),
+    ("retry_until_check", arm([5, 5, 6, 5], calls=Fraction(13, 5), parity=False), "6_parity"),
+    ("implement_review_revise", arm([5, 5, 6, 5], calls=Fraction(11, 5), lines=50), "7_lines"),
 ])
 def test_each_selection_rule_can_reject_a_workflow(name, candidate, rule):
     result = selection.select_seeds({"direct": DIRECT, name: candidate}, REROLLED)
@@ -291,12 +295,47 @@ def test_a_quality_exactly_half_a_point_under_direct_in_thirds_passes_rule_2():
 
 
 def test_select_seeds_runs_its_dominance_test_on_exact_inputs():
-    # equal quality at 2.2 times direct's calls: direct dominates; Fractions reach `pareto.dominates` as floats
+    # equal quality at 2.2 times direct's calls, every figure a Fraction: direct dominates
     exact = lambda summary, calls: {**summary, "tasks": {t: Fraction(v) for t, v in summary["tasks"].items()},
                                     "calls": Fraction(calls)}
     result = selection.select_seeds({"direct": exact(DIRECT, 1), "implement_review_revise": exact(DIRECT, Fraction(11, 5))},
                                     REROLLED)
     assert result["arms"]["implement_review_revise"]["dominated_by_direct"] is True
+
+
+@pytest.mark.parametrize("field, value", [("completed", 0.95), ("nested", 0.1), ("distinctive", 0.2),
+                                          ("calls", 2.0)])
+def test_a_float_figure_at_a_threshold_is_refused_by_name(field, value):
+    with pytest.raises(SystemExit, match=f"{field} is {value!r}"):
+        selection.rules("implement_check_repair", {**arm([5] * 4), field: value}, DIRECT, REROLLED)
+
+
+def test_a_float_task_mean_is_refused():
+    with pytest.raises(SystemExit, match="tasks is 4.5"):
+        selection.rules("implement_check_repair", arm([4.5] * 4), DIRECT, REROLLED)
+
+
+def test_rule_1_passes_at_exactly_19_of_20_runs_complete():
+    rules = selection.rules("implement_check_repair", arm([5] * 4, completed=Fraction(19, 20)), DIRECT, REROLLED)
+    assert rules["1_completes"] is True
+
+
+def test_rule_4_passes_at_exactly_three_times_directs_calls():
+    rules = selection.rules("implement_check_repair", arm([5] * 4, calls=3), DIRECT, REROLLED)
+    assert rules["4_cost"] is True
+
+
+@pytest.mark.parametrize("worst, metered", [(0.5, 0.07), (0.7, 0.05)])  # direct 0.2 and 0.02: 3 times is 0.6, 0.06
+def test_rule_4_fails_an_arm_over_the_limit_at_either_priced_bound(worst, metered):
+    candidate = arm([5] * 4, calls=2, priced_worst=worst, priced_metered=metered)
+    direct = arm([4, 5, 6, 5], priced_worst=0.2, priced_metered=0.02)
+    assert selection.rules("implement_check_repair", candidate, direct, REROLLED)["4_cost"] is False
+
+
+def test_rule_4_passes_an_arm_within_the_limit_at_both_priced_bounds():
+    candidate = arm([5] * 4, calls=2, priced_worst=0.5, priced_metered=0.05)
+    direct = arm([4, 5, 6, 5], priced_worst=0.2, priced_metered=0.02)
+    assert selection.rules("implement_check_repair", candidate, direct, REROLLED)["4_cost"] is True
 
 
 def run(task="t0", outcome="completed", calls=1, score=0, **facts):
@@ -353,6 +392,12 @@ def test_retry_parity_fails_when_a_run_does_not_complete():
     assert selection.parity(runs, OFFLINE)["passed"] is False
 
 
+def test_retry_parity_fails_and_lists_a_task_without_a_baseline():
+    offline = {"tasks": {t: row for t, row in OFFLINE["tasks"].items() if t != "t5"}}
+    out = selection.parity(retry_runs(calls=2), offline)
+    assert (out["passed"], out["no_baseline"]) == (False, ["t5"])
+
+
 @pytest.mark.parametrize("name, calls, share", [
     ("implement_review_revise", [3] * 19 + [2] * 81, Fraction(19, 100)),  # the revision is its third call
     ("implement_check_repair", [2] * 20 + [1] * 80, Fraction(1, 5)),  # a repair is its second call
@@ -364,48 +409,71 @@ def test_the_distinctive_step_is_read_from_physical_calls(name, calls, share):
 
 def test_rule_5_fails_an_arm_whose_third_call_ran_in_19_percent_of_runs():
     share = selection.distinctive("implement_review_revise", [run(calls=c) for c in [3] * 19 + [2] * 81])
-    candidate = arm([4, 5, 6, 5], calls=2.2, distinctive=share)
+    candidate = arm([4, 5, 6, 5], calls=Fraction(11, 5), distinctive=share)
     result = selection.select_seeds({"direct": DIRECT, "implement_review_revise": candidate}, REROLLED)
     assert result["arms"]["implement_review_revise"]["rules"]["5_distinctive"] is False
 
 
 def test_rule_2_compares_an_arm_on_six_tasks_with_direct_on_those_six():
-    # direct scores 5 on the six tasks retry ran and 0 on ten others: over all 16 its mean (15/8) would pass 4
+    # direct scores 5 on the six tasks retry ran and 0 on ten others: over all 16 its line (11/8) would pass 4
     direct = {**DIRECT, "tasks": {t: 5 if t < 6 else 0 for t in range(16)}}
+    rolled = {"tasks": {t: {"Q3": 5} for t in range(16)}}
     retry = arm([4] * 6, calls=2, parity=True)
-    rules = selection.select_seeds({"direct": direct, selection.RETRY: retry}, REROLLED)["arms"][selection.RETRY]["rules"]
+    rules = selection.select_seeds({"direct": direct, selection.RETRY: retry}, rolled)["arms"][selection.RETRY]["rules"]
     assert rules["2_quality"] is False
 
 
-def test_rule_3_leaves_out_a_task_without_three_usable_direct_runs():
+def test_rules_2_and_3_leave_out_a_task_without_three_usable_direct_runs():
     rolled = {"tasks": {t: {"Q2": 5} for t in range(3)}}  # task 3 had fewer than three usable direct runs
     candidate = arm([5, 5, 5, 0], calls=2)
-    assert selection.rules("implement_check_repair", candidate, DIRECT, rolled)["3_reroll"] is True
+    result = selection.select_seeds({"direct": DIRECT, "implement_check_repair": candidate}, rolled)
+    report = result["arms"]["implement_check_repair"]
+    assert (report["rules"]["2_quality"], report["rules"]["3_reroll"], report["left_out"]) == (True, True, [3])
 
 
-@pytest.mark.parametrize("nested, dominated", [(0, True), (Fraction(11, 100), False)])
-def test_nested_sessions_in_over_10_percent_of_runs_make_tokens_the_dominance_cost(nested, dominated):
-    # twice direct's calls at direct's tokens: dominated on calls, not on tokens
-    candidate = arm([4, 5, 6, 5], calls=2, tokens=Fraction(1, 50), nested=nested)
-    result = selection.select_seeds({"direct": arm([4, 5, 6, 5], tokens=Fraction(1, 50)),
-                                     "implement_review_revise": candidate}, REROLLED)
+@pytest.mark.parametrize("arm_nested, direct_nested, dominated", [
+    (0, 0, True),
+    (Fraction(1, 10), 0, True),  # exactly a tenth: calls stay the cost
+    (Fraction(11, 100), 0, False),
+    (0, Fraction(11, 100), False),  # direct's own nested sessions switch the comparison too
+])
+def test_nested_sessions_in_over_10_percent_of_either_arms_runs_make_priced_tokens_the_cost(
+        arm_nested, direct_nested, dominated):
+    # twice direct's calls at direct's priced cost: dominated on calls, not on priced tokens
+    candidate = arm([4, 5, 6, 5], calls=2, priced_worst=0.02, nested=arm_nested)
+    direct = arm([4, 5, 6, 5], priced_worst=0.02, nested=direct_nested)
+    result = selection.select_seeds({"direct": direct, "implement_review_revise": candidate}, REROLLED)
     assert result["arms"]["implement_review_revise"]["dominated_by_direct"] is dominated
 
 
-def test_tokens_as_the_cost_refuse_an_unmetered_arm():
-    with pytest.raises(SystemExit, match="tokens"):
+def test_arms_on_different_models_are_compared_on_priced_cost():
+    candidate = arm([4, 5, 6, 5], calls=2, priced_worst=0.02, model="gpt-6-luna")
+    result = selection.select_seeds({"direct": arm([4, 5, 6, 5], priced_worst=0.02), "retry_until_check_luna": candidate},
+                                    REROLLED)
+    assert result["arms"]["retry_until_check_luna"]["cost_basis"] == "priced_worst"
+
+
+def test_a_priced_cost_basis_refuses_an_arm_without_a_priced_figure():
+    with pytest.raises(SystemExit, match="priced"):
         selection.rules("implement_review_revise", arm([5] * 4, nested=Fraction(1, 5)), DIRECT, REROLLED)
 
 
-@pytest.mark.parametrize("score, eligible", [(4.25, True), (4.75, True), (5, False), (4.2, False)])
+@pytest.mark.parametrize("score, eligible", [
+    (Fraction(17, 4), True),  # a quarter point under rule 2's line (4.5)
+    (Fraction(19, 4), True),  # a quarter point over it
+    (5, False),
+    (Fraction(21, 5), False),
+])
 def test_an_arm_within_a_quarter_point_of_rule_2s_line_is_extension_eligible(score, eligible):
-    rolled = {"tasks": {t: {"Q2": 0} for t in range(4)}}  # rule 2's line 4.5; rule 3's far below
+    rolled = {"tasks": {t: {"Q2": 0} for t in range(4)}}  # rule 3's line far below
     assert selection.extension_eligible("implement_check_repair", arm([score] * 4, calls=2), DIRECT, rolled) is eligible
 
 
 def test_an_arm_within_a_quarter_point_of_rule_3s_line_is_extension_eligible():
     rolled = {"tasks": {t: {"Q2": 7} for t in range(4)}}  # rule 3's line 6.5, rule 2's 4.5
-    assert selection.extension_eligible("implement_check_repair", arm([6.25] * 4, calls=2), DIRECT, rolled) is True
+    candidate = arm([Fraction(25, 4)] * 4, calls=2)
+    assert selection.extension_eligible("implement_check_repair", candidate, DIRECT, rolled) is True
+
 
 
 def test_rerolls_return_exact_means():
@@ -594,7 +662,8 @@ def test_v4_needs_fifteen_in_each_class(failing, assessed):
     assert gate(records)["V4"]["assessed"] is assessed
 
 
-@pytest.mark.parametrize("calls, k", [(1.49, 1), (1.5, 2), (2.5, 3), (2.49, 2), (0.4, 1), (3.6, 3)])
+@pytest.mark.parametrize("calls, k", [(Fraction(149, 100), 1), (Fraction(3, 2), 2), (Fraction(5, 2), 3),
+                                     (Fraction(249, 100), 2), (Fraction(2, 5), 1), (Fraction(18, 5), 3)])
 def test_mean_calls_round_halves_up_to_one_two_or_three(calls, k):
     assert selection.calls_k(calls) == k
 

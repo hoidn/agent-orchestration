@@ -11,7 +11,8 @@ counted (code, comments, blank lines); the shared `common.orc` is exempt but fro
 
 Every comparison with a threshold is exact (coordinator decision on floats in this module: exact Fractions, as the
 kit's ruling on B1, 2026-11-12, requires): `rerolls` and `baselines` take whole-number scores and return
-`fractions.Fraction` means, `rules` reads its summaries' figures at their exact values, and `TAU_Q`, `COST_LIMIT`,
+`fractions.Fraction` means, every figure compared with a line must be an int or a Fraction (`exact` refuses a float;
+priced USD, a measurement, is taken at its exact value), and `TAU_Q`, `COST_LIMIT`,
 `COMPLETION` and `DISTINCTIVE` are Fractions, so a figure exactly at a line meets it. `bootstrap` and the
 dominance test stay in floats (display only; `pareto.dominates` takes int or float tolerances); callers convert
 Fractions to floats for JSON and display (`readout.plain`).
@@ -20,8 +21,9 @@ Step 3's per-run rules read runs' `study.json` facts (`outcome`, `calls`, `visib
 `excluded` (`pool.pool_runs`' reason a run is not pooled: contaminated or a model-policy hit) and, for parity, the
 caller's `score` (the selected judge's, 0 for a failed run): `observed` (the runs that count), `completes` and
 `completion` (rule 1), `visible_power` (the 20% rule), `parity` (rule 6), `distinctive` (rule 5). `rules` compares
-an arm with direct on the tasks they share, `cost_basis` switches the cost to priced tokens on nested sessions,
-and `extension_eligible` names an arm near rule 2's or rule 3's line.
+an arm with direct on the tasks they share that have a baseline (`compared`), `cost_basis` switches the cost from
+calls to priced tokens on nested sessions or a difference of model or effort, and `extension_eligible` names an arm
+near rule 2's or rule 3's line.
 """
 
 import math
@@ -57,9 +59,17 @@ def common_definitions(path):
     return sorted(re.findall(r"\(def(?!module)\w+\s+([^\s()]+)", Path(path).read_text()))
 
 
-def mean(values):
-    """The exact mean of whole numbers, Fractions or floats (a float at its exact binary value)."""
-    return gates.mean(Fraction(v) for v in values)
+def exact(value, field):
+    """`value` when it is an int or a Fraction; anything else (a float) is refused, naming `field`, since a figure
+    compared with a line must be exact."""
+    if not isinstance(value, (int, Fraction)):
+        raise SystemExit(f"{field} is {value!r}: a figure compared with a threshold must be an int or a Fraction")
+    return value
+
+
+def mean(values, field="a mean's input"):
+    """The exact mean of whole numbers or Fractions (`gates.mean`); a float is refused (`exact`)."""
+    return gates.mean(exact(v, field) for v in values)
 
 
 def _retry(triple, k):
@@ -124,12 +134,11 @@ def distinctive(name, runs):
 
 
 def visible_power(direct_runs):
-    """The 20% rule after the direct stage (coordinator decision on what counts as "the visible check failed",
-    as corrected after review): over the observed direct runs that completed and whose final patch the host visible
-    check ran on and finished (a call-limit cut, a failed run without a patch and a check past its bound are in
-    neither count), the share whose check did not pass. `launch` (parity runs and implement-check-repair start) when
-    that rate is at least `VISIBLE_POWER`; under it they are withheld. The counts go with the rate, for a readout
-    that shows `rerolls`' `visible_fail_rate` beside it."""
+    """The 20% rule after the direct stage (coordinator decision on what counts as "the visible check failed"):
+    over the observed direct runs that completed and whose final patch the host visible check ran on and finished
+    (a call-limit cut, a failed run without a patch and a check past its bound are in neither count), the share whose
+    check did not pass. `launch` (parity runs and implement-check-repair start) when that rate is at least
+    `VISIBLE_POWER`; under it they are withheld. The counts go with the rate."""
     ran = [r for r in observed(direct_runs) if completes(r) and "visible" in r and not r["visible"].get("timed_out")]
     if not ran:
         raise SystemExit("no direct run's patch was checked: the visible check's selecting power is undefined")
@@ -141,23 +150,26 @@ def visible_power(direct_runs):
 def parity(runs, baseline):
     """Rule 6, retry parity (coordinator decision on the parity's offline figure: `Q3` and `Q3_calls`). `runs` are
     the retry arm's run facts with their `score`; `baseline` is `baselines` over the seed evaluation's direct runs.
-    Over the tasks of the observed retry runs: every one completes, and the mean over tasks of the per-task mean
-    calls and score are within `PARITY_CALLS` and `PARITY_SCORE` of the mean `Q3_calls` and `Q3` of those tasks.
-    Refuses when no retry run is observed or a task has no baseline (fewer than three usable direct runs)."""
+    Over the tasks of the observed retry runs: every one completes, every task has a baseline (three usable direct
+    runs), and the mean over tasks of the per-task mean calls and score are within `PARITY_CALLS` and
+    `PARITY_SCORE` of the mean `Q3_calls` and `Q3` of those tasks. A task without a baseline fails the rule and is
+    listed in `no_baseline`; with no observed run on a task that has one, the figures are None and the rule fails."""
     seen = observed(runs)
     tasks = list(dict.fromkeys(r["task"] for r in seen))
-    if not tasks:
-        raise SystemExit("retry parity needs an observed retry run")
-    if missing := [t for t in tasks if t not in baseline["tasks"]]:
-        raise SystemExit(f"retry parity: no offline baseline (three usable direct runs) for tasks {missing}")
+    rated = [t for t in tasks if t in baseline["tasks"]]
+    out = {"no_baseline": [t for t in tasks if t not in baseline["tasks"]], "completes": all(map(completes, seen)),
+           "calls": None, "score": None, "offline_calls": None, "offline_score": None, "passed": False}
+    if not rated:
+        return out
 
     def live(key):
-        return mean(mean(r[key] for r in seen if r["task"] == t) for t in tasks)
+        return mean((mean((r[key] for r in seen if r["task"] == t), key) for t in rated), key)
 
-    out = {"completes": all(completes(r) for r in seen), "calls": live("calls"), "score": live("score"),
-           "offline_calls": mean(baseline["tasks"][t]["Q3_calls"] for t in tasks),
-           "offline_score": mean(baseline["tasks"][t]["Q3"] for t in tasks)}
-    out["passed"] = out["completes"] and abs(out["calls"] - out["offline_calls"]) <= PARITY_CALLS \
+    out |= {"calls": live("calls"), "score": live("score"),
+            "offline_calls": mean(baseline["tasks"][t]["Q3_calls"] for t in rated),
+            "offline_score": mean(baseline["tasks"][t]["Q3"] for t in rated)}
+    out["passed"] = not out["no_baseline"] and out["completes"] \
+        and abs(out["calls"] - out["offline_calls"]) <= PARITY_CALLS \
         and abs(out["score"] - out["offline_score"]) <= PARITY_SCORE
     return out
 
@@ -174,61 +186,65 @@ def bootstrap(differences, resamples=10000, seed=20261111, level=0.90):
 
 def calls_k(calls):
     """An arm's mean calls rounded to 1, 2 or 3, halves up."""
-    return min(3, max(1, math.floor(Fraction(calls) + Fraction(1, 2))))
+    return min(3, max(1, math.floor(exact(calls, "calls") + Fraction(1, 2))))
 
 
-def shared_tasks(arm, direct):
-    """The tasks an arm shares with direct, in direct's order; refuses when there is none."""
+def compared(arm, direct, rerolled):
+    """(tasks, left out): rules 2 and 3 compare an arm with direct on the tasks they share that have a baseline in
+    `rerolled["tasks"]`, i.e. at least three usable direct runs (coordinator decision on rules 2 and 3 for an arm run
+    on fewer tasks than direct); a shared task without one is left out of both rules and listed."""
     shared = [t for t in direct["tasks"] if t in arm["tasks"]]
-    if not shared:
-        raise SystemExit("an arm shares no task with direct: nothing to compare")
-    return shared
+    return [t for t in shared if t in rerolled["tasks"]], [t for t in shared if t not in rerolled["tasks"]]
 
 
 def lines(name, arm, direct, rerolled):
-    """(q, rule 2's line, q', rule 3's line) on shared tasks (coordinator decision on rules 2 and 3 for an arm run on
-    fewer tasks than direct: compare on the tasks it shares with direct). Rule 2: the arm's mean against direct's,
-    less `TAU_Q`, over the shared tasks. Rule 3 (None, None for retry, where it is vacuous): over the shared tasks
-    that have a baseline in `rerolled["tasks"]` (`baselines` holds only tasks with three usable direct runs, so a
-    task with fewer is left out of rule 3 alone), the arm's mean against `Q(k)` less `TAU_Q`, `Q(1)` being direct's
-    mean; refuses when no shared task has a baseline."""
-    shared = shared_tasks(arm, direct)
-    q, line = mean(arm["tasks"][t] for t in shared), mean(direct["tasks"][t] for t in shared) - TAU_Q
+    """(q, rule 2's line, rule 3's line) over the `compared` tasks: q the arm's mean, rule 2's line direct's mean less
+    `TAU_Q`, rule 3's `Q(k)` less `TAU_Q` (`Q(1)` is direct's mean; None for retry, where rule 3 is vacuous). All
+    None when no task is compared."""
+    tasks, _ = compared(arm, direct, rerolled)
+    if not tasks:
+        return None, None, None
+    q, q_direct = mean((arm["tasks"][t] for t in tasks), "tasks"), mean((direct["tasks"][t] for t in tasks), "tasks")
+    k = calls_k(arm["calls"])
     if name == RETRY:
-        return q, line, None, None
-    k, rolled = calls_k(arm["calls"]), [t for t in shared if t in rerolled["tasks"]]
-    if not rolled:
-        raise SystemExit(f"{name}: no shared task has three usable direct runs, so rule 3 has no baseline")
-    offline = mean(direct["tasks"][t] if k == 1 else rerolled["tasks"][t][f"Q{k}"] for t in rolled)
-    return q, line, mean(arm["tasks"][t] for t in rolled), offline - TAU_Q
+        return q, q_direct - TAU_Q, None
+    offline = q_direct if k == 1 else mean(rerolled["tasks"][t][f"Q{k}"] for t in tasks)
+    return q, q_direct - TAU_Q, offline - TAU_Q
 
 
 def cost_basis(arm, direct):
-    """The summary key an arm's cost compares on with direct's: "tokens" (priced tokens per run) alone when nested
-    sessions are in over `NESTED` of either arm's runs (`nested`, a share), else "calls" (plan Step 3, "Quality and
-    cost"). Calls stay admissible only while every arm runs one model at one effort; no arm in this study's scope
-    differs, so nothing here checks it."""
-    return "tokens" if max(Fraction(arm["nested"]), Fraction(direct["nested"])) > NESTED else "calls"
+    """The summary key the arm's cost compares on with direct's (plan Step 3, "Quality and cost"): "calls" (mean
+    provider calls per run), or "priced_worst" (priced tokens per run, a cut call at the per-call worst case, so a
+    cut's consumption counts) when nested sessions are in over `NESTED` of either arm's runs (a comparison uses both
+    arms' calls, and a nested session's calls are uncounted) or the two arms differ in model or effort (calls are a
+    cost only at one model and one effort)."""
+    nested = max(exact(arm["nested"], "nested"), exact(direct["nested"], "nested"))
+    same = (arm["model"], arm["effort"]) == (direct["model"], direct["effort"])
+    return "calls" if same and nested <= NESTED else "priced_worst"
+
+
+def within_cost(value, reference):
+    """Rule 4's limit on one cost figure (vacuous when either side has none); priced USD is a measurement and is
+    taken at its exact value."""
+    return value is None or reference is None or Fraction(value) <= COST_LIMIT * Fraction(reference)
 
 
 def rules(name, arm, direct, rerolled):
-    """Rules 1-7 for one arm against direct (the module docstring; `select_seeds` names the summary's keys). Rule 4
-    holds on calls and, where both are metered, priced tokens; on tokens alone when `cost_basis` says so, which
-    refuses an arm without metered tokens."""
-    q, line, q_rolled, rolled_line = lines(name, arm, direct, rerolled)
+    """Rules 1-7 for one arm against direct (the module docstring; `select_seeds` names the summary's keys). Rule 4's
+    priced half holds at both bounds (coordinator decision on priced tokens with cut calls): `priced_worst` and
+    `priced_metered` (metered runs only), each where both arms have it; its calls half applies on the "calls" basis
+    only. On a priced basis an arm without `priced_worst` is refused."""
+    q, line, rolled_line = lines(name, arm, direct, rerolled)
     basis = cost_basis(arm, direct)
-    if basis == "tokens" and (arm["tokens"] is None or direct["tokens"] is None):
-        raise SystemExit(f"{name}: nested sessions make cost compare in tokens, and an arm has no metered tokens")
-
-    def within(key):
-        return arm[key] is None or direct[key] is None or Fraction(arm[key]) <= COST_LIMIT * Fraction(direct[key])
-
+    if basis != "calls" and None in (arm["priced_worst"], direct["priced_worst"]):
+        raise SystemExit(f"{name}: its cost compares on priced tokens, and an arm has no priced figure")
+    calls = basis != "calls" or exact(arm["calls"], "calls") <= COST_LIMIT * exact(direct["calls"], "calls")
     return {
-        "1_completes": Fraction(arm["completed"]) >= COMPLETION,
-        "2_quality": q >= line,
-        "3_reroll": rolled_line is None or q_rolled >= rolled_line,
-        "4_cost": within("tokens") and (basis == "tokens" or within("calls")),
-        "5_distinctive": Fraction(arm.get("distinctive") or 0) >= DISTINCTIVE,
+        "1_completes": exact(arm["completed"], "completed") >= COMPLETION,
+        "2_quality": q is not None and q >= line,
+        "3_reroll": name == RETRY or (q is not None and q >= rolled_line),
+        "4_cost": calls and all(within_cost(arm[key], direct[key]) for key in ("priced_worst", "priced_metered")),
+        "5_distinctive": exact(arm["distinctive"], "distinctive") >= DISTINCTIVE,
         "6_parity": name != RETRY or arm.get("parity") is True,
         "7_lines": arm["lines"] < MAX_PROGRAM_LINES,
     }
@@ -236,33 +252,37 @@ def rules(name, arm, direct, rerolled):
 
 def extension_eligible(name, arm, direct, rerolled):
     """Step 3's reserved extension: an arm whose mean is within `EXTENSION` (0.25 point, either side) of rule 2's
-    line or rule 3's, each on that rule's tasks (`lines`)."""
-    q, line, q_rolled, rolled_line = lines(name, arm, direct, rerolled)
-    return abs(q - line) <= EXTENSION or (rolled_line is not None and abs(q_rolled - rolled_line) <= EXTENSION)
+    line or rule 3's, on the `compared` tasks."""
+    q, line, rolled_line = lines(name, arm, direct, rerolled)
+    return q is not None and any(m is not None and abs(q - m) <= EXTENSION for m in (line, rolled_line))
 
 
 def select_seeds(arms, rerolled):
-    """`arms` maps name to {"tasks": {task: mean score}, "completed", "calls", "tokens" or None, "nested",
-    "distinctive", "parity", "lines"} (shares from `completion`, `distinctive` and `share`; "nested" the share of
-    observed runs with a nested session); "direct" is the reference and always in the set (plan), its line count
-    reported. `rerolled` is `baselines` over the direct runs. Returns the seeds and every arm's report: its rules,
-    the difference from direct on the shared tasks with its interval, the cost basis, the dominance test against
-    direct on that basis (in floats) and whether the reserved extension applies."""
+    """`arms` maps name to {"tasks": {task: mean score}, "completed", "calls", "priced_worst", "priced_metered"
+    (USD per run, None where not priced), "nested", "model", "effort", "distinctive", "parity", "lines"} (shares
+    from `completion`, `distinctive` and `share`; "nested" the share of observed runs with a nested session); "direct"
+    is the reference and always in the set (plan), its line count reported. `rerolled` is `baselines` over the
+    direct runs. Returns the seeds and every arm's report: its rules, the `compared` tasks left out, the difference
+    from direct on the compared tasks with its interval (None when none is compared), the cost basis, the dominance
+    test against direct on that basis (in floats) and whether the reserved extension applies."""
     direct = arms["direct"]
     reports, seeds = {"direct": {"lines": direct["lines"]}}, ["direct"]
     for name, arm in arms.items():
         if name == "direct":
             continue
-        shared = shared_tasks(arm, direct)
-        differences = [arm["tasks"][t] - direct["tasks"][t] for t in shared]
-        low, high = bootstrap(differences)
+        tasks, left_out = compared(arm, direct, rerolled)
         checked, basis = rules(name, arm, direct, rerolled), cost_basis(arm, direct)
-        quality = {"quality": float(mean(arm["tasks"][t] for t in shared)), "cost": float(arm[basis])}
-        reference = {"quality": float(mean(direct["tasks"][t] for t in shared)), "cost": float(direct[basis])}
-        reports[name] = {"rules": checked, "lines": arm["lines"], "difference": mean(differences), "interval": [low, high],
-                         "spans_tolerance": low < -TAU_Q < high, "cost_basis": basis,
-                         "dominated_by_direct": dominates(reference, quality, float(TAU_Q), TAU_C),
+        reports[name] = {"rules": checked, "lines": arm["lines"], "left_out": left_out, "cost_basis": basis,
+                         "difference": None, "interval": None, "spans_tolerance": None, "dominated_by_direct": None,
                          "extension_eligible": extension_eligible(name, arm, direct, rerolled)}
+        if tasks:
+            differences = [arm["tasks"][t] - direct["tasks"][t] for t in tasks]
+            low, high = bootstrap(differences)
+            quality = {"quality": float(mean(arm["tasks"][t] for t in tasks)), "cost": float(arm[basis])}
+            reference = {"quality": float(mean(direct["tasks"][t] for t in tasks)), "cost": float(direct[basis])}
+            reports[name] |= {"difference": mean(differences), "interval": [low, high],
+                              "spans_tolerance": low < -TAU_Q < high,  # float against Fraction: Python compares exactly
+                              "dominated_by_direct": dominates(reference, quality, float(TAU_Q), TAU_C)}
         if all(checked.values()):
             seeds.append(name)
     return {"seeds": seeds, "arms": reports}
