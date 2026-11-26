@@ -6,7 +6,8 @@ then one implement-check-repair run on a real check-withheld package through a r
 Every provider is the scripted `claude` of tests/experiments/seed_set_offline_support.py (its scripted `codex` for
 a unit the Codex CLI runs) behind the comparison harness's real shims, sandbox and model guard; no model is called.
 The criterion pins those stand-ins, one per CLI (path and version), and sets the rehearsal's priced ceilings
-(`TERMS`); the rehearsal's tranches hold no Luna call. The ladder probe meets one injected usage
+(`TERMS`); the Luna smoke (ruling L-R8) runs after the calibration, before the readout, whose figures its pool
+must not change (a `stop:` decision of the readout would close its starts). The ladder probe meets one injected usage
 limit: the stand-in answers the first probe task's Haiku call as the vendor does at a limit, starts close, the
 limit is lifted, `resume-after-limit` reopens them and the probe runs the cut slot again (rulings R1 and R2), every
 call that succeeds then printing a limit warning on stderr, which must close nothing (re-review N1). After
@@ -384,12 +385,13 @@ def stages(root, s, count, withheld_only=False, cut_in="probe"):
         dump(root / "rehearsal.json", out)
         print(json.dumps({k: v for k, v in out.items() if k != "ledger"}, indent=1))
         return
-    out = {"smoke_check": smoke(s), "luna_smoke_check": luna_smoke(s)}
+    out = {"smoke_check": smoke(s)}
     tranche("redraw")
     out["usage_limit"] = probe_with_a_cut(s)
     out["probe"] = probing.probe_readout(s)
     out["ceiling"] = beyond_the_ceiling(s)
     out["calibration"] = calibration(s, count, root / "hang-pids")
+    out["luna_smoke_check"] = luna_smoke(s)
     report = study.write_readout(s)
     gates_ = report["calibration"] or {}
     out |= {"decision": gates_.get("decision"), "anchor_failures": report["anchor_failures"],

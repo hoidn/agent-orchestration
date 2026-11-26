@@ -191,7 +191,9 @@ ended()
 # that model) the call answers as a used-up window would, in the shape the kit reads (tests/experiments/
 # test_seed_set_codex.py's FAILED_LIMIT: an `error` event and a `turn.failed` in a limit wording; its rollout's
 # token_count at 100 percent of the five-hour window, reset at `reset`) and exits 1. With `"credits": true` every
-# token_count shows a credit balance held (`credits.has_credits`). A test changes either by rewriting the plan.
+# token_count shows a credit balance held (`credits.has_credits`). `"rollout_model"` or `"rollout_effort"` replaces
+# the model or effort its turn_context names (a session that ran as another model or effort). A test changes any of
+# these by rewriting the plan.
 CODEX_STUB = """#!@PYTHON@ -I
 import json, os, re, subprocess, sys, time, uuid
 from pathlib import Path
@@ -221,7 +223,8 @@ def changed(repo):
     return status == 1
 
 record("session_meta", {"id": thread, "cwd": os.getcwd(), "cli_version": "0.171.0"})
-record("turn_context", {"cwd": os.getcwd(), "model": model, "effort": effort})
+record("turn_context", {"cwd": os.getcwd(), "model": plan.get("rollout_model", model),  # as the session ran
+                        "effort": plan.get("rollout_effort", effort)})
 record("event_msg", {"type": "user_message", "message": prompt})
 emit({"type": "thread.started", "thread_id": thread})
 emit({"type": "turn.started"})

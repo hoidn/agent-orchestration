@@ -49,7 +49,8 @@ minutes (ruling R16; for Codex also unless it is a ChatGPT login with no API key
 is read (and, for Codex, the API key and login mode). A settlement removes the credential copy first and the
 agents' tree last, read-only directories included and no link followed; a tree it cannot remove is recorded as
 `tree_left`, and a settlement run again replaces the earlier copy of the run state. Candidate code runs on the host
-only behind `host.guarded`. A forbidden-model answer, three contaminated tasks or too many incidents record a stop.
+only behind `host.guarded`. A forbidden-model answer, three contaminated tasks or too many incidents in one of the
+study's tranches record a stop (an incident in the Luna smoke fails that smoke and stops nothing, ruling L-R9).
 The spend ledger is `~/.local/state/seed-set/spend-ledger.jsonl` whatever the paths given. Scan hits are adjudicated
 by hand (`prepare.py scan --verdict`); `pool`, `summarize` and `smoke-check` refuse before writing anything (no
 incident, no smoke result) while a run or judge they read has hits and no verdict, naming each one's command, so the operator
@@ -62,8 +63,9 @@ A usage limit (coordinator rulings R1 and R2, 2026-11-14) is neither an incident
 cuts is recorded `cut`, never pooled, never scored and not counted by the incident stop; a `pause` event closes
 every start at once (calls in flight finish or are cut) until `resume-after-limit`. A credit balance on the ChatGPT
 account, which a Codex unit's session records show, closes the Codex starts only, until `resume-after-limit --cli
-codex` (ruling L-R7 of the Luna plan); each command reopens only its own pauses. Each planned slot whose run was cut runs again once, as a new unit and from the same cap;
-a pool with a cut judge is rebuilt once from the same run records (`<kind>.2`) and judged again by both judges.
+codex` (ruling L-R7 of the Luna plan); each command reopens only its own pauses. Each planned slot whose run was
+cut runs again once, as a new unit and from the same cap; a pool with a cut judge is rebuilt once from the same run
+records (`<kind>.2`) and judged again by every judge of its tranche.
 
 Spend in priced tokens (rulings R4 and R5): candidates and judges run the metered template (`programs/providers.json`,
 `programs/providers.codex.json` for an arm the Codex CLI runs, and the study's own `programs/judge.providers.json`).
@@ -762,10 +764,13 @@ def judged_of(directory):
 
 
 def load_records(study, models, tasks):
-    """Records of every summarized pool (results.json and its pooled patches) with each pool incident, plus every
-    run that no first pool holds: a natural failure (a failed outcome or a timeout) or an incident."""
+    """Records of every summarized first or retest pool (results.json and its pooled patches; the Luna smoke's `luna`
+    pool is no part of the study's readout) with each pool incident, plus every run that no first pool holds: a
+    natural failure (a failed outcome or a timeout) or an incident."""
     records, pools = [], []
     for directory in sorted((study.results / "pools").glob("*-*")):
+        if directory.name.rsplit("-", 1)[1] not in ("first", "retest"):
+            continue
         found, info = summarized_pool(directory, models)
         records += found
         pools.append(info)

@@ -22,10 +22,10 @@ rule enforce it. `common.orc` is not counted but may define only the shared `Cha
 them per arm (`claude-haiku-5-5`, `medium`; the calibration arm `direct_sonnet`
 is `direct.orc` with `claude-sonnet-5-5`; the Luna smoke's arms `direct_luna` and
 `retry_until_check_luna` are `direct.orc` and `retry_until_check.orc` with
-`gpt-6-luna`, `medium`, which only the Luna smoke plans: the kit's
-[README](../README.md), "The Luna smoke") together with the source, entry and
-maximum calls; the runner passes them in `inputs.json` (`--set model=...
---set effort=...` through `prepare.run_arm`).
+`gpt-6-luna`, `medium`) together with the source, entry and maximum calls. Only
+the Luna smoke plans the two Luna arms (the kit's [README](../README.md), "The
+Luna smoke"). The runner passes model and effort in `inputs.json` (`--set
+model=... --set effort=...` through `prepare.run_arm`).
 
 **Providers.** `providers.json` binds both aliases to `claude_unrestricted_workspace_metered`, and
 `providers.codex.json` binds them to `codex_unrestricted_workspace_metered` (`codex exec --json … --model M --config
@@ -134,7 +134,8 @@ call that started a thread or completed a turn must have its thread's rollout.
   run) or the next `probe` (a probe run) settles it (review2 minor 9); `settle` refuses while the unit's session
   still runs.
 - A runner killed between a unit's reservation and its launch leaves a reserved unit that made no call: `settle`
-  files it as an incident ("expected one orchestrator run, found 0"), counted by the 10% stop, and prices it at
+  files it as an incident ("expected one orchestrator run, found 0"), counted by the 10% stop (in the Luna smoke
+  it fails that smoke's check instead, ruling L-R9), and prices it at
   USD 0; its slot is not run again (review 3 minor 11).
 - A slot cut by a usage limit runs again once from the same cap (coordinator ruling R1, 2026-11-14), so only where
   the cap has room: the smoke's caps, the calibration's Sonnet candidates and both judges' calibration caps are

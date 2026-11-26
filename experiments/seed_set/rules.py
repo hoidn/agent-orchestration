@@ -6,10 +6,11 @@ Order: no start before a `freeze` event whose identity still matches (`frozen_id
 event whose chosen list still matches `results/calibration-tasks.json`; no calibration judge outside the early judge
 look's three first pools before a passed `early_look` event, and none after a failed one. Stops (a `stop` event, after which `spend.reserve` refuses
 everything): a forbidden-model answer in a run or a judge, three tasks with a contaminated run or judgment, more
-than 10% of a tranche's planned runs ending as incidents, and a `stop:` decision of the readout. A run cut by a usage
-limit is not an incident (coordinator ruling R1); its `pause` event closes starts until `resume-after-limit` (R2),
-which is no stop. The audit refuses when a unit made calls the ledger does not hold (a missing or foreign ledger) or
-more calls than it reserved.
+than 10% of the planned runs of one of the study's tranches (`layout.STUDY_TRANCHES`) ending as incidents (an
+incident in the Luna smoke fails that smoke and stops nothing, ruling L-R9), and a `stop:` decision of the readout.
+A run cut by a usage limit is not an incident (coordinator ruling R1); its `pause` event closes starts until
+`resume-after-limit` (R2), which is no stop. The audit refuses when a unit made calls the ledger does not hold (a
+missing or foreign ledger) or more calls than it reserved.
 
 The freeze (coordinator ruling on review2 M6, 2026-11-12) binds what decides the verdicts and what the agents see:
 the runtime commit, the git tree of the study's and the harness's code (`experiments/seed_set`,
@@ -248,9 +249,9 @@ def contaminated_tasks(study):
 
 
 def planned_runs(study, tranche):
-    """The runs the tranche plans: the smoke's five, the calibration's five per chosen task, and the probe's units
-    (a task in one phase; a relaunch is the same unit), at least the flat probe's 20 (review2 minor 4: the
-    extension's probe units count)."""
+    """The runs the tranche plans: the smoke's five, the Luna smoke's two, the calibration's five per chosen task, and
+    the probe's units (a task in one phase; a relaunch is the same unit), at least the flat probe's 20 (review2
+    minor 4: the extension's probe units count)."""
     if tranche == "redraw":
         units = {(row.get("task"), row.get("step")) for row in spend.starts(spend.rows(study.ledger))
                  if row["tranche"] == "redraw"}
@@ -302,7 +303,7 @@ def stop_reasons(study):
     if len(contaminated := contaminated_tasks(study)) >= 3:
         reasons.append(f"three or more contaminated tasks: {contaminated}")
     facts = [load(path) for path in study_runs(study)]
-    for tranche in PLANNED:
+    for tranche in layout.STUDY_TRANCHES:  # a Luna smoke incident fails that smoke, not the study (ruling L-R9)
         incidents = sum(f["tranche"] == tranche and "incident" in f for f in facts)
         if incidents * 10 > planned_runs(study, tranche):  # over 10%, exactly
             reasons.append(f"{incidents} incidents in the {tranche} tranche, over 10% of its planned runs")
@@ -444,14 +445,12 @@ def smoke_figures(found):
 
 def luna_checks(study, reserved, runs):
     """The Luna smoke's own: {"checks": no pause of the Codex starts (a credit balance, ruling L-R7) that one of its
-    units recorded or that is open now, and every run's metering completeness recorded; "metering_complete": each
-    run's recorded value, which does not decide the check}."""
+    units recorded or that is open now; "metering_complete": each run's recorded value, which decides nothing}."""
     entries = spend.rows(study.ledger)
     open_now = {row["seq"] for row in spend.open_pauses(entries)}
     credit = [row for row in entries if row["kind"] == "event" and row["event"] == "pause"
               and row.get("closes") == units.CODEX and (row.get("unit") in reserved or row["seq"] in open_now)]
-    return {"checks": {"no_credit_pause": not credit,
-                       "metering_completeness_recorded": bool(runs) and all("metering_complete" in f for f in runs)},
+    return {"checks": {"no_credit_pause": not credit},
             "metering_complete": {f["arm"]: f.get("metering_complete") for f in runs}}
 
 
@@ -464,7 +463,7 @@ def unit_checks(found, runs, reserved, tranche="smoke"):
             "every_reserved_unit_settled": set(reserved) <= settled}
 
 
-def pool_checks(results_path, results, runs, judges=(spend.HAIKU, spend.SONNET)):
+def pool_checks(results_path, results, runs, judges=gates.JUDGES):
     """The smoke pool holds every completed run and both anchors, rated by every one of the smoke's `judges` (named
     "both" for two), with hidden results, and its ratings bound to the judged patches."""
     clones = results["clones"].values()

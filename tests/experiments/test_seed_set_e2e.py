@@ -523,6 +523,74 @@ def test_offline_the_luna_smoke_runs_no_claude_arm(luna_world):
     assert spend.starts(spend.rows(luna_world.study.ledger)) == []
 
 
+def plan_with(world, **keys):
+    """Rewrite the stand-ins' plan with `keys` added; return the plan as it was."""
+    plan = json.loads(Path(world.plan).read_text())
+    Path(world.plan).write_text(json.dumps(plan | keys))
+    return plan
+
+
+def test_offline_a_luna_smoke_incident_fails_its_check_and_stops_nothing(luna_world, monkeypatch):
+    """Ruling L-R9: an incident in the Luna smoke (here a session that ran at another effort) fails that smoke; the
+    10% incident stop counts the study's tranches only, so a Haiku smoke start is still allowed."""
+    s = luna_world.study
+    plan = plan_with(luna_world, rollout_effort="high")
+    study.candidates(s, LUNA_TRANCHE, "direct_luna", [SMOKE])
+    Path(luna_world.plan).write_text(json.dumps(plan))
+    study.candidates(s, LUNA_TRANCHE, "retry_until_check_luna", [SMOKE])
+    row = finish_luna_smoke(luna_world)
+    monkeypatch.setenv(spend.AUTHORIZATION, "smoke")
+    study.candidates(s, "smoke", "direct", [SMOKE])
+    assert (row["passed"], "every_program_ran_without_incident" in failed_checks(row),
+            spend.latest(spend.rows(s.ledger), "stop"), [r["model"] for r in spend.starts(spend.rows(s.ledger))
+                                                         if r["tranche"] == "smoke"]) == (False, True, None, [H])
+
+
+def test_offline_a_forbidden_model_in_a_luna_smoke_unit_stops_the_study(luna_world):
+    s = luna_world.study
+    plan_with(luna_world, rollout_model="gpt-6.1-sol")
+    luna_unit(luna_world)
+    with pytest.raises(SystemExit, match="the study is stopped"):
+        study.candidates(s, LUNA_TRANCHE, "retry_until_check_luna", [SMOKE])
+    assert spend.latest(spend.rows(s.ledger), "stop")["reason"].startswith("forbidden model")
+
+
+def test_offline_both_smokes_on_the_smoke_task_keep_their_runs_apart_and_both_pass(luna_world, monkeypatch):
+    """Each smoke's pool on the shared smoke task holds only its own tranche's runs (and the anchors)."""
+    s = luna_world.study
+    for tranche in rules.SMOKE_POOLS:
+        monkeypatch.setenv(spend.AUTHORIZATION, tranche)
+        for arm in layout.PLANNED[tranche]:
+            study.candidates(s, tranche, arm, [SMOKE])
+    tranche_of = {str(path.parent): json.loads(path.read_text())["tranche"] for path in study.study_runs(s)}
+    held, passed = {}, {}
+    for tranche, kind in rules.SMOKE_POOLS.items():
+        monkeypatch.setenv(spend.AUTHORIZATION, tranche)
+        study.build_pools(s, tranche, kind, [SMOKE])
+        study.judge(s, tranche, kind, [SMOKE])
+        study.summarize_pools(s, kind, [SMOKE])
+        results = json.loads((s.results / "pools" / f"{SMOKE}-{kind}" / "results.json").read_text())
+        held[tranche] = {tranche_of.get(clone["run"], clone["arm"]) for clone in results["clones"].values()}
+        passed[tranche] = rules.smoke_check(s, tranche)["passed"]
+    assert (held, passed) == ({"smoke": {"smoke", "anchor"}, LUNA_TRANCHE: {LUNA_TRANCHE, "anchor"}},
+                              {"smoke": True, LUNA_TRANCHE: True})
+
+
+def test_offline_the_calibration_readout_reads_no_luna_pool(luna_world):
+    """The Luna smoke's summarized pool, even one whose ratings no longer bind to its patches, leaves the
+    calibration's readout as it is without it."""
+    s = luna_world.study
+    for arm in layout.PLANNED[LUNA_TRANCHE]:
+        study.candidates(s, LUNA_TRANCHE, arm, [SMOKE])
+    finish_luna_smoke(luna_world)
+    luna = s.results / "pools" / f"{SMOKE}-{layout.LUNA_POOL}"
+    next((luna / "patches").glob("*.diff")).write_text("another patch\n")  # a binding failure, were it read
+    choose(s, ["a0a0a0a0a0"])
+    with_luna = study.write_readout(s)
+    shutil.rmtree(luna)
+    assert study.write_readout(s) == with_luna
+
+
 def test_offline_a_luna_unit_settles_with_its_fix_scan_and_session_audit_clean(luna_world):
     """Luna plan T7: one Luna unit behind the real shims, sandbox and model guard, the stand-in `codex` answering."""
     records, facts = luna_unit(luna_world)

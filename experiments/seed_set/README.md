@@ -100,8 +100,11 @@ both anchors, scored by one `claude-haiku-5-5` judge call. Its caps are in `spen
 Haiku judge call). Its priced ceiling (`ceiling_usd.luna_smoke`) and Luna's per-call worst case and largest call
 (`per_call_usd` and `largest_call_usd` for `gpt-6-luna`) are criterion terms set at the freeze, with the Codex pin
 in `spend.cli`. A criterion without the ceiling still freezes for the three other tranches, and a Luna smoke start
-then refuses (`rules.bounded`, `layout.spend_terms`). The authorization, the freeze, the stops, the pause rules and
-the login guards (Codex for the candidates, Claude for the judge) are those of every tranche.
+then refuses (`rules.bounded`, `layout.spend_terms`). The authorization, the freeze, the pause rules and the login
+guards (Codex for the candidates, Claude for the judge) are those of every tranche, and so are the study's stops for
+a forbidden model, three contaminated tasks, too little free disk and a `stop:` decision of the calibration's readout.
+The incident stop is not: an incident in the Luna smoke fails its check and stops nothing (ruling L-R9), since the
+10% rule counts the incidents of the smoke, the probe and the calibration only (`layout.STUDY_TRANCHES`).
 
 ```
 SEED_SET_AUTHORIZED_TRANCHE=luna_smoke python -m experiments.seed_set.study candidates --tranche luna_smoke --arm direct_luna TASK
@@ -118,10 +121,11 @@ naming only the Haiku judge (`results/luna_smoke-criterion.json`, `layout.pool_c
 the criterion's judges to be the pool's. `smoke-check --tranche luna_smoke` is the smoke's check with one judge: every
 planned unit settled, none cut by a usage limit and none an incident; the bound model and effort on every call and
 in every rollout, no forbidden model; scans clean or cleared by a verdict; the judge's rating and a hidden result
-on every clone; no pause of the Codex starts (a credit balance) that one of its units recorded or that is open; and
-every run's metering completeness recorded (the values are in the row). It records a `luna_smoke` event, pass or
+on every clone; and no pause of the Codex starts (a credit balance) that one of its units recorded or that is open.
+Each run's metering completeness is recorded in the row and decides nothing. It records a `luna_smoke` event, pass or
 fail, which stays; the `smoke` event the probe and the calibration require is the Claude smoke's alone, so the
-Luna smoke gates none of the three other tranches. A cut slot is not run again, as in the smoke.
+Luna smoke gates none of the three other tranches, and the calibration's readout reads no `luna` pool. A cut slot
+is not run again, as in the smoke.
 
 ## Usage limits and paid extra usage
 
