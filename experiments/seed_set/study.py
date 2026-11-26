@@ -14,9 +14,12 @@
                                                           runs: rerunning `probe` recovers those)
   study.py pool --tranche T --kind first|retest TASK ...  one blind pool per task: its usable runs and both anchors
                                                           (once more, from the same records, after a usage limit);
-                                                          `--tranche luna_smoke --kind luna`: the Luna smoke's pool
+                                                          `--tranche luna_smoke --kind luna`: the Luna smoke's pool;
+                                                          `--tranche seed_evaluation --kind seed`: two batches,
+                                                          each with both anchors (`seed_pool`)
   study.py judge --tranche T --kind first|retest TASK ... the tranche's judges one after another; verify-pool; scan;
-                                                          audit (both judges; the Luna smoke's one Haiku judge)
+                                                          audit (both judges; the Luna smoke's one Haiku judge; a
+                                                          seed pool's selected judge alone, one call a batch)
   study.py summarize --kind first|retest TASK ...         summarize.py behind the no-provider stubs; records kept in
                                                           results/pools/<task>-<kind>/ (or its incident); clones gone
   study.py smoke-check [--tranche luna_smoke]             the smoke's mechanical checklist, pass or fail, in the ledger
@@ -602,17 +605,31 @@ def seed_batches(usable, arms, task_index):
     return [batch for batch in batches if batch]
 
 
+def seed_pool(study, task, criterion, out, judges, runs):
+    """`pool.pool` for a seed pool (Step 3, "Judging"): the runs' mapping rows and usable runs (`pool.pool_runs`) and
+    `seed_batches`' two batches, dealt by the task's place in the seed task list, go to `pool.write_pool`, which adds
+    both anchors to each batch and keeps each batch's clone ids in mapping.json (`summarize` copies it beside the
+    pool's results, where the seed readout groups the records by batch). Refuses a pool without a usable run."""
+    records = {str(Path(r).resolve()): load(Path(r) / "record.json") for r in runs}
+    rows, usable = pooling.pool_runs(records)
+    index = tranche_tasks(study, layout.SEED_EVALUATION).index(Path(task).name)
+    if not (batches := seed_batches(usable, list(load_arms(study)), index)):
+        raise SystemExit("no completed, uncontaminated run to pool")
+    return pooling.write_pool(task, criterion, out, judges, next(iter(records.values())), rows, batches)
+
+
 @exclusive
 def build_pools(study, tranche, kind, tasks):
-    """One pool per task from its collected, scanned runs that are not incidents; both anchors join the batch. The
-    pool's judges are the tranche's (`layout.tranche_judges`), under the criterion of its kind
-    (`layout.pool_criterion`)."""
+    """One pool per task from its collected, scanned runs that are not incidents; both anchors join each batch: one
+    batch (`pool.pool`), or a seed pool's two (`seed_pool`). The pool's judges are the tranche's
+    (`layout.tranche_judges`), under the criterion of its kind (`layout.pool_criterion`)."""
     probe_only(tranche)
     layout.require_pool_kind(tranche, kind)
     require_tasks(study, tranche, tasks, kind)
     load_criterion(study)
     criterion, judges = layout.pool_criterion(study, kind), layout.tranche_judges(tranche)
     pooled = {task: runs_to_pool(study, task, kind) for task in dict.fromkeys(tasks)}
+    compose = functools.partial(seed_pool, study) if kind == layout.SEED_POOL else pooling.pool
     rules.refuse_unadjudicated([rules.adjudication_command(run) for task, runs in pooled.items()
                                 if pool_target(study, task, kind) for run in runs], "pool")
     for task, runs in pooled.items():
@@ -622,8 +639,8 @@ def build_pools(study, tranche, kind, tasks):
             raise SystemExit(f"two pools still hold clones ({live_pools(study)}); summarize one first")
         out.parent.mkdir(parents=True, exist_ok=True)
         try:  # each judge on the study's own metered providers file (the harness's binds the plain template)
-            pooling.pool(task_dir(study, task), criterion, out,
-                         [f"{judge}={study.programs / JUDGE_PROVIDERS}" for judge in judges], runs)
+            compose(task_dir(study, task), criterion, out,
+                    [f"{judge}={study.programs / JUDGE_PROVIDERS}" for judge in judges], runs)
         except SystemExit as error:  # e.g. every run failed: the task's runs still count, its anchors are missing
             shutil.rmtree(out, ignore_errors=True)
             pool_incident(study, task, kind, f"not pooled: {error}")
@@ -933,8 +950,9 @@ def parser():
         if name == "candidates":
             command.add_argument("--arm", required=True)
         else:
-            command.add_argument("--kind", choices=("first", "retest", layout.LUNA_POOL), required=True,
-                                 help=f"{layout.LUNA_POOL}: the Luna smoke's pool")
+            command.add_argument("--kind", choices=("first", "retest", layout.LUNA_POOL, layout.SEED_POOL),
+                                 required=True, help=f"{layout.LUNA_POOL}: the Luna smoke's pool; {layout.SEED_POOL}: "
+                                 "the seed evaluation's two-batch pools")
         command.add_argument("tasks", nargs="+")
     sub.add_parser("settle").add_argument("runs", nargs="+", help="records directories")
     for name in ("probe-readout", "early-look", "readout", "seed-tasks", "ledger"):

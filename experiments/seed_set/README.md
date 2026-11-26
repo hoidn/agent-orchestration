@@ -146,7 +146,15 @@ The tranche `seed_evaluation` (plan Step 3; the
   calibration purpose or block (`layout.load_seed_criterion`). It is untracked in the runtime like the other
   criterion files, and once `criterion.json` names its sha256 under `sha256`, every start refuses after an edit to
   it, as for `judge-calibration.json`.
-- **Its pools** are of their own kind, `seed`, and the tranche builds no other kind.
+- **Its pools** are of their own kind, `seed` (`<pools>/<task>/seed`, `results/pools/<task>-seed`), hold the seed
+  evaluation's runs alone, and the tranche builds no other kind. `pool --tranche seed_evaluation --kind seed`
+  deals each arm's usable runs alternately into two batches of at most eight (`study.seed_batches`; the first batch
+  of the deal alternates by the task's place in the seed task list) and gives each batch both anchors
+  (`study.seed_pool`, through the harness's `pool.write_pool`); more than 16 usable runs make the pool an incident.
+  The blinding scan, the incident rules, the two live pools and the disk check are those of every pool.
+  `judge --kind seed` runs the selected judge alone (the tranche's caps name only it), one call a batch, so it
+  reserves two calls; `summarize --kind seed` keeps the pool's `mapping.json`, whose `batches` name each batch's
+  clones, beside its `results.json`.
 
 ## Usage limits and paid extra usage
 

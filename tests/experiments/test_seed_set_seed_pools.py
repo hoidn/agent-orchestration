@@ -624,6 +624,12 @@ def test_retry_runs_on_the_first_six_survivors_and_every_other_arm_on_all(tmp_pa
         "implement_review_revise": SURVIVORS}
 
 
+@pytest.mark.parametrize("command", [["pool", "--tranche", layout.SEED_EVALUATION], ["judge", "--tranche",
+                                     layout.SEED_EVALUATION], ["summarize"]])
+def test_pool_judge_and_summarize_take_the_seed_kind(command):
+    assert study.parser().parse_args([*command, "--kind", layout.SEED_POOL, "t00"]).kind == layout.SEED_POOL
+
+
 def test_a_retry_start_beyond_the_first_six_survivors_is_refused(tmp_path):
     s = calibrated(tmp_path)
     study.write_seed_tasks(s)
