@@ -287,7 +287,7 @@ Haiku-bound run or judge is a non-clearable hit; the pin is the bound model.
 **1c. Programs (1 day), `experiments/seed_set/programs/`,** in the layout and
 `run((task) (intent) (repo)) -> Outcome` contract of the seed catalog
 (`experiments/orc_structural_search/seeds/`), target 2.39, every call
-`claude-haiku-5-5`, `:timeout-sec 1200`, effort `medium` (bound explicitly:
+`claude-haiku-5-5`, `:timeout-sec 2400` (ruling R19; 1,200 until then), effort `medium` (bound explicitly:
 the vendor's defaults differ). Drafts of the three new ones compiled while
 planning; a loop iteration is its own effect identity, so a retry is a new
 call.
@@ -549,8 +549,8 @@ anchors; each arm's runs are dealt alternately into the batches, so a batch
 shift cancels in arm differences. If reference minus base falls under 4 in
 more than three of the 32 batches, no quality claim is made.
 
-**Envelope and scoring.** 1,200 s per call, `COMPARE_MAX_CALLS` 1 or 3,
-3,600 s per run. Every candidate prompt states the call's 20 minutes (ruling R17). A failed run or a timeout scores 0; a provider or sandbox
+**Envelope and scoring.** 2,400 s per call (ruling R19), `COMPARE_MAX_CALLS` 1 or 3;
+a run's wall-clock limit is its calls' limits plus 600 s (3,000 s for one call, 7,800 s for three). Every candidate prompt states the call's 40 minutes (rulings R17 and R19). A failed run or a timeout scores 0; a provider or sandbox
 incident is resumed once with `resume.sh`, then excluded and listed. Quality
 `q` is the mean over tasks of the per-task mean score, with the hidden pass
 rate beside it. Cost `c` is mean provider calls per run, admissible because

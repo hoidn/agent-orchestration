@@ -99,9 +99,9 @@ ten repositories), so the kit composes the two batches itself and calls `pool.wr
 batch; a missing batch counts as under 4, and with fewer than 16 survivors the bound is the proportion 3 of 32
 (Q3).
 
-**Envelope.** "1,200 s per call, `COMPARE_MAX_CALLS` 1 or 3, 3,600 s per run. Every candidate prompt states the
-call's 20 minutes (ruling R17)." The kit's per-unit limit is `study.unit_sec` (1,800 s for one call, 4,200 s for
-three), not 3,600 s (Q9). The prompts already state the limit.
+**Envelope.** 2,400 s per call (the seed-set plan's ruling R19), `COMPARE_MAX_CALLS` 1 or 3; every candidate prompt
+states the call's 40 minutes. The kit's per-unit limit is `study.unit_sec` (3,000 s for one call, 7,800 s for
+three) (Q9). The prompts already state the limit.
 
 **Incidents.** "A failed run or a timeout scores 0; a provider or sandbox incident is resumed once with
 `resume.sh`, then excluded and listed." The kit disables every `resume.sh` and `spend.reserve` refuses a unit
@@ -269,7 +269,7 @@ post-calibration freeze and do not change after the first seed start.
 | Q6 | Rules 2 and 3 for retry, which runs on six tasks | Compare on the tasks the arm shares with direct that have at least three usable direct runs (all of them for the other arms, as far as direct has them) | `q_direct` over 16 tasks against retry over six compares different tasks | Retry's `q` rests on six tasks; its interval is wider |
 | Q7 | Rule 4's priced tokens with cut calls priced at the worst case (ruled) | Applied at two bounds: every run with cut calls at the per-call worst case, and metered runs only (no missing usage); an arm passes only if it passes at both; both figures are reported, cut runs' cost apart. Reading partial usage from a cut session is not built | A cut call's placeholder is about 25 times a metered Haiku call (USD 0.0131 to 0.0211); either bound alone could pass an arm the other fails | An arm near the line fails on whichever bound is worse |
 | Q8 | The disk floor in code (ruled) | C3: the 50 GB start floor on the work root's filesystem, the 20 GB stop elsewhere as written, `tree_bytes` recorded | R18 is an operator rule today; a start during another unit's peak could end the tranche | The tranche waits rather than stops; long waits meet more login refreshes |
-| Q9 | "3,600 s per run" | Keep `study.unit_sec` (1,800 s and 4,200 s) and correct the seed-set plan's text by a ledger row there | It is what the smoke and calibration ran under, and the login guard is computed from it | A three-call run may run 10 minutes past the plan's figure |
+| Q9 | "3,600 s per run" | Keep `study.unit_sec` (3,000 s and 7,800 s at the 2,400 s call limit of ruling R19); the seed-set plan's text now says so | It is what the smoke and calibration ran under, and the login guard is computed from it | A three-call run may run 10 minutes past the plan's figure |
 | Q10 | The seed qualification of `plan_implement_review.orc` | Out of this apparatus | The program does not exist, is not authorized and is not in the Budget table's 420; it also needs a third judge batch | It needs its own plan and approval; deferring it changes the request (see below) |
 | Q11 | Does implement-review-revise wait for the direct stage | Yes: every workflow starts after `visible-power` | "Direct runs first" names no exception; one checkpoint is simpler | Implement-review-revise starts later, days after direct (a stated limit) |
 | Q12 | `UNAUTHORIZED` until the owner's approval | Keep; the rehearsal sets the authorization in its own process until D2 | The plan says not authorized; a code path that could start it before the approval is worse than a later rehearsal | The frozen rehearsal comes after the approval |
@@ -296,7 +296,7 @@ recommendation where one is given.
   seed-evaluation budget"; deferring it, as this apparatus does, changes the request.
 - **Q1, Q2 and Q9 as they will be frozen:** the visible-check rate over runs whose patch the host check ran on; an
   incident relaunched once as a new unit, not resumed, and only inside the cap's room; the kit's per-unit limits of
-  1,800 s and 4,200 s in place of "3,600 s per run".
+  3,000 s and 7,800 s (2,400 s a call, ruling R19 of the seed-set plan).
 - **Disk.** No candidate start while the work root's filesystem has under 50 GB free (Q8); `/home` needs room first
   (on 2026-11-25 it had 24 to 27 GB free; lowering the root reserve needs the owner's `sudo`).
 
