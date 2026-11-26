@@ -338,6 +338,11 @@ def test_rule_4_passes_an_arm_within_the_limit_at_both_priced_bounds():
     assert selection.rules("implement_check_repair", candidate, direct, REROLLED)["4_cost"] is True
 
 
+@pytest.mark.parametrize("value, within", [(0.030009, True), (0.03001, False)])
+def test_rule_4_reads_priced_usd_in_its_recorded_decimals(value, within):
+    assert selection.within_cost(value, 0.010003) is within  # in binary floats 0.030009 is above 3 x 0.010003
+
+
 def run(task="t0", outcome="completed", calls=1, score=0, **facts):
     """A run's study.json facts as the selection functions read them, with the caller's `score`."""
     return {"task": task, "outcome": outcome, "calls": calls, "score": score, **facts}

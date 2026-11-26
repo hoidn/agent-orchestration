@@ -12,7 +12,7 @@ counted (code, comments, blank lines); the shared `common.orc` is exempt but fro
 Every comparison with a threshold is exact (coordinator decision on floats in this module: exact Fractions, as the
 kit's ruling on B1, 2026-11-12, requires): `rerolls` and `baselines` take whole-number scores and return
 `fractions.Fraction` means, every figure compared with a line must be an int or a Fraction (`exact` refuses a float;
-priced USD, a measurement, is taken at its exact value), and `TAU_Q`, `COST_LIMIT`,
+priced USD, a measurement, is taken at its exact recorded decimals, `usd`), and `TAU_Q`, `COST_LIMIT`,
 `COMPLETION` and `DISTINCTIVE` are Fractions, so a figure exactly at a line meets it. `bootstrap` and the
 dominance test stay in floats (display only; `pareto.dominates` takes int or float tolerances); callers convert
 Fractions to floats for JSON and display (`readout.plain`).
@@ -223,10 +223,17 @@ def cost_basis(arm, direct):
     return "calls" if same and nested <= NESTED else "priced_worst"
 
 
+def usd(value):
+    """A priced USD figure as an exact Fraction: a float through its recorded six decimals (`units.priced` and the
+    `settle` event round to 1e-6 USD), so a figure exactly at a line in those decimals meets it; an int or a Fraction
+    as it is."""
+    return Fraction(f"{value:.6f}") if isinstance(value, float) else Fraction(value)
+
+
 def within_cost(value, reference):
     """Rule 4's limit on one cost figure (vacuous when either side has none); priced USD is a measurement and is
-    taken at its exact value."""
-    return value is None or reference is None or Fraction(value) <= COST_LIMIT * Fraction(reference)
+    taken at its exact recorded value (`usd`)."""
+    return value is None or reference is None or usd(value) <= COST_LIMIT * usd(reference)
 
 
 def rules(name, arm, direct, rerolled):

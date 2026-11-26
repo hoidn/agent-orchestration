@@ -115,14 +115,22 @@ def tranches_pooled(s, kind):
     return sorted(load(path / "study.json")["tranche"] for path in study.runs_to_pool(s, "t0", kind))
 
 
+EVERY_TRANCHE = ["calibration", "redraw", "smoke", layout.SEED_EVALUATION, layout.LUNA_SMOKE, "extension"]
+
+
 def test_a_first_pool_holds_only_calibration_runs_beside_seed_runs_of_its_task(tmp_path):
-    s = fabricated_study(tmp_path, ["calibration", layout.SEED_EVALUATION, layout.LUNA_SMOKE, "calibration"])
-    assert tranches_pooled(s, "first") == ["calibration", "calibration"]
+    s = fabricated_study(tmp_path, EVERY_TRANCHE)
+    assert tranches_pooled(s, "first") == ["calibration", "redraw", "smoke"]
 
 
 def test_a_seed_pool_holds_only_seed_evaluation_runs(tmp_path):
-    s = fabricated_study(tmp_path, ["calibration", layout.SEED_EVALUATION, layout.LUNA_SMOKE])
+    s = fabricated_study(tmp_path, EVERY_TRANCHE)
     assert tranches_pooled(s, layout.SEED_POOL) == [layout.SEED_EVALUATION]
+
+
+def test_a_tranche_no_pool_kind_names_lands_in_no_pool(tmp_path):
+    s = fabricated_study(tmp_path, ["extension"])
+    assert [tranches_pooled(s, kind) for kind in ("first", "retest", layout.SEED_POOL, layout.LUNA_POOL)] == [[]] * 4
 
 
 def test_the_luna_pool_still_holds_only_the_luna_smokes_runs(tmp_path):
@@ -187,8 +195,8 @@ def seed_world(n=16, workflow=5):
     return w
 
 
-def seed_report(w):
-    return seeds.report(w["records"], w["pools"], w["runs"], J, w["tasks"], PROGRAMS, w["judges"])
+def seed_report(w, withheld=()):
+    return seeds.report(w["records"], w["pools"], w["runs"], J, w["tasks"], PROGRAMS, w["judges"], withheld=withheld)
 
 
 def anchor_record(w, task, role, b):
@@ -282,18 +290,102 @@ def test_seeds_json_after_a_failed_check_names_the_stop_and_lists_no_program():
     assert (out["stop"].startswith(seeds.NO_CLAIM), out["seeds"]) == (True, [])
 
 
-def make_incident(w, task, arm, k):
-    """A run the harness could not collect: an incident, with the unpooled record `study.unpooled_runs` makes."""
+def unpool(w, task, arm, k, facts, status, reason):
+    """Run `k` of `arm` on `task` with `facts` added and no clone: its record becomes one of `status` (an unpooled
+    or unrated run's record, as `gates.pool_records` or `study.unpooled_runs` make it)."""
     path = f"/w/{task}/{arm}/run-{k}"
-    w["runs"][path] |= {"incident": "provider: error", "outcome": None}
+    w["runs"][path] |= facts
     clone = f"{task}-{arm}-{k}"
     next(r for r in w["records"] if r["run"] == path).update(clone=None, patch=None, hidden=None, scores={},
-                                                             status="incident", reason="provider: error")
+                                                             status=status, reason=reason)
     for pool in w["pools"]:
         for batch in pool.get("batches", []):
             if clone in batch:
                 batch.remove(clone)
     return path
+
+
+def make_incident(w, task, arm, k):
+    """A run the harness could not collect: an incident."""
+    return unpool(w, task, arm, k, {"incident": "provider: error", "outcome": None}, "incident", "provider: error")
+
+
+def make_failed(w, task, arm, k, code):
+    """A run that failed with failure `code`: it scores 0."""
+    return unpool(w, task, arm, k, {"outcome": "failed", "failure": {"code": code}}, "failed", code)
+
+
+def test_an_incidents_left_out_row_gives_its_incident_as_the_reason():
+    w = seed_world()
+    make_incident(w, "t00", "direct", 2)
+    assert [row["why"] for row in seed_report(w)["left_out"]] == ["provider: error"]
+
+
+def test_a_contaminated_run_leaves_the_denominators_and_is_listed():
+    w = seed_world()
+    path = unpool(w, "t00", "implement_check_repair", 0, {}, "excluded", "contaminated: fix hash")
+    result = seed_report(w)
+    arm = result["arms"]["implement_check_repair"]
+    assert (arm["runs"], arm["completed"], result["left_out"]) == (47, 1.0, [
+        {"run": path, "task": "t00", "arm": "implement_check_repair", "why": "contaminated: fix hash"}])
+
+
+def test_an_observed_failed_run_that_no_record_holds_is_refused():
+    w = seed_world()
+    path = make_failed(w, "t00", "direct", 0, "wall_clock_timeout")
+    w["records"] = [r for r in w["records"] if r["run"] != path]
+    with pytest.raises(SystemExit, match="no record holds"):
+        seed_report(w)
+
+
+def test_a_wall_clock_timeout_counts_as_a_cut():
+    w = seed_world()
+    make_failed(w, "t00", "implement_check_repair", 0, "wall_clock_timeout")
+    assert seed_report(w)["arms"]["implement_check_repair"]["cut"]["runs"] == 1
+
+
+def test_q_is_a_mean_over_tasks_of_per_task_means_not_over_runs():
+    w = seed_world()
+    make_incident(w, "t00", "implement_check_repair", 0)  # t00 keeps two runs, scored 8; the other tasks three at 5
+    for r in w["records"]:
+        if r["arm"] == "implement_check_repair" and r["task"] == "t00" and r["status"] == "rated":
+            r["scores"][J] = 8
+    assert seed_report(w)["arms"]["implement_check_repair"]["q"] == (8 + 15 * 5) / 16
+
+
+def test_a_pool_never_summarized_is_lost_and_its_failed_runs_are_not_scored():
+    w = seed_world()
+    w["pools"] = [p for p in w["pools"] if p["task"] != "t15"]
+    w["records"] = [r for r in w["records"] if r["task"] != "t15"]
+    failed = "/w/t15/direct/run-0"
+    w["runs"][failed] |= {"outcome": "failed", "failure": {"code": "provider_timeout"}}
+    w["records"].append({"task": "t15", "pool": layout.SEED_POOL, "role": "candidate", "arm": "direct", "model": J,
+                         "run": failed, "clone": None, "patch": None, "hidden": None, "scores": {}, "status": "failed",
+                         "reason": None})
+    result = seed_report(w)
+    assert ("t15" in result["arms"]["direct"]["tasks"], result["missing_pools"]) == (False, {"t15": "not summarized"})
+
+
+def test_the_hidden_pass_rate_leaves_out_the_runs_of_a_task_whose_pool_is_an_incident():
+    w = seed_world()
+    make_pool_incident(w, "t15")
+    assert seed_report(w)["arms"]["direct"]["hidden"] == 60 / 90
+
+
+def test_a_retry_run_that_did_not_complete_on_a_task_whose_pool_is_an_incident_fails_parity():
+    w = seed_world()
+    make_pool_incident(w, "t00")  # retry runs on the first six tasks
+    w["runs"]["/w/t00/retry_until_check/run-0"] |= {"outcome": "failed", "failure": {"code": "provider_timeout"}}
+    parity = seed_report(w)["arms"]["retry_until_check"]["parity"]
+    assert (parity["completes"], parity["passed"]) == (False, False)
+
+
+def test_an_arm_at_exactly_three_times_directs_priced_cost_in_the_recorded_decimals_passes_rule_4():
+    w = seed_world()
+    for facts in w["runs"].values():
+        if facts["arm"] in ("direct", "implement_check_repair"):
+            facts["priced"] = {"usd": 0.010003 if facts["arm"] == "direct" else 0.030009, "missing": []}
+    assert seed_report(w)["selection"]["arms"]["implement_check_repair"]["rules"]["4_cost"] is True
 
 
 def test_a_run_left_out_as_an_incident_is_listed_and_not_scored():
@@ -413,10 +505,26 @@ def test_judge_calls_and_their_priced_cost_are_reported_apart():
         {"units": 16, "calls": 32, "priced_usd": 8.0, "missing_usage": 0}, 0.25)
 
 
-def test_the_withheld_arms_are_reported_as_not_run():
-    w = seed_world()
-    w["runs"] = {p: f for p, f in w["runs"].items() if f["arm"] not in ("retry_until_check", "implement_check_repair")}
-    assert seed_report(w)["not_run"] == ["retry_until_check", "implement_check_repair"]
+CHECK_ARMS = ("retry_until_check", "implement_check_repair")  # what the checkpoint withholds without selecting power
+
+
+def without(w, arms):
+    """`w` with no run and no record of `arms`, as when they never started."""
+    w["runs"] = {p: f for p, f in w["runs"].items() if f["arm"] not in arms}
+    w["records"] = [r for r in w["records"] if r["arm"] not in arms]
+    return w
+
+
+def test_with_the_check_arms_withheld_and_implement_review_revise_run_the_report_is_made():
+    result = seed_report(without(seed_world(), CHECK_ARMS), withheld=CHECK_ARMS)
+    assert (result["withheld"], result["selection"]["seeds"]) == (list(CHECK_ARMS),
+                                                                  ["direct", "implement_review_revise"])
+
+
+def test_a_report_before_the_workflow_arms_have_run_is_refused_naming_them():
+    w = without(seed_world(), ARMS[1:])
+    with pytest.raises(SystemExit, match="implement_review_revise"):
+        seed_report(w, withheld=CHECK_ARMS)
 
 
 def test_an_observed_run_without_its_settled_facts_is_refused():

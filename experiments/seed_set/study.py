@@ -556,18 +556,20 @@ def pool_to_build(study, task, kind):
     return out
 
 
-OWN_TRANCHE = {layout.LUNA_POOL: layout.LUNA_SMOKE, layout.SEED_POOL: layout.SEED_EVALUATION}  # pool kind: tranche
+CALIBRATION_POOLED = ("smoke", "calibration", "redraw")  # a probe (redraw) run of a chosen task is a calibration run
+POOLED = {"first": CALIBRATION_POOLED, "retest": CALIBRATION_POOLED, layout.LUNA_POOL: (layout.LUNA_SMOKE,),
+          layout.SEED_POOL: (layout.SEED_EVALUATION,)}  # pool kind: the tranches whose runs it takes
 
 
 def runs_to_pool(study, task, kind="first"):
-    """The task's collected, scanned runs that are neither incidents nor cut by a usage limit, of the pool kind's own
-    tranche (`OWN_TRANCHE`): the Luna smoke's alone for its pool (`layout.LUNA_POOL`), the seed evaluation's alone
-    for a seed pool (`layout.SEED_POOL`), and for a first or retest pool neither of those (hazard e of the seed
-    evaluation apparatus plan: tranches kept apart)."""
-    def own(tranche):
-        return tranche == OWN_TRANCHE[kind] if kind in OWN_TRANCHE else tranche not in OWN_TRANCHE.values()
+    """The task's collected, scanned runs that are neither incidents nor cut by a usage limit, of the tranches the
+    pool kind takes (`POOLED`, an allowlist): the smoke's, the calibration's and the probe's for a first or retest
+    pool, the Luna smoke's alone for its pool (`layout.LUNA_POOL`), the seed evaluation's alone for a seed pool
+    (`layout.SEED_POOL`); a tranche no kind names lands in no pool (hazard e of the seed evaluation apparatus plan:
+    tranches kept apart)."""
     return [path.parent for path in counted_runs(study) if (facts := load(path))["task"] == task
-            and "scan_hits" in facts and "incident" not in facts and "cut" not in facts and own(facts["tranche"])]
+            and "scan_hits" in facts and "incident" not in facts and "cut" not in facts
+            and facts["tranche"] in POOLED[kind]]
 
 
 SEED_BATCH = 8  # a seed pool's batch: at most eight candidates plus the two anchors (Step 3, "Judging")
