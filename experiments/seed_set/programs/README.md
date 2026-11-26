@@ -20,16 +20,20 @@ rule enforce it. `common.orc` is not counted but may define only the shared `Cha
 
 **Model and effort** are workflow inputs, not program text. `arms.json` binds
 them per arm (`claude-haiku-5-5`, `medium`; the calibration arm `direct_sonnet`
-is `direct.orc` with `claude-sonnet-5-5`) together with the source, entry and
-maximum calls; the runner passes them in `inputs.json` (`--set model=...
+is `direct.orc` with `claude-sonnet-5-5`, and `direct_luna` is `direct.orc` with
+`gpt-6-luna`, which no authorized tranche plans) together with the source, entry
+and maximum calls; the runner passes them in `inputs.json` (`--set model=...
 --set effort=...` through `prepare.run_arm`).
 
 **Providers.** `providers.json` binds both aliases to `claude_unrestricted_workspace_metered`, and
-`judge.providers.json` binds the judge route (`score_functional.orc`'s `providers.judge`) to it as well; the
-harness's shared `score.providers.json` keeps the plain template. The metered template prints stream-json, so the
-runner prices every call's usage by the frozen price table and the runtime can take `--max-cost-usd` (coordinator
-ruling R4, 2026-11-14): the unit's worst case times the table's highest tier over its ordinary rate for the model,
-since the runtime counts every call at the highest tier (review 3 X3).
+`providers.codex.json` binds them to `codex_unrestricted_workspace_metered` (`codex exec --json … --model M --config
+model_reasoning_effort=E`) for an arm whose model the Codex CLI runs (`spend.CLI`; the runner picks the file by it,
+`study.PROVIDERS`); `judge.providers.json` binds the judge route (`score_functional.orc`'s `providers.judge`) to the
+Claude one; the harness's shared `score.providers.json` keeps the plain template. The metered templates print their
+CLI's JSON stream (stream-json; Codex's `exec --json`), so the runner prices every call's usage by the frozen
+price table and the runtime can take `--max-cost-usd` (coordinator ruling R4, 2026-11-14): the unit's worst case
+times the table's highest tier over its ordinary rate for the model, since the runtime counts every call at the
+highest tier (review 3 X3).
 
 **Boundaries.** `dev_check.py` (the visible check, a copy of the structural
 search catalog's) and `reset_clone.py` (hard reset to the harness's
@@ -49,7 +53,10 @@ unit's whole private home: every session-shaped `.jsonl` must sit under the unit
 may be no more top-level sessions than physical calls, and any model outside the binding stops the study. It
 cannot see a session written inside the unit's tree or its `/tmp` (indistinguishable from the repository's own
 test fixtures), a session kept only in memory (`/dev/shm`, `--no-session-persistence`), or a direct API request
-made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS` remain the bound there.
+made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS` remain the bound there. A Codex
+unit's audit (`units.audit_rollouts`) reads its rollouts instead: each must work under the unit's tree, carry an id
+and a turn context naming the arm's model and effort, there may be no more rollouts than physical calls, and every
+call that started a thread or completed a turn must have its thread's rollout.
 
 **Known limits** (coordinator rulings, 2026-11-12; recorded, not changed; the readout states each, `readout.LIMITS`):
 

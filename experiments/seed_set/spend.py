@@ -9,7 +9,11 @@ It holds starts and events. Every provider start goes through `reserve` before i
 - no `stop` event may be in the ledger (a stop rule fired: nothing more starts), and no `pause` event after the
   last `resume` (a usage limit, or a unit settled above its worst case, closed all starts: `resume_after_limit`
   reopens them after the vendor's named reset, with the owner's meter reading; coordinator ruling R2, 2026-11-14);
-- the model must be one of the two exact Claude IDs (no fallback, no alias, never Fable);
+  a pause that names a `cli` (a credit balance on the ChatGPT account, ruling L-R7 of the Luna plan) closes only
+  the starts of that CLI's models, and the same `resume_after_limit` reopens it;
+- the model must be one of the study's exact IDs (`MODELS`: the two Claude IDs and `gpt-6-luna`, run by the Codex
+  CLI, `CLI`; no fallback, no alias, never Fable); a model a tranche has no cap for is refused by the cap (Luna in
+  every tranche the plan's ledger authorizes today);
 - the unit (a candidate run's records directory, or `<pool>#<judge>`) must not be in the ledger already: a unit
   is launched once, never retried or relaunched;
 - the calls reserved so far for (tranche, kind, model) plus this unit's maximum must stay within the cap, and with
@@ -36,8 +40,9 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-HAIKU, SONNET = "claude-haiku-5-5", "claude-sonnet-5-5"
-MODELS = (HAIKU, SONNET)
+HAIKU, SONNET, LUNA = "claude-haiku-5-5", "claude-sonnet-5-5", "gpt-6-luna"
+CLI = {HAIKU: "claude", SONNET: "claude", LUNA: "codex"}  # the CLI that runs each model (`calls/<n>/provider.txt`)
+MODELS = tuple(CLI)
 AUTHORIZATION = "SEED_SET_AUTHORIZED_TRANCHE"
 LEDGER = Path("~/.local/state/seed-set/spend-ledger.jsonl")  # expanded against $HOME when used
 # Provider calls per tranche, kind and model, as the plan's Budget table and its 2026-11-11 ledger rows authorize
@@ -57,8 +62,13 @@ def ledger_path():
     return LEDGER.expanduser()
 
 
+def capped():
+    """The models some tranche of `CAPS` has calls for."""
+    return [model for model in MODELS if any(caps.get(model) for kinds in CAPS.values() for caps in kinds.values())]
+
+
 def check_model(model):
-    """Refuse anything but the two exact Claude IDs the study binds."""
+    """Refuse anything but the exact IDs the study binds (`MODELS`)."""
     if model not in MODELS:
         raise SystemExit(f"model {model!r} is not one of the study's exact IDs {MODELS}; no fallback, never Fable")
 
@@ -117,12 +127,13 @@ def open_pauses(entries):
     return [row for row in events[resumed + 1:] if row["seq"] not in withdrawn]
 
 
-def refuse_closed(entries):
-    """Refuse a start after a stop, or while a usage limit has closed starts."""
+def refuse_closed(entries, model=None):
+    """Refuse a start after a stop, or while a pause has closed starts: a pause naming a `cli` (ruling L-R7) closes
+    only the starts of `model` when that CLI runs it, and never a check that names no model."""
     stop = latest(entries, "stop")
     if stop:
         raise SystemExit(f"the study is stopped ({stop['reason']}); nothing more starts")
-    if pauses := open_pauses(entries):
+    if pauses := [row for row in open_pauses(entries) if row.get("cli") in (None, CLI.get(model))]:
         raise SystemExit(closed_by(pauses[0]))
 
 
@@ -210,7 +221,7 @@ def check(ledger, tranche, kind, model, calls, environ=None):
     """Refuse a planned batch of `calls` that would not fit the cap; writes nothing."""
     authorize(tranche, environ)
     entries = rows(ledger)
-    refuse_closed(entries)
+    refuse_closed(entries, model)
     left = remaining(entries, tranche, kind, model)
     if calls > left:
         raise SystemExit(f"{tranche} {kind} {model}: {calls} calls planned but {left} of the cap remain")
@@ -245,7 +256,7 @@ def reserve(ledger, tranche, kind, model, calls, unit, environ=None, limit=None,
     if type(calls) is not int or calls < 1:
         raise SystemExit(f"a start reserves a positive whole number of calls, not {calls!r}")
     with locked(ledger) as (stream, entries):
-        refuse_closed(entries)
+        refuse_closed(entries, model)
         if any(row.get("unit") == str(unit) for row in entries):
             raise SystemExit(f"{unit} was already started; a unit is never retried or relaunched")
         if limit is not None and sum((row["tranche"], row.get("task"), row.get("arm"), row.get("step")) == (

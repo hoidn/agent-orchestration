@@ -99,7 +99,8 @@ def require_tasks(study, tranche, tasks, kind="first"):
 
 
 def load_arms(study):
-    """arms.json with every model one of the two exact IDs, effort medium and at most three calls."""
+    """arms.json with every model one of the study's exact IDs (`spend.MODELS`), effort medium and at most three
+    calls."""
     arms = load(study.programs / "arms.json")
     for name, arm in arms.items():
         spend.check_model(arm["model"])
@@ -120,18 +121,28 @@ def load_criterion(study):
 
 
 def spend_terms(study, tranche, model):
-    """(the tranche's priced ceiling, the model's per-call worst case, the CLI pin {"path", "version"}) from
-    criterion.json's "spend" block (coordinator rulings R4 and R5): {"ceiling_usd": {tranche: USD},
-    "per_call_usd": {model: USD}, "cli": {"path", "version"}}. The coordinator sets them at the freeze; there is no
-    default, and a start without them refuses."""
+    """(the tranche's priced ceiling, the model's per-call worst case, the pin {"path", "version"} of the CLI that
+    runs the model, `spend.CLI`) from criterion.json's "spend" block (coordinator rulings R4 and R5):
+    {"ceiling_usd": {tranche: USD}, "per_call_usd": {model: USD}, "cli": pins}, `pins` being {cli: {"path",
+    "version"}} or one {"path", "version"}, the Claude CLI's (the form frozen before the Codex CLI joined;
+    `cli_pin`). The coordinator sets them at the freeze; there is no default, and a start without them refuses."""
     terms = load(study.frozen).get("spend") or {}
     ceiling, per_call = (terms.get("ceiling_usd") or {}).get(tranche), (terms.get("per_call_usd") or {}).get(model)
-    cli = terms.get("cli")
+    cli = cli_pin(terms.get("cli"), spend.CLI.get(model))
     if not (positive(ceiling) and positive(per_call) and isinstance(cli, dict) and sorted(cli) == ["path", "version"]
             and all(isinstance(value, str) and value for value in cli.values())):
         raise SystemExit(f"{study.frozen} names no priced ceiling for {tranche}, per-call worst case for {model} or "
-                         "CLI pin (path and version) under \"spend\": the coordinator sets them at the freeze")
+                         f"{spend.CLI.get(model)} CLI pin (path and version) under \"spend\": the coordinator sets "
+                         "them at the freeze")
     return ceiling, per_call, cli
+
+
+def cli_pin(pins, name):
+    """The pin of CLI `name` in criterion.json's `spend.cli`: `pins[name]`, or `pins` itself when it is one pin (it
+    names a "path"), which is the Claude CLI's; None without one."""
+    if isinstance(pins, dict) and "path" in pins:
+        pins = {"claude": pins}
+    return pins.get(name) if isinstance(pins, dict) else None
 
 
 def positive(value):

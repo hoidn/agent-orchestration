@@ -26,6 +26,7 @@ current hash and the scoring path of the runtime's files in `anchor_stability.js
 rulings, 2026-11-12 and 2026-11-15). A second freeze after a start needs a reason, which the ledger keeps.
 """
 
+import os
 import shutil
 import subprocess
 import sys
@@ -124,16 +125,19 @@ def required_hashes(study):
         study.criterion.name: sha256_file(study.criterion)}
 
 
-def check_cli(declaration, pin):
-    """{"path", "version"} of the unit's Claude CLI when it is the pinned absolute path and answers `--version` with
-    the pinned version (coordinator ruling R5; the installed CLI updates itself); else refuse the start. The version
-    runs from the study's process with an empty home: no credential, no sandbox."""
-    path = load(declaration).get("claude")
+def check_cli(declaration, pin, cli="claude"):
+    """{"path", "version"} of the unit's `cli` ("claude" or "codex", `spend.CLI` of its model) when the unit
+    declaration names the pinned absolute path for it and it answers `--version` with the pinned version
+    (coordinator ruling R5; an installed CLI updates itself); else refuse the start. The version runs from the
+    study's process with an empty home: no credential, no sandbox. PATH is /usr/bin:/bin for Claude, and the
+    declaration's own `path` for Codex, whose launcher is a Node script."""
+    data = load(declaration)
+    path = data.get(cli)
     if path != pin["path"]:
-        raise SystemExit(f"the unit's Claude CLI {path} is not the pinned {pin['path']}: nothing starts")
+        raise SystemExit(f"the unit's {cli} CLI {path} is not the pinned {pin['path']}: nothing starts")
+    search = "/usr/bin:/bin" if cli == "claude" else os.pathsep.join(data["path"])
     with tempfile.TemporaryDirectory() as home:
-        done = subprocess.run([path, "--version"], env={"HOME": home, "PATH": "/usr/bin:/bin",
-                                                        "DISABLE_AUTOUPDATER": "1"},
+        done = subprocess.run([path, "--version"], env={"HOME": home, "PATH": search, "DISABLE_AUTOUPDATER": "1"},
                               capture_output=True, text=True, timeout=120)
     if done.returncode or done.stdout.strip() != pin["version"]:
         raise SystemExit(f"{path} --version answered {done.stdout.strip()!r} (exit {done.returncode}), not the "
@@ -155,9 +159,10 @@ def require_spend_bounds(study):
     """Refuse spend terms the runtime or two units in flight would breach (review3 X3): a model's per-call worst case
     below its tier ratio times the largest ordinary-rate call `criterion.json` names for it (`largest_call_usd`; a
     call billed at the highest tier stays inside it), or a tranche's ceiling below WIDTH times the worst case of its
-    largest unit (a program at its maximum calls, a judge at one batch: the study's pools are one batch)."""
+    largest unit (a program at its maximum calls, a judge at one batch: the study's pools are one batch). Only the
+    models some tranche has calls for (`spend.CAPS`) need terms."""
     largest, arms = (load(study.frozen).get("spend") or {}).get("largest_call_usd") or {}, layout.load_arms(study)
-    for model in spend.MODELS:
+    for model in spend.capped():
         per_call = layout.spend_terms(study, "smoke", model)[1]
         if not layout.positive(largest.get(model)):
             raise SystemExit(f"{study.frozen} names no largest ordinary-rate call for {model} under spend")
@@ -325,11 +330,15 @@ def enforce(study, tranche):
 
 
 def bound_argv(records, model, effort):
-    """Every recorded call passes `--model <model>` and `--effort <effort>`."""
+    """Every recorded call passes `--model <model>` and its CLI's effort flag: `--effort <effort>` for Claude, and
+    `--config model_reasoning_effort=<effort>` for a call the shim recorded as Codex (`provider.txt`), as the metered
+    templates bind them."""
     for call in units.calls(records):
         args = (call / "argv.nul").read_bytes().split(b"\0") if (call / "argv.nul").is_file() else []
         pairs = {(a, b) for a, b in zip(args, args[1:])}
-        if not {(b"--model", model.encode()), (b"--effort", effort.encode())} <= pairs:
+        codex = (call / "provider.txt").is_file() and (call / "provider.txt").read_text().strip() == units.CODEX
+        bound = (b"--config", b"model_reasoning_effort=" + effort.encode()) if codex else (b"--effort", effort.encode())
+        if not {(b"--model", model.encode()), bound} <= pairs:
             return False
     return True
 

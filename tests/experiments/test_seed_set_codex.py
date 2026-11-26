@@ -1,14 +1,16 @@
-"""The seed-set kit's reading of a Codex call (Luna plan T4) and its Codex login guard (T5), on synthetic `exec --json`
-output, rollouts and hand-made login files only: no provider CLI, no real login file."""
+"""The seed-set kit's reading of a Codex call (Luna plan T4), its Codex login guard (T5) and the Luna model's binding
+(T6: refused by every tranche the plan authorizes, its CLI's pin, environment, argv and pause), on synthetic
+`exec --json` output, rollouts and hand-made login files only: no provider CLI, no real login file."""
 
 import base64
 import json
 import re
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from experiments.seed_set import spend, study, units
+from experiments.seed_set import blinding, layout, rules, spend, study, units
 
 LUNA, EFFORT = "gpt-6-luna", "medium"
 TABLE = {"currency": "USD", "tokens_per_unit": 1_000_000, "source": "test", "date": "2026-11-23",
@@ -155,14 +157,47 @@ def test_credits_held_with_a_limit_reached_pause_even_a_call_that_completed(tmp_
         (units.CODEX_PAID, False), None)
 
 
-def test_credits_held_on_a_killed_call_stop_the_tranche_and_neither_cut_nor_pause(tmp_path):  # review major 1
+def credit_pause(tmp_path):
+    """A killed Codex call whose rollout shows credits held and no limit reached, through `provider_end`; returns
+    (the unit's facts, the ledger)."""
     home, records = tmp_path / "home", codex_call(tmp_path / "records", *COMPLETED[:3])
     rollout(home, 1, tmp_path / "tree", token_count(20.0, has_credits=True))
     ledger = ledger_of(tmp_path)
-    out = study.provider_end(ledger, records, str(records), {"outcome": "failed", "calls": 1}, home)
-    stop = spend.latest(spend.rows(ledger.ledger), "stop")
-    assert ("cut" in out, spend.open_pauses(spend.rows(ledger.ledger)), units.CODEX_CREDITS in stop["reason"]) == (
-        False, [], True)
+    return study.provider_end(ledger, records, str(records), {"outcome": "failed", "calls": 1}, home), ledger
+
+
+def test_credits_held_on_a_killed_call_neither_cut_nor_stop_and_pause_the_codex_starts(tmp_path):  # ruling L-R7
+    out, ledger = credit_pause(tmp_path)
+    (pause,) = spend.open_pauses(spend.rows(ledger.ledger))
+    assert ("cut" in out, spend.latest(spend.rows(ledger.ledger), "stop"), pause["cli"],
+            units.CODEX_CREDITS in pause["reason"]) == (False, None, units.CODEX, True)
+
+
+def test_a_credit_pause_refuses_a_luna_start(tmp_path):
+    _, ledger = credit_pause(tmp_path)
+    with pytest.raises(SystemExit, match="credit balance"):
+        spend.reserve(ledger.ledger, "smoke", "candidate", spend.LUNA, 1, "/u/luna", {spend.AUTHORIZATION: "smoke"},
+                      price=(100.0, 1.0))
+
+
+def test_a_credit_pause_leaves_a_claude_start_open(tmp_path):
+    _, ledger = credit_pause(tmp_path)
+    spend.reserve(ledger.ledger, "smoke", "candidate", spend.HAIKU, 1, "/u/haiku", {spend.AUTHORIZATION: "smoke"},
+                  price=(100.0, 1.0))
+    assert [row["model"] for row in spend.starts(spend.rows(ledger.ledger))] == [spend.HAIKU]
+
+
+def test_the_owners_word_reopens_a_credit_pause(tmp_path):
+    _, ledger = credit_pause(tmp_path)
+    spend.resume_after_limit(ledger.ledger, NOW - 1, 2.0, 30.0, NOW - 1, now=NOW)
+    assert spend.open_pauses(spend.rows(ledger.ledger)) == []
+
+
+def test_a_credit_pause_is_recorded_once_per_unit(tmp_path):
+    out, ledger = credit_pause(tmp_path)
+    records = tmp_path / "records"
+    study.pause_on_limit(ledger, records, str(records), tmp_path / "home")
+    assert len(spend.open_pauses(spend.rows(ledger.ledger))) == 1
 
 
 def test_a_codex_turn_failed_that_is_not_a_limit_is_an_incident(tmp_path):
@@ -191,19 +226,38 @@ def test_a_clean_codex_rollout_passes_the_audit(tmp_path):
 
 
 def test_a_completed_codex_call_without_its_rollout_fails_the_audit(tmp_path):  # review major 2
-    assert audit(tmp_path)[:2] == ("calls ['1'] completed a turn with no session record of their thread", None)
+    assert audit(tmp_path)[:2] == ("calls ['1'] have no session record of their thread", None)
 
 
 def test_a_rollout_of_another_thread_does_not_cover_a_completed_call(tmp_path):
     rollout(tmp_path / "home", 7, tmp_path / "tree" / "cand-1")
-    assert audit(tmp_path)[0] == "calls ['1'] completed a turn with no session record of their thread"
+    assert audit(tmp_path)[0] == "calls ['1'] have no session record of their thread"
+
+
+def test_a_failed_codex_call_that_started_a_thread_without_its_rollout_fails_the_audit(tmp_path):
+    codex_call(tmp_path / "records", *DISCONNECTED)
+    assert audit(tmp_path)[0] == "calls ['1'] have no session record of their thread"
+
+
+def test_a_completed_codex_call_without_a_thread_id_is_not_covered_by_a_rollout_without_an_id(tmp_path):
+    codex_call(tmp_path / "records", *COMPLETED[1:])
+    path = rollout(tmp_path / "home", 1, tmp_path / "tree" / "cand-1")
+    path.write_text(path.read_text().replace('"id": "thread-1", ', ""))
+    assert audit(tmp_path)[0] == (
+        f"sessions without an id or a turn_context naming the model and effort medium: {[str(path)]}")
+
+
+def test_a_completed_codex_call_without_a_thread_id_fails_the_audit(tmp_path):
+    codex_call(tmp_path / "records", *COMPLETED[1:])
+    rollout(tmp_path / "home", 1, tmp_path / "tree" / "cand-1")
+    assert audit(tmp_path)[0] == "calls ['1'] have no session record of their thread"
 
 
 @pytest.mark.parametrize("context", [{}, {"model": LUNA}, {"model": LUNA, "effort": "high"}, {"effort": EFFORT}])
 def test_a_codex_rollout_without_a_turn_context_naming_model_and_effort_fails_the_audit(tmp_path, context):
     path = rollout(tmp_path / "home", 1, tmp_path / "tree" / "cand-1", context=context)
     assert audit(tmp_path)[:2] == (
-        f"sessions without a turn_context naming the model and effort medium: {[str(path)]}", None)
+        f"sessions without an id or a turn_context naming the model and effort medium: {[str(path)]}", None)
 
 
 def test_a_codex_rollout_answered_by_another_model_fails_the_audit_as_a_policy_hit(tmp_path):
@@ -324,3 +378,80 @@ def test_a_codex_login_without_auth_mode_refuses(tmp_path, monkeypatch):
     path.write_text(json.dumps({key: value for key, value in json.loads(path.read_text()).items()
                                 if key != "auth_mode"}))
     assert "not a ChatGPT login" in refusal(monkeypatch, tmp_path)
+
+
+@pytest.mark.parametrize("kind", spend.KINDS)
+@pytest.mark.parametrize("tranche", ["smoke", "calibration", "redraw"])
+def test_luna_is_refused_in_every_tranche_the_plan_authorizes(tmp_path, tranche, kind):  # Luna plan T6, L-R1
+    with pytest.raises(SystemExit, match=f"{tranche} {kind} {LUNA}: cap reached"):
+        spend.reserve(tmp_path / "ledger.jsonl", tranche, kind, LUNA, 1, "/u/luna", {spend.AUTHORIZATION: tranche},
+                      price=(1000.0, 1.0))
+
+
+def test_no_planned_arm_of_the_authorized_tranches_runs_luna():
+    arms = layout.load_arms(SimpleNamespace(programs=Path(study.__file__).parent / "programs"))
+    assert [arm for tranche in ("smoke", "calibration", "redraw") for arm in layout.PLANNED[tranche]
+            if spend.CLI[arms[arm]["model"]] != "claude"] == []
+
+
+def test_a_luna_unit_denies_claude_and_binds_codex_to_its_exact_model(tmp_path):
+    env = study.launch_env(LUNA, 1, home=tmp_path / "host-home")
+    assert (env["COMPARE_CLAUDE_MODELS"], env["COMPARE_CODEX_MODELS"]) == ("", LUNA)
+
+
+def test_a_single_cli_pin_is_the_claude_clis_and_names_no_codex_pin():
+    pin = {"path": "/bin/claude", "version": "2.1.330 (Claude Code)"}
+    assert (layout.cli_pin(pin, "claude"), layout.cli_pin(pin, units.CODEX)) == (pin, None)
+
+
+def test_a_pin_per_cli_gives_each_cli_its_own():
+    pins = {"claude": {"path": "/bin/claude", "version": "c"}, units.CODEX: {"path": "/bin/codex", "version": "x"}}
+    assert (layout.cli_pin(pins, "claude"), layout.cli_pin(pins, units.CODEX)) == (pins["claude"], pins[units.CODEX])
+
+
+def stand_in_codex_cli(tmp_path, version):
+    """A Codex CLI that answers `--version`, in a unit declaration that names its directory on the PATH."""
+    cli = tmp_path / "bin" / "codex"
+    cli.parent.mkdir(parents=True)
+    cli.write_text(f"#!/bin/sh\n[ \"$1\" = --version ] && echo '{version}'\n")
+    cli.chmod(0o755)
+    (tmp_path / "sandbox.json").write_text(json.dumps({"claude": None, units.CODEX: str(cli),
+                                                       "path": [str(cli.parent), "/usr/bin", "/bin"]}))
+    return cli, tmp_path / "sandbox.json"
+
+
+def test_the_pinned_codex_cli_passes(tmp_path):
+    cli, declaration = stand_in_codex_cli(tmp_path, "codex-cli 0.171.0")
+    pin = {"path": str(cli), "version": "codex-cli 0.171.0"}
+    assert rules.check_cli(declaration, pin, units.CODEX) == pin
+
+
+def test_a_codex_cli_of_another_version_refuses(tmp_path):
+    cli, declaration = stand_in_codex_cli(tmp_path, "codex-cli 0.172.0")
+    with pytest.raises(SystemExit, match="not the pinned 'codex-cli 0.171.0'"):
+        rules.check_cli(declaration, {"path": str(cli), "version": "codex-cli 0.171.0"}, units.CODEX)
+
+
+METERED = ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", LUNA,
+           "--config"]
+
+
+def argv_call(records, effort):
+    """A completed Codex call whose recorded argv is the metered template's with `effort`."""
+    codex_call(records, *COMPLETED)
+    argv = [*METERED, f"model_reasoning_effort={effort}"]
+    (records / "calls" / "1" / "argv.nul").write_bytes(b"".join(arg.encode() + b"\0" for arg in argv))
+    return records
+
+
+def test_a_codex_call_binds_its_effort_by_the_config_override(tmp_path):
+    assert rules.bound_argv(argv_call(tmp_path / "records", EFFORT), LUNA, EFFORT) is True
+
+
+def test_a_codex_call_with_another_effort_is_not_bound(tmp_path):
+    assert rules.bound_argv(argv_call(tmp_path / "records", "high"), LUNA, EFFORT) is False
+
+
+def test_the_judges_word_list_names_luna(tmp_path):
+    runner = SimpleNamespace(work=tmp_path / "work", pools=tmp_path / "pools")
+    assert {LUNA, "luna"} <= set(blinding.identity_tokens(runner, {}, []))

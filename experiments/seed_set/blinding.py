@@ -1,8 +1,9 @@
 """Blinding checks on what the judges read (coordinator ruling 3, 2026-11-12), for `study.py`.
 
 - `identity_tokens` / `scan_pool` (3b): before any judge call, every pooled candidate patch is scanned for text
-  that names its arm: the model ids and the words `haiku` and `sonnet`, the arm names (bare `direct` aside: an
-  ordinary word in this code; `direct.orc` and `direct::run` stand for it), the program files and entries, and
+  that names its arm: the model ids (`spend.MODELS`) and the words `haiku`, `sonnet` and `luna`, the arm names
+  (bare `direct` aside: an ordinary word in this code; `direct.orc` and `direct::run` stand for it), the program
+  files and entries, and
   the run's own identifiers (the work and pools roots, the private homes, each pooled run's records directory,
   agents' tree and orchestrator run ids). A token is matched case-insensitively as a whole word in the lines a
   patch adds and in its file headers; a token the task's own reference fix adds is left out, since every arm that
@@ -23,7 +24,7 @@ from pathlib import Path
 from experiments.compare.repos import load, patch_of
 from experiments.seed_set import spend
 
-WORDS = ("haiku", "sonnet", "common.orc", ".private-homes")
+WORDS = ("haiku", "sonnet", "luna", "common.orc", ".private-homes")
 
 
 def identity_tokens(study, arms, runs):

@@ -29,7 +29,8 @@ same steps repeat after any change to the kit's code, with `record-freeze --reas
 
 1. **The freeze recorded again on the merged commit:** the runtime worktree, the anchors' stability run on that
    code, `judge-calibration.json`, the price table read again, `criterion.json` with its `spend` and `sha256`
-   blocks and the CLI pin (`spend.cli`), `study.py record-freeze`, and the hashes in the ledger. `judge-seeds.json`
+   blocks and the CLI pins (`spend.cli`: one path and version per CLI, `{"claude": …, "codex": …}`; a single pin
+   is the Claude CLI's), `study.py record-freeze`, and the hashes in the ledger. `judge-seeds.json`
    is not part of the freeze: it names the judge the calibration selects (plan Step 1f). A CLI self-update before
    the first start means recording the freeze again.
 2. **The tranche's spend row** in the ledger, with the meter reading ruling R13 asks for.
@@ -83,7 +84,9 @@ A Codex unit's guard (`units.require_login(..., provider="codex")`, ruling L-R3 
 ChatGPT login (`auth_mode` exactly `chatgpt`, with `tokens.access_token`), and the access token's JWT `exp` claim,
 decoded and not verified. It refuses an API key, a login that is not ChatGPT's, a token whose expiry cannot be read,
 and one that does not outlive the unit by the same bound. `study.py login-expiry --provider codex` prints that
-expiry. The arms are all Claude today; a later task passes the provider in.
+expiry. A unit takes the guard of its arm's CLI (`spend.CLI`: `gpt-6-luna` runs on Codex, the two Claude models on
+Claude), and its copy of the Codex login carries an empty refresh token (`sandbox.codex_login`). No tranche the
+plan's ledger authorizes holds a Luna call: `spend.CAPS` refuses Luna in the smoke, the calibration and the redraw.
 
 The long-horizon kit's route,
 where one host process holds the token and no copy enters a unit
@@ -99,8 +102,10 @@ raw result shows no limit.
 A Codex call's limit is read from its own error lines (a limit wording, status 429) and from the last
 `rate_limits` snapshot of its own session record, matched by thread id (a used-up window names the reset); no
 Codex limit answer is recorded yet, so each such pause is flagged "unrecognised limit shape". Credits held
-(`credits.has_credits`) with a limit reached pause as paid credits; credits held without one record a stop, since
-a Luna tranche runs with credits off, and the call is scored as it ended. A Codex call is priced at ordinary rates
+(`credits.has_credits`) with a limit reached pause as paid credits; credits held without one record a pause that
+names the Codex CLI and closes the Codex starts only, since a Luna tranche runs with credits off (ruling L-R7):
+Claude starts go on, `resume-after-limit` with the owner's meter reading reopens it, and the call is scored as it
+ended. A Codex call is priced at ordinary rates
 from its summed turn, so a request above 272K input tokens is under-priced; the Luna smoke's ledger row must state
 this.
 The plan ("Changes since review 2", usage limits) and [programs/README.md](programs/README.md) hold the detail.

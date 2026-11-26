@@ -14,9 +14,9 @@
   turn; its `error`, `turn.failed` and `error`-item messages are its error lines, each an incident when it did not
   succeed; a limit is read from those lines (429, a limit wording) and from the last `rate_limits` snapshot of the
   call's own rollout (matched by `thread_id`; a used-up window names the reset; credits held with a limit reached is
-  `CODEX_PAID`, credits held without one is `credit_balance`, a stop). No Codex limit answer is recorded yet, so
-  every Codex rule but `CODEX_PAID` is flagged `UNRECOGNISED`. Its session audit is `audit_rollouts` (its caller
-  chooses it), its allowlist `CODEX_ITEMS`.
+  `CODEX_PAID`, credits held without one is `credit_balance`, which closes the Codex starts: ruling L-R7). No Codex
+  limit answer is recorded yet, so every Codex rule but `CODEX_PAID` is flagged `UNRECOGNISED`. Its session audit is
+  `audit_rollouts` (its caller chooses it), its allowlist `CODEX_ITEMS`.
 - `audit_sessions`: every Claude session file anywhere in the unit's private home (each unit has its own home,
   so all of them belong to the unit). A session outside the unit tree's project store, more top-level sessions
   than physical calls, or an answer by another model fails the unit. Not seen: sessions written into the unit
@@ -421,7 +421,7 @@ def held(snapshot):
 
 def credit_balance(home):
     """`CODEX_CREDITS` when any `rate_limits` snapshot of a rollout under `home` shows credits held, else None. The
-    plan's default requires credits off on the ChatGPT account: the study stops the tranche (`rules.stop`)."""
+    plan's default requires credits off on the ChatGPT account: the study closes the Codex starts (ruling L-R7)."""
     return CODEX_CREDITS if any(held(snapshot) for path in rollouts(home) for snapshot in snapshots(path)) else None
 
 
@@ -577,8 +577,9 @@ def audit_rollouts(home, tree, records, made, model, effort):
     """`audit_sessions` for a Codex unit, over every rollout under its private home (`rollouts`), the only record
     of a Codex call's model and effort: a `turn_context` model other than `model` is a policy hit
     (`scan.model_hits`); a session whose `session_meta` working directory is not under `tree`, one without a
-    `turn_context` or with one that does not name the model and `effort`, more rollouts than `made` calls, or a
-    call of `records` with a completed turn and no rollout of its `thread_id` fails the unit (`rollout_reason`)."""
+    `turn_context` or with one that does not name the model and `effort`, a session without an id, more rollouts
+    than `made` calls, or a call of `records` that started a thread or completed a turn and has no rollout of its
+    `thread_id` (a completed call without a thread id among them) fails the unit (`rollout_reason`)."""
     paths = rollouts(home)
     try:
         hits = list(scan.model_hits(paths, model))  # SystemExit on a line that is not JSON
@@ -593,12 +594,12 @@ def rollout_reason(paths, tree, records, made, effort):
     """Why a Codex unit's readable rollouts fail `audit_rollouts` beyond the model, or None."""
     if outside := [str(path) for path in paths if not Path(scan.codex_cwd(path)).is_relative_to(tree)]:
         return f"sessions outside the unit tree: {outside}"
-    if unnamed := [str(path) for path in paths if not named_contexts(path, effort)]:
-        return f"sessions without a turn_context naming the model and effort {effort}: {unnamed}"
+    if unnamed := [str(path) for path in paths if not (rollout_id(path) and named_contexts(path, effort))]:
+        return f"sessions without an id or a turn_context naming the model and effort {effort}: {unnamed}"
     if len(paths) > made:
         return f"{len(paths)} sessions for {made} recorded calls"
     if unmatched := unmatched_calls(records, {rollout_id(path) for path in paths}):
-        return f"calls {unmatched} completed a turn with no session record of their thread"
+        return f"calls {unmatched} have no session record of their thread"
     return None
 
 
@@ -611,11 +612,13 @@ def named_contexts(path, effort):
 
 
 def unmatched_calls(records, ids):
-    """The Codex calls of `records` whose output has a `turn.completed` and whose `thread_id` is not in `ids`."""
+    """The Codex calls of `records` whose output has a `thread.started` or a `turn.completed` (a failed call that
+    started a thread too) and whose `thread_id` is none or not in `ids`."""
     found = []
     for call in calls(records):
         events = stream_events(call / "stdout.txt") if provider(call) == CODEX else []
-        if any(e.get("type") == "turn.completed" for e in events) and call_thread(events) not in ids:
+        if any(e.get("type") in ("thread.started", "turn.completed") for e in events) and call_thread(events) not in (
+                set(ids) - {None}):
             found.append(call.name)
     return found
 

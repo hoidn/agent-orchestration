@@ -36,17 +36,19 @@ Run every command from the frozen runtime (`cd <runtime> && PYTHONPATH=$PWD pyth
 --runtime $PWD ...`): the freeze refuses study or harness modules loaded from anywhere else, and a task list
 outside the runtime. Every harness step is the harness's own. Every provider start passes `rules.enforce` (freeze, smoke pass, chosen
 tasks, a sound ledger, no stop) and `spend.reserve` (authorization, caps, planned runs per task and arm, never
-a relaunch), and runs with `COMPARE_MAX_CALLS` at its reservation and `COMPARE_CLAUDE_MODELS` at its exact model;
+a relaunch), and runs with `COMPARE_MAX_CALLS` at its reservation and its model's CLI (`spend.CLI`) bound to that
+exact model: `COMPARE_CLAUDE_MODELS` for Claude; for Codex (`gpt-6-luna`) `COMPARE_CODEX_MODELS`, with Claude denied;
 the harness's resume scripts are disabled (the study never resumes). Before a unit (candidate run, probe run or
-judge) is prepared or reserved, `units.require_login` refuses it unless the access token in the login file it would
-copy outlives its wall-clock limit (`unit_sec`, at which its launch guard kills it) plus 15 minutes (ruling R16);
-only the expiry time is read. A settlement removes the credential copy first and the agents' tree last, read-only
-directories included and no link followed; a tree it cannot remove is recorded as `tree_left`, and a settlement run
-again replaces the earlier copy of the run state. Candidate code runs on the host only behind
-`host.guarded`. A forbidden-model answer, three contaminated tasks or too many incidents record a stop. The spend
-ledger is `~/.local/state/seed-set/spend-ledger.jsonl` whatever the paths given. Scan hits are adjudicated by hand
-(`prepare.py scan --verdict`); `pool`, `summarize` and `smoke-check` refuse before writing anything (no incident, no
-smoke result) while a run or judge they read has hits and no verdict, naming each one's command, so the operator
+judge) is prepared or reserved, `units.require_login` refuses it unless the access token in the login file of its
+CLI that it would copy outlives its wall-clock limit (`unit_sec`, at which its launch guard kills it) plus 15
+minutes (ruling R16; for Codex also unless it is a ChatGPT login with no API key, ruling L-R3); only the expiry time
+is read (and, for Codex, the API key and login mode). A settlement removes the credential copy first and the
+agents' tree last, read-only directories included and no link followed; a tree it cannot remove is recorded as
+`tree_left`, and a settlement run again replaces the earlier copy of the run state. Candidate code runs on the host
+only behind `host.guarded`. A forbidden-model answer, three contaminated tasks or too many incidents record a stop.
+The spend ledger is `~/.local/state/seed-set/spend-ledger.jsonl` whatever the paths given. Scan hits are adjudicated
+by hand (`prepare.py scan --verdict`); `pool`, `summarize` and `smoke-check` refuse before writing anything (no
+incident, no smoke result) while a run or judge they read has hits and no verdict, naming each one's command, so the operator
 adjudicates and runs the step again (`pool` asks only for the tasks it would build). The smoke's scan check passes
 a hit adjudicated `cleared` (coordinator ruling, 2026-11-23). A pool that cannot be summarized (a failed judge, a
 wrong rating count, a task without a usable run) is recorded as an incident and costs only its task; its clones are
@@ -54,16 +56,18 @@ removed only after the incident is written.
 
 A usage limit (coordinator rulings R1 and R2, 2026-11-14) is neither an incident nor an observation. The unit it
 cuts is recorded `cut`, never pooled, never scored and not counted by the incident stop; a `pause` event closes
-every start at once (calls in flight finish or are cut) until `resume-after-limit`. Each planned slot whose run was
-cut runs again once, as a new unit and from the same cap; a pool with a cut judge is rebuilt once from the same
-run records (`<kind>.2`) and judged again by both judges.
+every start at once (calls in flight finish or are cut) until `resume-after-limit`. A credit balance on the ChatGPT
+account, which a Codex unit's session records show, closes the Codex starts only, until the same command (ruling
+L-R7 of the Luna plan). Each planned slot whose run was cut runs again once, as a new unit and from the same cap;
+a pool with a cut judge is rebuilt once from the same run records (`<kind>.2`) and judged again by both judges.
 
-Spend in priced tokens (rulings R4 and R5): candidates and judges run the metered template (`programs/providers.json`
-and the study's own `programs/judge.providers.json`). Before a start the unit's Claude CLI must be the criterion's
-pinned path and version, and `spend.reserve` refuses a start whose worst case would pass the tranche's priced
-ceiling; the unit's worst case, times the table's highest tier over its ordinary rate for the model (the runtime
-counts every call at the highest tier; review3 X3), goes to the runtime as `--max-cost-usd`. When it ends, its
-metered usage priced by the frozen table settles it (a `settle` event).
+Spend in priced tokens (rulings R4 and R5): candidates and judges run the metered template (`programs/providers.json`,
+`programs/providers.codex.json` for an arm the Codex CLI runs, and the study's own `programs/judge.providers.json`).
+Before a start the unit's CLI must be the criterion's pinned path and version for that CLI (`layout.spend_terms`),
+and `spend.reserve` refuses a start whose worst case would pass the tranche's priced ceiling; the unit's worst
+case, times the table's highest tier over its ordinary rate for the model (the runtime counts every call at the
+highest tier; review3 X3), goes to the runtime as `--max-cost-usd`. When it ends, its metered usage priced by the
+frozen table settles it (a `settle` event).
 """
 
 import argparse
@@ -92,6 +96,7 @@ from experiments.seed_set.layout import (
 
 BOUNDARIES = ("dev_check.py", "reset_clone.py")  # copied into the clone and excluded from its patch
 JUDGE_PROVIDERS = "judge.providers.json"  # the judges' metered template (ruling R4), beside the programs
+PROVIDERS = {"claude": "providers.json", "codex": "providers.codex.json"}  # an arm's metered template, by its CLI
 INPUTS = ("task", "intent", "repo", "model", "effort")
 MAX_POOLS = 2
 CALL_SEC, JUDGE_SEC, SLACK_SEC = 1200, 3600, 600  # the programs' and score_functional.orc's :timeout-sec
@@ -109,8 +114,12 @@ def launch_env(model, calls, home=None, withheld=None):
     and CLAUDE_CONFIG_DIR and CODEX_HOME go: the orchestrator and the host-side boundaries it runs, such as
     dev_check.py's pytest of candidate code, see no credentials; review2 minor 2). Neither carries the spend
     switch. `withheld` (a check-withheld run's staged test files) is named for dev_check.py; the agents' sandbox
-    clears its environment, so an agent never sees the path."""
-    env = {**os.environ, "COMPARE_CLAUDE_MODELS": model, "COMPARE_MAX_CALLS": str(calls)}
+    clears its environment, so an agent never sees the path. A Claude model is the unit's exact Claude model list;
+    a model the Codex CLI runs (`spend.CLI`) empties the Claude list, which denies Claude in the unit, and is its
+    exact Codex model list."""
+    models = ({"COMPARE_CLAUDE_MODELS": model} if spend.CLI[model] == "claude"
+              else {"COMPARE_CLAUDE_MODELS": "", "COMPARE_CODEX_MODELS": model})
+    env = {**os.environ, **models, "COMPARE_MAX_CALLS": str(calls)}
     for name in ("SEED_SET_WITHHELD", "PYTHONDONTWRITEBYTECODE", spend.AUTHORIZATION) + (("CLAUDE_CONFIG_DIR", "CODEX_HOME") if home else ()):
         env.pop(name, None)
     if home:
@@ -259,25 +268,38 @@ def boundaries(study, cand):
 
 def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
     """Prepare one run, reserve it (at most `limit` starts of its tranche, task, arm and step), launch it, settle
-    it; return (records, the facts in its study.json). `extra` facts (a probe's step and rung) join them."""
-    spend.refuse_closed(spend.rows(study.ledger))  # after a usage limit or a stop, no clone is built for nothing
+    it; return (records, the facts in its study.json). `extra` facts (a probe's step and rung) join them. The arm's
+    model picks its CLI (`spend.CLI`): the login guard, the providers file (`PROVIDERS`) and the session audit are
+    that CLI's, and a Codex unit gets no user skill (`skills=False`)."""
+    cli = spend.CLI[spec["model"]]
+    spend.refuse_closed(spend.rows(study.ledger), spec["model"])  # after a limit or a stop, no clone for nothing
     rules.require_free(study, study.work)
-    units.require_login(unit_sec(spec["max_calls"], CALL_SEC))  # before its preparation copies the login (R16)
+    units.require_login(unit_sec(spec["max_calls"], CALL_SEC), provider=cli)  # before the login copy (R16, L-R3)
     env, programs = launch_env(spec["model"], spec["max_calls"]), study.programs
-    arm_spec = prepare.ArmSpec(programs / spec["source"], spec["entry"], programs, programs / "providers.json",
+    arm_spec = prepare.ArmSpec(programs / spec["source"], spec["entry"], programs, programs / PROVIDERS[cli],
                                INPUTS, command_boundaries=programs / "commands.json")
     records = prepare.run_arm(task_dir(study, task), arm, study.work, study.runtime, spec=arm_spec,
-                              sets=(f"model={spec['model']}", f"effort={spec['effort']}"), environment=env)
+                              sets=(f"model={spec['model']}", f"effort={spec['effort']}"), environment=env,
+                              skills=cli == "claude")
     units.disable_resume(records / "resume.sh")
     record = load(records / "record.json")
-    if record["claude_model"] != spec["model"]:
+    if (bound := bound_model(records, record, cli)) != spec["model"]:
         shutil.rmtree(record["tree"])
         units.forget_credentials(record["sandbox"]["home"])
-        raise SystemExit(f"{records}: prepared for {record['claude_model']}, not {spec['model']}; nothing started")
+        raise SystemExit(f"{records}: prepared for {bound}, not {spec['model']}; nothing started")
     try:  # the unit's copied credentials go however it ends (review2 minor 7, coordinator ruling)
         return records, start_run(study, tranche, arm, spec, task, fix, limit, records, record, extra)
     finally:
         units.forget_credentials(record["sandbox"]["home"])
+
+
+def bound_model(records, record, cli):
+    """The model a prepared unit is bound to: a Claude unit's declared Claude model; for a Codex unit, the model of
+    its inputs when the unit declares the Codex CLI alone, else the providers it declares."""
+    if cli == "claude":
+        return record["claude_model"]
+    declared = load(record["sandbox"]["declaration"])["providers"]
+    return load(records / "inputs.json")["model"] if declared == [units.CODEX] else f"providers {declared}"
 
 
 def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extra):
@@ -290,7 +312,7 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
     try:
         rules.require_order(study, tranche)  # per unit: an edit in the middle of a batch refuses (review3 minor 6)
         ceiling, per_call, pin = layout.spend_terms(study, tranche, spec["model"])
-        cli = rules.check_cli(record["sandbox"]["declaration"], pin)
+        cli = rules.check_cli(record["sandbox"]["declaration"], pin, spend.CLI[spec["model"]])
         units.cap_command(records / "command.sh", spec["max_calls"] * per_call * rules.tier_ratio(study, spec["model"]))
         spend.reserve(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"], records,
                       limit=limit, price=(ceiling, per_call), task=task, arm=arm, cli=cli, **extra)
@@ -306,7 +328,7 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
 
 def finish(study, records, facts, fix):
     facts |= settle(study, records, task_dir(study, facts["task"]), fix, facts["max_calls"], facts["model"],
-                    facts.get("exit"))
+                    facts.get("exit"), facts["effort"])
     facts["priced"] = settle_price(study, str(records), records, facts["tranche"], facts["model"])
     dump(records / "study.json", facts)
     for reason in rules.stop_reasons(study):
@@ -314,12 +336,12 @@ def finish(study, records, facts, fix):
     return facts
 
 
-def settle(study, records, task, fix, cap, model, status):
+def settle(study, records, task, fix, cap, model, status, effort=None):
     """Collect and scan the run, audit its sessions, run the visible check on its final patch behind the guard,
     record metering, keep the run state (replacing a copy an interrupted settlement made) and delete the agents'
     tree. A run the harness cannot collect, a provider error and a failed session audit are incidents; a run that
     outlived its wall clock is a natural failure. A tree that cannot be removed is named in `tree_left` and printed,
-    not raised, so the settlement is kept (ruling R16)."""
+    not raised, so the settlement is kept (ruling R16). `effort` is the arm's, which a Codex unit's audit checks."""
     made, record = units.physical_calls(records), load(records / "record.json")
     units.forget_credentials(record["sandbox"]["home"])  # the unit has ended; the transcripts stay (review2 minor 7)
     if made > cap:
@@ -333,7 +355,7 @@ def settle(study, records, task, fix, cap, model, status):
         out |= ({"outcome": "failed", "failure": {"code": "wall_clock_timeout"}} if status == "timeout"
                 else {"incident": str(error)})
     out = provider_end(study, records, str(records), out, record["sandbox"]["home"])
-    reason, policy, sessions = units.audit_sessions(record["sandbox"]["home"], record["tree"], made, model)
+    reason, policy, sessions = audit(records, record, made, model, effort)
     reason = reason or units.isolation_breach(records)
     out["sessions"] = len(sessions)
     if policy:
@@ -357,6 +379,15 @@ def settle(study, records, task, fix, cap, model, status):
     return out
 
 
+def audit(records, record, made, model, effort):
+    """A candidate run's session audit by its model's CLI (`spend.CLI`): `units.audit_sessions` for Claude,
+    `units.audit_rollouts` (model and `effort` in every rollout) for Codex."""
+    home, tree = record["sandbox"]["home"], record["tree"]
+    if spend.CLI[model] == units.CODEX:
+        return units.audit_rollouts(home, tree, records, made, model, effort)
+    return units.audit_sessions(home, tree, made, model)
+
+
 def settle_price(study, unit, calls_root, tranche, model):
     """The unit's metered usage priced by the runtime's frozen price table, recorded as its `settle` event. A price
     above the unit's reserved worst case is flagged and closes every start with a `pause` (review3 minor 3): the
@@ -377,12 +408,17 @@ def pause_on_limit(study, calls_root, unit, home=None):
     """The unit's usage limit (`units.usage_limit`, flagged when its shape is not the recorded one; a Codex call's
     also read from the session records in the unit's private `home`) or None; its `pause` event, which closes every
     start at once, is recorded once per unit. A credit balance those records show (`units.credit_balance`) is no
-    limit: it records a stop (`rules.stop`), so no further start is reserved, and the unit is scored as it ended."""
-    if home and (why := units.credit_balance(home)):
-        rules.stop(study, f"{unit}: {why}; a Luna tranche runs with credits off")
+    limit (ruling L-R7): it records, once per unit, a pause naming the Codex CLI, which closes the Codex starts only
+    (`spend.refuse_closed`) until the owner's word (`resume-after-limit`, with the owner's meter reading), and the
+    unit is scored as it ended."""
+    entries = spend.rows(study.ledger)
+    paused = {row.get("cli") for row in entries if row.get("event") == "pause" and row.get("unit") == unit}
     limit = units.usage_limit(calls_root, home=home)
-    if limit and not any(row.get("event") == "pause" and row.get("unit") == unit for row in spend.rows(study.ledger)):
+    if limit and None not in paused:
         spend.record(study.ledger, "pause", unit=unit, **limit)
+    if home and units.CODEX not in paused and (why := units.credit_balance(home)):
+        spend.record(study.ledger, "pause", unit=unit, reset=None, cli=units.CODEX,
+                     reason=f"{why}; a Luna tranche runs with credits off: Codex starts close until the owner's word")
     return limit
 
 
