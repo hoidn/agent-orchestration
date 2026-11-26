@@ -556,12 +556,18 @@ def pool_to_build(study, task, kind):
     return out
 
 
+OWN_TRANCHE = {layout.LUNA_POOL: layout.LUNA_SMOKE, layout.SEED_POOL: layout.SEED_EVALUATION}  # pool kind: tranche
+
+
 def runs_to_pool(study, task, kind="first"):
-    """The task's collected, scanned runs that are neither incidents nor cut by a usage limit: the Luna smoke's
-    alone for its pool (`layout.LUNA_POOL`), and none of them for any other."""
+    """The task's collected, scanned runs that are neither incidents nor cut by a usage limit, of the pool kind's own
+    tranche (`OWN_TRANCHE`): the Luna smoke's alone for its pool (`layout.LUNA_POOL`), the seed evaluation's alone
+    for a seed pool (`layout.SEED_POOL`), and for a first or retest pool neither of those (hazard e of the seed
+    evaluation apparatus plan: tranches kept apart)."""
+    def own(tranche):
+        return tranche == OWN_TRANCHE[kind] if kind in OWN_TRANCHE else tranche not in OWN_TRANCHE.values()
     return [path.parent for path in counted_runs(study) if (facts := load(path))["task"] == task
-            and "scan_hits" in facts and "incident" not in facts and "cut" not in facts
-            and (facts["tranche"] == layout.LUNA_SMOKE) == (kind == layout.LUNA_POOL)]
+            and "scan_hits" in facts and "incident" not in facts and "cut" not in facts and own(facts["tranche"])]
 
 
 SEED_BATCH = 8  # a seed pool's batch: at most eight candidates plus the two anchors (Step 3, "Judging")
@@ -841,6 +847,11 @@ def planned_programs(study, arms):
 
 
 def write_readout(study):
+    """The calibration readout (`readout.report`) into `calibration.json` and `readout.md`, with its `decision`
+    event. Refused once a `seed_tasks` event is in the ledger: the seed task list was written from the calibration's
+    result, so no later readout may recompute it or reach the seed evaluation's runs (hazard e)."""
+    if spend.latest(spend.rows(study.ledger), "seed_tasks"):
+        raise SystemExit("the seed task list is written (a seed_tasks event): the calibration readout is final")
     arms = load_arms(study)
     models = {name: arm["model"] for name, arm in arms.items()}
     programs = planned_programs(study, arms)

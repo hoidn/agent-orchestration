@@ -28,6 +28,7 @@ PROGRAMS = Path("experiments/seed_set/programs")  # in the runtime checkout
 EFFORT = "medium"
 # runs per task and arm, per tranche: the smoke runs every program once on the smoke task
 LUNA_SMOKE, LUNA_POOL = "luna_smoke", "luna"  # the Luna smoke's tranche and its pool's kind
+SEED_EVALUATION, SEED_POOL = "seed_evaluation", "seed"  # the seed evaluation's tranche (Step 3) and its pools' kind
 PLANNED = {"smoke": dict.fromkeys(("direct", "direct_sonnet", "retry_until_check", "implement_check_repair",
                                    "implement_review_revise"), 1),
            "calibration": {"direct": 4, "direct_sonnet": 1}, "redraw": {"direct": 1},  # redraw: one per probe step
