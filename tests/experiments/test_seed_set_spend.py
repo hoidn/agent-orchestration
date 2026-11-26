@@ -1697,8 +1697,9 @@ def test_writers_finish_beside_readers_looping_on_the_ledger(ledger):  # re-revi
     writers = [threading.Thread(target=writer, args=job) for job in jobs]
     for thread in readers + writers:
         thread.start()
+    deadline = time.time() + 120  # one bound for all writers: a stall fails in two minutes, not two minutes a writer
     for thread in writers:
-        thread.join(timeout=120)
+        thread.join(timeout=max(0, deadline - time.time()))
     hung = sum(thread.is_alive() for thread in writers)
     stop.set()
     for thread in readers:

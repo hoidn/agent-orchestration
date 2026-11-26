@@ -26,7 +26,7 @@ It holds starts and events. Every provider start goes through `reserve` before i
   tokens times the frozen price table, `units.priced`) and each other start's worst case.
 
 Rows are appended and fsynced under an exclusive lock, so a crash after the append cannot lose a start and two
-study processes cannot both take the last call or the last planned run; `rows` reads under a shared lock, so a
+study processes cannot both take the last call or the last planned run; `rows` reads under the same lock, so a
 reader never sees a row half written, and parses after releasing it. A unit reserves its maximum calls, which
 the caller passes to the shims as `COMPARE_MAX_CALLS`: that bounds the recorded provider launches, not a CLI an
 agent starts by absolute path inside the sandbox (the runner's session audit covers those). Events (`freeze`,
@@ -83,13 +83,14 @@ def authorize(tranche, environ=None):
 
 
 def rows(ledger):
-    """The ledger's rows: its text read under a shared lock (an append, under the exclusive lock, is never seen half
-    written) and parsed once the lock is released, so a reader holds it only while it reads (re-review n7)."""
+    """The ledger's rows: its text read under the exclusive lock (an append, under the same lock, is never seen half
+    written) and parsed once the lock is released, so a reader holds it only while it reads (re-review n7). The lock
+    is not a shared one: `flock` lets overlapping shared holders starve a waiting writer without bound."""
     path = Path(ledger)
     if not path.exists():
         return []
     with path.open() as stream:
-        fcntl.flock(stream, fcntl.LOCK_SH)
+        fcntl.flock(stream, fcntl.LOCK_EX)
         text = stream.read()
     return [json.loads(line) for line in text.splitlines()]
 
