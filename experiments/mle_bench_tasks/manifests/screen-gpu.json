@@ -16,6 +16,8 @@
   "experiments/mle_bench_tasks/fetch.sh": "6f66dbce49ee17e0400c523cd39c3df36786074eedcfe63eb11f9c0c59760c8b",
   "experiments/mle_bench_tasks/instructions.md": "5313a51debec8005b1d353bace6c4d9a85fe6879d0da9d85024127bc5b394339",
   "experiments/mle_bench_tasks/make_criterion.py": "ec305b658559d7a5d48efa727cf46ef4cb49c9e5da7d2d291bf4ba7139fb202b",
+  "experiments/mle_bench_tasks/qualify.py": "2faad4748448b04dfa37c300405f4184fd0cd294ae732de046a197b78d8f7c89",
+  "experiments/mle_bench_tasks/qualify.sh": "2a50cbe854c82c7896ea121631d6739798d3724350bd63967712e736fcbbb666",
   "experiments/mle_bench_tasks/screen.py": "8e6f9d5be6f76c18433571dd091fe959c453b00fabcc373eb45e9ff03c60d506",
   "experiments/mle_bench_tasks/screen_readout.py": "bfde299d32ef646188382a3494325d009245985b7104a76a853766d55f2faa11",
   "experiments/mle_bench_tasks/verifier/grade_submission.py": "25aa0acf24ee900f409dd432c43243235cf2c9ecbaf6d4f0bb1caf734b75eff1",
